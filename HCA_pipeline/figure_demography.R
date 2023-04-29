@@ -163,7 +163,7 @@ plot_sex_absolute_organ_boxoplot_adjusted =
   proportions_sex_absolute_adjusted |>
   left_join(
     data_for_immune_proportion |>
-      distinct(.sample, tissue_harmonised, ethnicity, sex,tissue, file_id)
+      distinct(sample_, tissue_harmonised, ethnicity, sex,tissue, file_id)
   ) |>
   inner_join(
     sex_absolute_organ_tissue |> 
@@ -390,7 +390,7 @@ plot_ethnicity_absolute_organ_boxoplot_adjusted =
   proportions_ethnicity_tissue_absolute_adjusted |>
   left_join(
     data_for_immune_proportion |>
-      distinct(.sample, tissue_harmonised, ethnicity, tissue, file_id)
+      distinct(sample_, tissue_harmonised, ethnicity, tissue, file_id)
   ) |>
   inner_join(
     ethnicity_absolute_organ |> 

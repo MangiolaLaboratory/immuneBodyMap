@@ -14,6 +14,21 @@ source(
   "https://gist.githubusercontent.com/stemangiola/fc67b08101df7d550683a5100106561c/raw/a0853a1a4e8a46baf33bad6268b09001d49faf51/ggplot_theme_multipanel"
 )
 
+# CURATION OF THE DATASETS
+# # Dataset curated for enrichment
+# input_absolute |> 
+# 	distinct(file_id, tissue_harmonised, tissue) |> 
+# 	nest(data = -tissue_harmonised) |> 
+# 	mutate(n = map_int(data, nrow)) |>
+# 	arrange(n) |> 
+# 	#filter(!(n<3 | tissue_harmonised |> str_detect("intestine"))) |> 
+# 	unnest(data) |> 
+# 	left_join(get_metadata() |> distinct(file_id, collection_id), copy=T) |> 
+# 	mutate(collection_url = glue("https://cellxgene.cziscience.com/collections/{collection_id}")) |> 
+# 	write_csv("dev/datasets_to_check_in_the_literature_rest.csv")
+# 
+
+
 # Read arguments
 args = commandArgs(trailingOnly=TRUE)
 input_1 = args[[1]]
@@ -25,25 +40,46 @@ output_relative = args[[5]]
 # DATA INPUT
 common_data =
 
-    # get_metadata() |>
-    readRDS( "/vast/projects/RCP/human_cell_atlas/metadata_annotated_0.2.1.rds") |>
-      dplyr::select(
-        .cell,
-        cell_type,
-        cell_type_harmonised,
-        file_id,
-        assay,
-        age_days,
-        development_stage,
-        sex,
-        ethnicity,
-        confidence_class,
-        tissue_harmonised,
-        tissue,
-        .sample,
+  # get_metadata() |>
+  readRDS( input_1) |>
+	
+	#!!! This is temporary
+	mutate(cell_ =  `_cell`, sample_ = `_sample`) |> 
 
-      ) |>
-      as_tibble() |>
+	
+	# I HAVE TO INTEGRATE INTO PIPELINE
+	# Correct fishy stem cell labelling
+	# If stem for the study's annotation and blueprint is non-immune it is probably wrong, 
+	# even because the heart has too many progenitor/stem
+	mutate(confidence_class = case_when(
+		cell_type_harmonised == "stem" & cell_annotation_blueprint_singler %in% c(
+			"skeletal muscle", "adipocytes", "epithelial", "smooth muscle", "chondrocytes", "endothelial"
+		) ~ 5,
+		TRUE ~ confidence_class
+	)) |> 
+	
+	# Filter at all
+	filter(!(cell_type_harmonised == "stem" & cell_annotation_blueprint_singler %in% c(
+		"skeletal muscle", "adipocytes", "epithelial", "smooth muscle", "chondrocytes", "endothelial"
+	))) |> 
+
+  dplyr::select(
+    cell_,
+    cell_type,
+    cell_type_harmonised,
+    file_id,
+    assay,
+    age_days,
+    development_stage,
+    sex,
+    ethnicity,
+    confidence_class,
+    tissue_harmonised,
+    tissue,
+    sample_,
+
+  ) |>
+  as_tibble() |>
 
 	# Fix typo
 	mutate(tissue_harmonised = tissue_harmonised |> str_replace("plcenta", "placenta")) |>
@@ -64,10 +100,14 @@ common_data =
 
   # Filter out
   filter(!cell_type |> str_detect("erythrocyte")) |>
-  filter(!cell_type |> str_detect("platelet")) |>
-
+	filter(!cell_type |> str_detect("erythroblast")) |>
+	filter(!cell_type |> str_detect("erythroid lineage cell")) |>
+	filter(!cell_type |> str_detect("erythroid progenitor cell")) |>
+	filter(!cell_type |> str_detect("Langerhans cell")) |>
+	filter(!cell_type |> str_detect("platelet")) |>
+	
   # Filter out samples with less than 30 cells
-  add_count(.sample, name = "sample_count") |> 
+  add_count(sample_, name = "sample_count") |> 
   filter(sample_count>30) |> 
   
 	# Attach lineage
@@ -85,7 +125,7 @@ common_data =
   ) |>
 
   # Fix samples with multiple assays
-  unite(".sample", c(.sample , assay), remove = FALSE) |>
+  unite("sample_", c(sample_ , assay), remove = FALSE) |>
 
   # Scale age
 	mutate(age_days_original = age_days) |>
@@ -125,6 +165,13 @@ common_data |>
 	# Fix typo
 	mutate(tissue_harmonised = tissue_harmonised |> str_replace("plcenta", "placenta")) |>
 
+	# Eliminate the samples with immune enrichment/depletion
+	anti_join(
+		read_csv("dev/datasets_to_check_in_the_literature_checked.csv") |> 
+			filter(overall_immune_cells_enriched>0) |> 
+			distinct(file_id, tissue_harmonised)
+	) |> 
+	
   # Filter unrepresented organs
   filter(!tissue_harmonised %in% c(
   	"rectum",
@@ -153,7 +200,7 @@ common_data |>
   ) |>
   
   # Filter extremes
-  nest(data = -c(.sample, tissue_harmonised)) |>
+  nest(data = -c(sample_, tissue_harmonised)) |>
   mutate(n_immune = map_int(data, ~ .x |> filter(is_immune) |> nrow())) |> 
   mutate(n__NON_immune = map_int(data, ~ .x |> filter(!is_immune) |> nrow())) |> 
   
@@ -166,7 +213,7 @@ common_data |>
   unnest(data) |>
   
 	# # Filter samples that include too many immune cells, as they are solid tissues
-	# nest(data = -.sample) |>
+	# nest(data = -sample_) |>
 	# mutate(
 	# 	immune = map_int(data, ~.x |> filter(is_immune=="TRUE") |> nrow()),
 	# 	non_immune = map_int(data, ~.x |> filter(is_immune=="FALSE") |> nrow()),

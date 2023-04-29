@@ -31,17 +31,19 @@ immune_non_immune_differential_composition_age =
 	filter(age_days_original > 365) |>
 
 	# Drop tissues with too few samples
-	nest(data = -c(.sample, tissue_harmonised)) |> 
+	nest(data = -c(sample_, tissue_harmonised)) |> 
 	add_count(tissue_harmonised, name = "n_tissue_harmonised") |> 
 	filter(n_tissue_harmonised>2) |> 
 	select(-n_tissue_harmonised) |> 
 	unnest(data) |> 
 
+	mutate(age_days_2 = age_days^2) |> 
+	
 	# Model
 	sccomp_glm(
-		formula_composition = ~ age_days + tissue_harmonised + sex + ethnicity_simplified + assay_simplified + (1 | group) + (age_days | tissue_harmonised),
-		formula_variability = ~ age_days + tissue_harmonised ,
-		.sample, is_immune,
+		formula_composition = ~ age_days + age_days + tissue_harmonised + sex + ethnicity_simplified + assay_simplified + (1 | group) + (age_days | tissue_harmonised),
+		formula_variability = ~ age_days + age_days + tissue_harmonised ,
+		sample_, is_immune,
 		check_outliers = F,
 		approximate_posterior_inference = FALSE,
 		cores = 20,

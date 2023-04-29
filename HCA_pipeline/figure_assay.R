@@ -52,12 +52,12 @@ data_for_plot_1 =
 
   left_join(
     get_metadata(sql_lite_DB) |>
-      dplyr::select(.cell, is_primary_data.y, name, cell_type, file_id, assay) |>
+      dplyr::select(cell_, is_primary_data.y, name, cell_type, file_id, assay) |>
       as_tibble()
   ) |>
 
   # Count samples
-  distinct(.sample, tissue_harmonised, file_id, assay) |>
+  distinct(sample_, tissue_harmonised, file_id, assay) |>
   add_count(tissue_harmonised, name = "Sample count") |>
 
   # Add colours

@@ -33,7 +33,7 @@ res_relative_blood =
   sccomp_glm(
     formula_composition = ~ sex + ethnicity  + age_days + assay + (1 | group),
     formula_variability = ~ sex + ethnicity,
-    .sample,
+    sample_,
     cell_type_harmonised,
     check_outliers = F,
     approximate_posterior_inference = FALSE,
@@ -58,14 +58,14 @@ predicted_blood_composition =
     number_of_draws = 500,
     new_data =
       my_data |>
-      distinct(.sample, sex , ethnicity , age_days, assay)
+      distinct(sample_, sex , ethnicity , age_days, assay)
   )
 
  # How many naive are in the blood
 predicted_proportion_of_naive =
   predicted_blood_composition |>
   mutate(is_naive = cell_type_harmonised |> str_detect("naive")) |>
-  with_groups(c(.sample, is_naive),
+  with_groups(c(sample_, is_naive),
               ~ .x |> summarise(predicted_proportion = sum(proportion_mean))) |>
   filter(is_naive)
 
@@ -75,7 +75,7 @@ predicted_proportion_of_the_immune_system =
 
   # Count
   count(
-    .sample,
+    sample_,
     sex,
     ethnicity,
     age_days,
@@ -87,14 +87,14 @@ predicted_proportion_of_the_immune_system =
   ) |>
 
   mutate(is_naive = cell_type_harmonised |> str_detect("naive")) |>
-  with_groups(c(.sample, is_naive), ~ .x |> summarise(n = sum(counts_from_tissue))) |>
-  complete(nesting(.sample), is_naive, fill = list(n = 0)) |>
-  with_groups(c(.sample), ~ .x |> mutate(observed_proportion = n / sum(n))) |>
+  with_groups(c(sample_, is_naive), ~ .x |> summarise(n = sum(counts_from_tissue))) |>
+  complete(nesting(sample_), is_naive, fill = list(n = 0)) |>
+  with_groups(c(sample_), ~ .x |> mutate(observed_proportion = n / sum(n))) |>
   filter(is_naive) |>
   left_join(predicted_proportion_of_naive) |>
   mutate(blood_contamination_of_immune_system = pmin(observed_proportion / predicted_proportion, 1))  |>
 
-  select(.sample, blood_contamination_of_immune_system)
+  select(sample_, blood_contamination_of_immune_system)
 
 # Predicted proportion of the whole tissue
 predicted_proportion_of_the_whole_tissue =
@@ -105,7 +105,7 @@ predicted_proportion_of_the_whole_tissue =
 
 	# Count
 	count(
-		.sample,
+		sample_,
 		tissue_harmonised,
 		is_immune = cell_type_harmonised != "non_immune",
 		name = "counts_from_tissue"
@@ -113,11 +113,11 @@ predicted_proportion_of_the_whole_tissue =
 	pivot_wider(names_from = is_immune, values_from = counts_from_tissue) |>
 	replace_na(list(`TRUE` = 0, `FALSE` = 0)) |>
 	mutate(proportion_immune = `TRUE`/(`TRUE`+`FALSE`)) |>
-	left_join(predicted_proportion_of_naive |> select(.sample, proportion_of_blood_in_immune = predicted_proportion)) |>
+	left_join(predicted_proportion_of_naive |> select(sample_, proportion_of_blood_in_immune = predicted_proportion)) |>
 	replace_na(list(proportion_of_blood_in_immune = 0)) |>
 	mutate(blood_contamination_of_whole_tissue = proportion_immune * proportion_of_blood_in_immune)  |>
 
-  select(.sample, blood_contamination_of_whole_tissue)
+  select(sample_, blood_contamination_of_whole_tissue)
 
 # Join data
 predicted_proportion_of_the_immune_system |>
@@ -126,7 +126,7 @@ predicted_proportion_of_the_immune_system |>
   # Join blood composition
   left_join(
     predicted_blood_composition |>
-      select(.sample, cell_type_harmonised, proportion_blood_cell_type = proportion_mean)
+      select(sample_, cell_type_harmonised, proportion_blood_cell_type = proportion_mean)
   ) |>
 
   # Save
@@ -135,12 +135,12 @@ predicted_proportion_of_the_immune_system |>
 # # Plots for feedback
 # predicted_proportion_of_the_immune_system =
 #   readRDS("~/PostDoc/HCAquery/dev/run_dec_2022/blood_contamination.rds") |>
-#   distinct(.sample, blood_contamination_of_immune_system, blood_contamination_of_whole_tissue) |>
-#   left_join(my_data |> distinct(.sample, tissue_harmonised))
+#   distinct(sample_, blood_contamination_of_immune_system, blood_contamination_of_whole_tissue) |>
+#   left_join(my_data |> distinct(sample_, tissue_harmonised))
 #
 # predicted_proportion_of_the_immune_system |>
 #   left_join(predicted_proportion_of_the_whole_tissue) |>
-#   select(.sample, tissue_harmonised, blood_contamination_of_whole_tissue) |>
+#   select(sample_, tissue_harmonised, blood_contamination_of_whole_tissue) |>
 #   mutate(blood_contamination_of_whole_tissue = pmin(blood_contamination_of_whole_tissue, 1)) |>
 #   with_groups(tissue_harmonised, ~ .x |> mutate(mean_contamination = median(blood_contamination_of_whole_tissue, na.rm = T))) |>
 #   filter(!tissue_harmonised %in% c("blood", "lymph node", "bone", "spleen", "thymus")) |>
@@ -152,7 +152,7 @@ predicted_proportion_of_the_immune_system |>
 #
 # predicted_proportion_of_the_immune_system |>
 #   left_join(predicted_proportion_of_the_whole_tissue) |>
-#   select(.sample, tissue_harmonised, blood_contamination_of_immune_system) |>
+#   select(sample_, tissue_harmonised, blood_contamination_of_immune_system) |>
 #   mutate(blood_contamination_of_immune_system = pmin(blood_contamination_of_immune_system, 1)) |>
 #   with_groups(tissue_harmonised, ~ .x |> mutate(mean_contamination = median(blood_contamination_of_immune_system, na.rm = T))) |>
 #   filter(!tissue_harmonised %in% c("blood", "lymph node", "bone", "spleen", "thymus")) |>

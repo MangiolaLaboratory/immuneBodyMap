@@ -11,6 +11,6 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 
-Rscript ~/PostDoc/HCAquery/dev/HCA_pipeline/create_pipeline.R ~/PostDoc/HCAquery/dev/sccomp_on_HCA
+Rscript ~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/create_pipeline.R ~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.2
 
 ```

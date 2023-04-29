@@ -43,10 +43,10 @@ if(filter_blood=="TRUE"){
 
   	)
     # mutate(is_naive = cell_type_harmonised |> str_detect("naive|stem")) |>
-    # with_groups(.sample, ~ .x |> mutate(exposure = sum(counts_from_tissue))) |>
-    # with_groups(c(.sample, exposure, is_naive), ~ .x |> summarise(n = sum(counts_from_tissue))) |>
-    # complete(nesting(.sample, exposure), is_naive, fill = list(n = 0)) |>
-    # with_groups(c(.sample), ~ .x |> mutate(observed_proportion = n/sum(n))) |>
+    # with_groups(sample_, ~ .x |> mutate(exposure = sum(counts_from_tissue))) |>
+    # with_groups(c(sample_, exposure, is_naive), ~ .x |> summarise(n = sum(counts_from_tissue))) |>
+    # complete(nesting(sample_, exposure), is_naive, fill = list(n = 0)) |>
+    # with_groups(c(sample_), ~ .x |> mutate(observed_proportion = n/sum(n))) |>
     # filter(is_naive) |>
     # left_join(predicted_proportion_of_naive) |>
     # mutate(blood_contamination = observed_proportion / predicted_proportion) |>
@@ -55,7 +55,7 @@ if(filter_blood=="TRUE"){
     mutate(total_blood_count = exposure * blood_contamination) |>
     left_join(predicted_blood_composition) |>
     mutate(counts_from_blood = floor(proportion_mean * total_blood_count)) |>
-    select(.sample, cell_type_harmonised, counts_from_blood)
+    select(sample_, cell_type_harmonised, counts_from_blood)
 
   my_data =
     my_data |>
@@ -78,7 +78,7 @@ res_relative =
 		sccomp_glm(
 			formula_composition = ~ 0 + assay + tissue_harmonised + sex + ethnicity_simplified + age_days + (assay | group) ,
 			formula_variability = ~ 0 + assay + tissue_harmonised + sex + ethnicity_simplified,
-			.sample, cell_type_harmonised,
+			sample_, cell_type_harmonised,
 			check_outliers = F,
 			approximate_posterior_inference = FALSE,
 			contrasts = c(

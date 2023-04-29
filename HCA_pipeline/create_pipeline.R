@@ -6,18 +6,19 @@ library(Seurat)
 library(tidyseurat)
 
 args = commandArgs(trailingOnly=TRUE)
-run_directory = args[[1]]
+metadata_rds = args[[1]] # glue("{vast_directory}/metadata_annotated_0.2.2.rds")
+run_directory = args[[2]]
+
+run_directory |> dirname() |> dir.create( showWarnings = FALSE, recursive = TRUE)
 
 vast_directory = "/vast/projects/RCP/human_cell_atlas"
 R_code_directory = glue("/home/users/allstaff/mangiola.s//PostDoc/immuneHealthyBodyMap/HCA_pipeline")
 root = "/home/users/allstaff/mangiola.s//PostDoc/immuneHealthyBodyMap"
 tab = "\t"
-metadata_sqlite = glue("{vast_directory}/metadata_annotated_0.1.5.sqlite")
 
 harmonised_annotation = glue("{root}/cell_metadata_with_harmonised_annotation.rds")
 lineage_df = "~/PostDoc/immuneHealthyBodyMap/metadata_cell_type.csv"
 
-run_directory |> dirname() |> dir.create( showWarnings = FALSE, recursive = TRUE)
 
 
 commands = c()
@@ -27,7 +28,7 @@ commands =
   commands |>
   c(
     glue("CATEGORY=create_input\nMEMORY=30024\nCORES=1\nWALL_TIME=10000"),
-    glue("{run_directory}/input_common.rds {run_directory}/input_absolute.rds {run_directory}/input_relative.rds:{harmonised_annotation} {metadata_sqlite}\n{tab}Rscript {R_code_directory}/create_common_data.R {metadata_sqlite} {lineage_df} {run_directory}/input_common.rds {run_directory}/input_absolute.rds {run_directory}/input_relative.rds")
+    glue("{run_directory}/input_common.rds {run_directory}/input_absolute.rds {run_directory}/input_relative.rds:{metadata_rds}\n{tab}Rscript {R_code_directory}/create_common_data.R {metadata_rds} {lineage_df} {run_directory}/input_common.rds {run_directory}/input_absolute.rds {run_directory}/input_relative.rds")
   )
 
 # Estimate blood contamination
@@ -72,7 +73,7 @@ commands =
 	commands |>
 	c(
 		glue("CATEGORY=plots\nMEMORY=30024\nCORES=10"),
-		glue("{run_directory}/assay.rds {run_directory}/assay.pdf:{run_directory}/assay_relative_FALSE.rds {harmonised_annotation} {metadata_sqlite}\n{tab}Rscript {R_code_directory}/figure_assay.R {run_directory}/assay_relative_FALSE.rds {harmonised_annotation} {metadata_sqlite} {run_directory}/assay.rds {run_directory}/assay.pdf")
+		glue("{run_directory}/assay.rds {run_directory}/assay.pdf:{run_directory}/assay_relative_FALSE.rds {harmonised_annotation} {metadata_rds}\n{tab}Rscript {R_code_directory}/figure_assay.R {run_directory}/assay_relative_FALSE.rds {harmonised_annotation} {metadata_rds} {run_directory}/assay.rds {run_directory}/assay.pdf")
 
 	)
 

@@ -37,7 +37,7 @@ if(filter_blood=="TRUE"){
     sccomp_glm(
       formula_composition = ~ age_days + sex + ethnicity  + assay + (1 | group),
       formula_variability = ~ age_days + sex + ethnicity,
-      .sample, cell_type_harmonised, counts_from_tissue,
+      sample_, cell_type_harmonised, counts_from_tissue,
       check_outliers = F,
       approximate_posterior_inference = FALSE,
       cores = 10,
@@ -55,29 +55,29 @@ if(filter_blood=="TRUE"){
       number_of_draws = 500,
       new_data =
         my_data |>
-        distinct(.sample, sex , ethnicity , age_days, assay )
+        distinct(sample_, sex , ethnicity , age_days, assay )
     )
 
   predicted_proportion_of_naive =
     predicted_blood_composition |>
     mutate(is_naive = cell_type_harmonised |> str_detect("naive|stem")) |>
-    with_groups(c(.sample, is_naive), ~ .x |> summarise(predicted_proportion = sum(proportion_mean))) |>
+    with_groups(c(sample_, is_naive), ~ .x |> summarise(predicted_proportion = sum(proportion_mean))) |>
     filter(is_naive)
 
   counts_to_subtract =
     my_data |>
     mutate(is_naive = cell_type_harmonised |> str_detect("naive|stem")) |>
-    with_groups(.sample, ~ .x |> mutate(exposure = sum(counts_from_tissue))) |>
-    with_groups(c(.sample, exposure, is_naive), ~ .x |> summarise(n = sum(counts_from_tissue))) |>
-    complete(nesting(.sample, exposure), is_naive, fill = list(n = 0)) |>
-    with_groups(c(.sample), ~ .x |> mutate(observed_proportion = n/sum(n))) |>
+    with_groups(sample_, ~ .x |> mutate(exposure = sum(counts_from_tissue))) |>
+    with_groups(c(sample_, exposure, is_naive), ~ .x |> summarise(n = sum(counts_from_tissue))) |>
+    complete(nesting(sample_, exposure), is_naive, fill = list(n = 0)) |>
+    with_groups(c(sample_), ~ .x |> mutate(observed_proportion = n/sum(n))) |>
     filter(is_naive) |>
     left_join(predicted_proportion_of_naive) |>
     mutate(blood_contamination = observed_proportion / predicted_proportion) |>
     mutate(total_blood_count = exposure * blood_contamination) |>
     left_join(predicted_blood_composition) |>
     mutate(counts_from_blood = floor(proportion_mean * total_blood_count)) |>
-    select(.sample, cell_type_harmonised, counts_from_blood)
+    select(sample_, cell_type_harmonised, counts_from_blood)
 
   my_data =
     my_data |>
@@ -102,17 +102,17 @@ res_relative =
 
   # TEMPORARY AS I ADDED TO DATA CREATION ALREADY
   # Filter out samples with less than 30 cells
-  add_count(.sample, name = "sample_count") |> 
+  add_count(sample_, name = "sample_count") |> 
   filter(sample_count>100) |> 
   
   # Filter out small dataset
-  nest(data = -c(.sample, file_id)) |> 
+  nest(data = -c(sample_, file_id)) |> 
   add_count(file_id, name = "n_file_id") |> 
   filter(n_file_id > 2) |> 
   unnest(data) |> 
   
   # Filter out small dataset
-  nest(data = -c(.sample, tissue_harmonised)) |> 
+  nest(data = -c(sample_, tissue_harmonised)) |> 
   add_count(tissue_harmonised, name = "n_tissue_harmonised") |> 
   filter(n_tissue_harmonised > 15) |> 
   unnest(data) |> 
@@ -121,7 +121,7 @@ res_relative =
 		sccomp_glm(
 			formula_composition = ~ age_days + tissue_harmonised + sex + ethnicity  + assay + (1 | group) + (age_days | tissue_harmonised),
 			formula_variability = ~ age_days + tissue_harmonised ,
-			.sample, cell_type_harmonised,
+			sample_, cell_type_harmonised,
 			check_outliers = F,
 			approximate_posterior_inference = FALSE,
 			cores = 20,

@@ -42,7 +42,7 @@ res_relative =
 	) |>
 	
 	# Filter extremes
-	nest(data = -c(.sample, tissue_harmonised, is_lymphoid)) |>
+	nest(data = -c(sample_, tissue_harmonised, is_lymphoid)) |>
 	mutate(n_immune = map_int(data, ~ .x |> filter(is_immune) |> nrow())) |> 
 	mutate(n__NON_immune = map_int(data, ~ .x |> filter(!is_immune) |> nrow())) |> 
 	
@@ -66,7 +66,7 @@ res_relative =
   sccomp_glm(
     formula_composition = ~ 0 + tissue_harmonised + sex + ethnicity_simplified  + age_days + assay_simplified + (tissue_harmonised | group),
     formula_variability = ~ 0 + tissue_harmonised + ethnicity_simplified + assay_simplified,
-    .sample, cell_type_harmonised,
+    sample_, cell_type_harmonised,
     check_outliers = F,
     approximate_posterior_inference = FALSE,
     cores = 20,

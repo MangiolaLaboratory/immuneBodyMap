@@ -27,7 +27,7 @@ res_absolute =
   sccomp_glm(
     formula_composition = ~ 0 + tissue_harmonised + sex + ethnicity_simplified  + age_days + assay_simplified + (tissue_harmonised | group),
     formula_variability = ~ 0 + tissue_harmonised + sex + ethnicity_simplified ,
-    .sample, is_immune,
+    sample_, is_immune,
     check_outliers = T,
     approximate_posterior_inference = FALSE,
     cores = 20,

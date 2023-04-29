@@ -15,12 +15,12 @@ library(ggplot2)
 
 ## from http://tr.im/hH5A
 
-# get_metadata_local(cache_directory = "/vast/projects/RCP/human_cell_atlas/metadata_annotated_0.2.1.sqlite") |>  filter(.cell == "GCACTAATCCTGGCTT_TSP1_endopancreas_1") |> select(.cell, file_id, lineage_1)
+# get_metadata_local(cache_directory = "/vast/projects/RCP/human_cell_atlas/metadata_annotated_0.2.1.sqlite") |>  filter(cell_ == "GCACTAATCCTGGCTT_TSP1_endopancreas_1") |> select(cell_, file_id, lineage_1)
 
 # Set up files names 
-differential_composition_age_absolute_file = "~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.1/age_absolute_FALSE.rds"
-data_for_immune_proportion_absolute_file = "~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.1/input_absolute.rds"
-proportions_age_absolute_file = "~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.1/age_absolute_FALSE_proportion_adjusted.rds"
+differential_composition_age_absolute_file = "~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.2/age_absolute_FALSE.rds"
+data_for_immune_proportion_absolute_file = "~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.2/input_absolute.rds"
+proportions_age_absolute_file = "~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.2/age_absolute_FALSE_proportion_adjusted.rds"
 
 # Calculate softmax from an array of reals
 softmax <- function (x) {
@@ -265,7 +265,7 @@ rectangles_age =
 plot_age_absolute =
   proportions_age_absolute |>
   left_join(data_for_immune_proportion |>
-              tidybulk::pivot_sample(.sample)) |>
+              tidybulk::pivot_sample(sample_)) |>
 
   filter(development_stage != "unknown") |>
 
@@ -273,7 +273,7 @@ plot_age_absolute =
   filter(is_immune == "TRUE") |>
   #filter(tissue_harmonised != "blood") |>
   # Fix samples with multiple assays
-  unite(".sample", c(.sample , assay), remove = FALSE) |>
+  unite("sample_", c(sample_ , assay), remove = FALSE) |>
 
   # Fix groups
   unite("group", c(tissue_harmonised , file_id), remove = FALSE) |>
@@ -359,7 +359,7 @@ adjusted_counts_for_cellularity_tissue_effects =
 	differential_composition_age |>
 	remove_unwanted_variation( ~ age_days + tissue_harmonised + (age_days | tissue_harmonised), ~ age_days) |> 
 	inner_join(data_for_immune_proportion |>
-						 	tidybulk::pivot_sample(.sample) 
+						 	tidybulk::pivot_sample(sample_) 
 	)
 
 adjusted_counts_for_cellularity_tissue_effects|> 
@@ -546,13 +546,13 @@ plot_age_relative =
   ) |>
   
   left_join(data_for_immune_proportion_relative |>
-              tidybulk::pivot_sample(.sample)) |>
+              tidybulk::pivot_sample(sample_)) |>
 
   filter(development_stage != "unknown") |>
   filter(cell_type_harmonised != "immune_unclassified") |>
   #filter(tissue_harmonised != "blood") |>
   # Fix samples with multiple assays
-  unite(".sample", c(.sample , assay), remove = FALSE) |>
+  unite("sample_", c(sample_ , assay), remove = FALSE) |>
 
   # Fix groups
   unite("group", c(tissue_harmonised , file_id), remove = FALSE)  |>

@@ -34,7 +34,7 @@ differential_composition_ethnicity_absolute =
   sccomp_glm(
     formula_composition = ~ 0 + ethnicity_simplified + tissue_harmonised + sex  + age_days +  assay_simplified  + (ethnicity_simplified | tissue_harmonised_ethnicity),
     formula_variability = ~ 0 + ethnicity_simplified + tissue_harmonised + sex,
-    .sample, is_immune,
+    sample_, is_immune,
     check_outliers = F,
     approximate_posterior_inference = FALSE,
     cores = 20,

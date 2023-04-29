@@ -26,7 +26,7 @@ if(filter_blood=="TRUE"){
 
 		# Count
 		count(
-			.sample, sex, ethnicity,
+			sample_, sex, ethnicity,
 			age_days, assay , group,
 			tissue_harmonised, cell_type_harmonised,
 			name="counts_from_tissue"
@@ -35,14 +35,14 @@ if(filter_blood=="TRUE"){
   counts_to_subtract =
     my_data |>
 
-    with_groups(.sample, ~ .x |> mutate(exposure = sum(counts_from_tissue))) |>
-    with_groups(c(.sample, exposure, is_naive), ~ .x |> summarise(n = sum(counts_from_tissue))) |>
-    complete(nesting(.sample, exposure), is_naive, fill = list(n = 0)) |>
+    with_groups(sample_, ~ .x |> mutate(exposure = sum(counts_from_tissue))) |>
+    with_groups(c(sample_, exposure, is_naive), ~ .x |> summarise(n = sum(counts_from_tissue))) |>
+    complete(nesting(sample_, exposure), is_naive, fill = list(n = 0)) |>
     left_join(blood_contamination) |>
     mutate(total_blood_count = exposure * blood_contamination) |>
     left_join(predicted_blood_composition) |>
     mutate(counts_from_blood = floor(proportion_mean * total_blood_count)) |>
-    select(.sample, cell_type_harmonised, counts_from_blood)
+    select(sample_, cell_type_harmonised, counts_from_blood)
 
   my_data =
     my_data |>
@@ -67,8 +67,8 @@ res_relative =
   sccomp_glm(
     formula_composition = ~ 0 + tissue_harmonised + sex + ethnicity_simplified  + age_days + assay_simplified + (tissue_harmonised | group),
     formula_variability = ~ 0 + tissue_harmonised + sex + ethnicity_simplified,
-    .sample, cell_type_harmonised,
-    check_outliers = T,
+    sample_, cell_type_harmonised,
+    check_outliers = F,
     approximate_posterior_inference = FALSE,
     cores = 20,
     mcmc_seed = 42,

@@ -27,7 +27,7 @@ differential_composition_sex_absolute =
   filter(age_days_original >= 15 * 365) |>
 
   # Keep big datasets
-  nest(data = -c(.sample, sex, tissue_harmonised)) |>
+  nest(data = -c(sample_, sex, tissue_harmonised)) |>
   add_count(sex, tissue_harmonised) |>
   filter(n>2) |>
   select(-n) |>
@@ -55,7 +55,7 @@ differential_composition_sex_absolute =
   sccomp_glm(
     formula_composition = ~ sex + tissue_harmonised + ethnicity_simplified  + age_days +  assay_simplified + (1 | group) + (sex | tissue_harmonised_sex),
     formula_variability = ~ sex + tissue_harmonised + ethnicity_simplified,
-    .sample, is_immune,
+    sample_, is_immune,
     check_outliers = F,
     approximate_posterior_inference = FALSE,
     cores = 20,
