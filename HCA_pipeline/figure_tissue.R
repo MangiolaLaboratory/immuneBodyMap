@@ -57,10 +57,16 @@ IS_sqrt <- function(x){x^2*sign(x)}
 S_sqrt_trans <- function() scales::trans_new("S_sqrt",S_sqrt,IS_sqrt)
 
 # Load data for later
-data_for_immune_proportion = readRDS("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.2/input_absolute.rds")
+data_for_immune_proportion = readRDS("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3/input_absolute.rds")
 
 # Load results
-res_absolute = readRDS("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.2/tissue_absolute_FALSE.rds")
+res_absolute = readRDS("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3/tissue_absolute_FALSE.rds")
+
+# save csv for SUPPLEMENTARY
+res_absolute |>
+	select(-count_data) |>
+	write_csv("sccomp_on_HCA_0.2.3/SUPPLEMENTARY_tissue_cellularity_estimates.csv")
+
 
 # Remove unwanted variation from the immune cellularity
 # Including effect of Age, sex, ethnicity, technology, 
@@ -255,9 +261,9 @@ gc()
 #------------------------------#
 
 # Read results
-res_relative = readRDS("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.2/tissue_relative_FALSE.rds")
-data_for_immune_proportion_relative = readRDS("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.2/input_relative.rds")
-res_relative_adjusted = readRDS("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.2/tissue_relative_FALSE_proportion_adjusted.rds")
+res_relative = readRDS("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3/tissue_relative_FALSE.rds")
+data_for_immune_proportion_relative = readRDS("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3/input_relative.rds")
+#res_relative_adjusted = readRDS("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3/tissue_relative_FALSE_proportion_adjusted.rds")
 
 # # Get dataset for the tSNE 
 # # Figure tissue landscape panel C
@@ -383,7 +389,7 @@ source("https://gist.githubusercontent.com/stemangiola/cfa08c45c28fdf223d4996a6c
 
 # Color coding for tissue
 cell_type_color = 
-	data_for_immune_proportion |> 
+	res_relative |> 
 	pull(cell_type_harmonised) |> 
 	unique() |> 
 	get_cell_type_color()
@@ -451,6 +457,26 @@ df_heatmap_relative_organ_cell_type =
   with_groups(cell_type, ~ .x |>  mutate(`Mean diff` = mean(proportion, na.rm = TRUE))) |>
   mutate(cell_type = fct_reorder(cell_type, -`Mean diff`))
 
+# save csv for SUPPLEMENTARY
+res_relative |>
+	test_contrasts( 
+		contrasts = 
+			res_relative |> 
+			filter(factor=="tissue_harmonised") |> 
+			distinct(parameter) |> 
+			mutate(contrast = glue("`{parameter}` + (sexmale / 2)")) |> 
+			pull(contrast)
+	) |> 
+	mutate(parameter = parameter |> str_remove(" \\+ \\(sexmale / 2\\)") |> str_remove_all("`"))  |> 
+	mutate(tissue_harmonised =   parameter ) |>
+	clean_names() |>
+	mutate(tissue =   tissue_harmonised ) |>
+	mutate(cell_type = cell_type_harmonised |> str_replace("macrophage", "macro")) |>
+	filter(cell_type !="immune_unclassified") |>
+	select(-count_data) |>
+	write_csv("sccomp_on_HCA_0.2.3/SUPPLEMENTARY_tissue_composition_estimates_constrasts.csv")
+
+
 # heatmap of immune composition across tissues
 # These proportions are adjusted by unwanted variation
 # Including Sex, ethnicity, age, technology, and random effects (datasets)
@@ -459,18 +485,27 @@ plot_heatmap_relative_tissue =
   filter(cell_type != "non_immune") |> 
 	with_groups(parameter, ~ .x |> mutate(proportion = softmax(c_effect))) |> 
   mutate(proportion_label = proportion |> round(3) |> dropLeadingZero())  |> 
-  	
+  
+	# Drop thymocyte
+	filter(cell_type != "thymocyte") |> 
+	
 	# Use tidyHeatmap
   heatmap(
     tissue, cell_type, proportion,
-    palette_value = circlize::colorRamp2(seq(-8, -2, length=5), viridis::magma(5)),
+    palette_value = circlize::colorRamp2(
+    	c(seq(0, 0.03, length=5), 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6), 
+    	c(
+    		viridis::magma(5), 
+    		viridis::viridis(7) |> rev()
+    	)
+    ),
     #cluster_columns = FALSE,
     row_names_gp = gpar(fontsize = 6),
     column_names_gp = gpar(fontsize = 6),
     column_title_gp = gpar(fontsize = 0),
     row_title_gp = gpar(fontsize = 0),
     show_heatmap_legend = FALSE,
-    transform = car::logit,
+    #transform = car::logit,
     clustering_distance_rows = "manhattan",
     clustering_distance_columns = "manhattan",
     clustering_method_rows = "ward.D",
@@ -479,7 +514,7 @@ plot_heatmap_relative_tissue =
     row_dend_width = unit(0.5, "cm")
   ) |>
 	 split_rows(6) |>
-	split_columns(6) |>
+	split_columns(7) |>
 	annotation_bar(`Mean diff`, annotation_name_gp= gpar(fontsize = 8), size = unit(0.4, "cm")) |>
   
   annotation_tile(
@@ -574,23 +609,23 @@ p =
   	 ) /
     wrap_heatmap(plot_heatmap_relative_tissue, padding = unit(c(-67, -10, -0, -30), "points" ))
   ) + 
-	plot_layout( guides = 'collect', heights = c(68,109) ) &
+	plot_layout( guides = 'collect', heights = c(50,109) ) &
   theme( plot.margin = margin(0, 0, 0, 0, "pt"),  legend.key.size = unit(0.2, 'cm'), legend.position="bottom")
 
 
 
 
 ggsave(
-  "~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.2/figure_tissue.pdf",
+  "~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3/figure_tissue.pdf",
   plot = p,
   units = c("mm"),
   width = 183 ,
-  height = 203 ,
+  height = 185 ,
   limitsize = FALSE
 )
 
 
 plot_heatmap_relative_tissue |> 
-	save_pdf("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.2/figure_tissue_heatmap.pdf", width = 183, height=110, units="mm")
+	save_pdf("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3/figure_tissue_heatmap.pdf", width = 183, height=110, units="mm")
 
 

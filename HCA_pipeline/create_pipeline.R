@@ -11,15 +11,13 @@ run_directory = args[[2]]
 
 run_directory |> dirname() |> dir.create( showWarnings = FALSE, recursive = TRUE)
 
-vast_directory = "/vast/projects/RCP/human_cell_atlas"
+vast_directory = "/vast/projects/cellxgene_curated"
 R_code_directory = glue("/home/users/allstaff/mangiola.s//PostDoc/immuneHealthyBodyMap/HCA_pipeline")
 root = "/home/users/allstaff/mangiola.s//PostDoc/immuneHealthyBodyMap"
 tab = "\t"
 
 harmonised_annotation = glue("{root}/cell_metadata_with_harmonised_annotation.rds")
 lineage_df = "~/PostDoc/immuneHealthyBodyMap/metadata_cell_type.csv"
-
-
 
 commands = c()
 

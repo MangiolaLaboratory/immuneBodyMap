@@ -50,6 +50,6 @@ differential_composition_ethnicity_absolute |>
 
 # Counts RUV Absolute
 differential_composition_ethnicity_absolute |>
-  remove_unwanted_variation(~ 0 + ethnicity_simplified + (ethnicity_simplified | tissue_harmonised_ethnicity), ~ ethnicity_simplified) |>
+  remove_unwanted_variation(~ 0 + ethnicity_simplified + (ethnicity_simplified | tissue_harmonised_ethnicity), ~ 0 + ethnicity_simplified) |>
   saveRDS(output_file_2)
 

@@ -74,6 +74,10 @@ data_for_plot_1 =
 # Read results
 relative_assay_results = readRDS(relative_assay)
 
+relative_assay_results |>
+	select(-count_data) |>
+	write_csv("sccomp_on_HCA_0.2.2/SUPPLEMENTARY_assay_composition_estimates_contrasts.csv")
+
 # Set contrasts that will be used several times
 contrasts = c(
   "assay10x_3_v3 - assay10x_3_v2" ,

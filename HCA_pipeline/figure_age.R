@@ -86,7 +86,6 @@ cell_type_color =
 names(cell_type_color) = names(cell_type_color) |>  str_replace("macrophage", "macro")
 
 
-
 # Threshold that equates to a linear increase of 1% from 20% to 21%
 # This convoluted threshold gives a lay meaning to a increase in the softmax space 
 # which is not linear and hard to grasp the meanin of a lay audience
@@ -99,6 +98,13 @@ FDR_threshold_1_percent_change_at_20_percent_baseline = 0.017
 
 # Track of immune system in life
 differential_composition_age = readRDS(differential_composition_age_absolute_file)
+
+# save csv for SUPPLEMENTARY
+differential_composition_age_old |>
+	test_contrasts(test_composition_above_logit_fold_change = FDR_threshold_1_percent_change_at_20_percent_baseline) |> 
+	select(-count_data) |>
+	write_csv("sccomp_on_HCA_0.2.2/SUPPLEMENTARY_age_cellularity_estimates.csv")
+
 
 # Function that calculate the approximate proportional change from an effect in the iverse logit  space
 # Again this is helpful for result interpretation
@@ -312,7 +318,6 @@ plot_age_absolute =
   theme_multipanel
 
 
-
 # Plot association of immune cellularity with age, per tissue 
 age_absolute_organ =
 	differential_composition_age |>
@@ -329,6 +334,12 @@ age_absolute_organ =
     test_composition_above_logit_fold_change = FDR_threshold_1_percent_change_at_20_percent_baseline
   ) |>
   filter(is_immune == "TRUE")
+
+# save csv for SUPPLEMENTARY
+age_absolute_organ_old |> 
+	select(-count_data) |>
+	select(1, 2, 4, 5, 6, 7, 8) |> 
+	write_csv("sccomp_on_HCA_0.2.2/SUPPLEMENTARY_age_cellularity_tissues_estimates_contrasts.csv")
 
 # Print statistics for percentage increase to be used in the paper
 differential_composition_age |> 
@@ -377,29 +388,29 @@ adjusted_counts_for_cellularity_tissue_effects  |>
 	facet_wrap(~tissue_harmonised) + scale_y_continuous(trans = "logit") +
 	geom_smooth(method = "lm", formula = y ~ x + I(x^2)) + geom_hline(yintercept = 0.05) + geom_hline(yintercept = 0.15)
 
-# Color gradient based on effect to be used in the homan silhuette in biorender
-# Figure 3
-colors_palette_for_organ_abundance =
-	age_absolute_organ_cell_type |>
-  select(parameter, c_effect) |> mutate(color = circlize::colorRamp2(
-    seq(1.45,-1.45, length.out = 11),
-    RColorBrewer::brewer.pal(11, "RdBu")
-  )(c_effect)) |>
-  mutate(rgb = map_chr(
-    color,
-    ~ .x |>
-      col2rgb() |>
-      paste(collapse = " ")
-  )) |>
-	pull(color) |>
-	scales::show_col(	cex_label = 0.5	)
+# # Color gradient based on effect to be used in the homan silhuette in biorender
+# # Figure 3
+# colors_palette_for_organ_abundance =
+# 	age_absolute_organ_cell_type |>
+#   select(parameter, c_effect) |> mutate(color = circlize::colorRamp2(
+#     seq(1.45,-1.45, length.out = 11),
+#     RColorBrewer::brewer.pal(11, "RdBu")
+#   )(c_effect)) |>
+#   mutate(rgb = map_chr(
+#     color,
+#     ~ .x |>
+#       col2rgb() |>
+#       paste(collapse = " ")
+#   )) |>
+# 	pull(color) |>
+# 	scales::show_col(	cex_label = 0.5	)
 
 
-# Print significance global statistics to be used in the paper
-count_significance_age_immune_load =
-	age_absolute_organ_cell_type |>
-	filter(is_immune=="TRUE") |>
-	filter(c_FDR<0.05)
+# # Print significance global statistics to be used in the paper
+# count_significance_age_immune_load =
+# 	age_absolute_organ_cell_type |>
+# 	filter(is_immune=="TRUE") |>
+# 	filter(c_FDR<0.05)
 
 
 #------------------------------#
@@ -407,10 +418,17 @@ count_significance_age_immune_load =
 #------------------------------#
 
 # Load data
-differential_composition_age_relative_file = "~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.1/age_relative_FALSE.rds"
-proportions_age_relative_file = "~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.1/age_relative_FALSE_proportion_adjusted.rds"
+differential_composition_age_relative_file = "~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3/age_relative_FALSE.rds"
+proportions_age_relative_file = "~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3/age_relative_FALSE_proportion_adjusted.rds"
 differential_composition_age_relative =  readRDS(differential_composition_age_relative_file)
-proportions_age_relative = readRDS(proportions_age_relative_file)
+proportions_age_relative = readRDS(proportions_age_relative_file) 
+
+# # save csv for SUPPLEMENTARY
+# differential_composition_age_relative |>
+# 	test_contrasts(test_composition_above_logit_fold_change = FDR_threshold_1_percent_change_at_20_percent_baseline) |> 
+# 	select(-count_data) |>
+# 	write_csv("sccomp_on_HCA_0.2.2/SUPPLEMENTARY_age_composition_estimates.csv")
+
 
 # Function that calculate the approximate proportional change from an effect in the inverse logit  space
 # Again this is helpful for result interpretation
@@ -511,6 +529,25 @@ differential_composition_age |>
 	)
 
 
+
+# # save csv for SUPPLEMENTARY
+# # Find stats of random effect with groups
+# differential_composition_age_relative |> 
+# 	test_contrasts(
+# 	contrasts =
+# 		differential_composition_age_relative |>
+# 		filter(parameter |> str_detect("___age_days")) |>
+# 		distinct(parameter) |>
+# 		mutate(contrast = glue("age_days + `{parameter}`") |> as.character()) |>
+# 		tidyr::extract(parameter, "tissue_harmonised", "(.+)___.+") |>
+# 		deframe( ),
+# 	test_composition_above_logit_fold_change = FDR_threshold_1_percent_change_at_20_percent_baseline
+# ) |> 
+# 	select(-count_data) |>
+# 	select(1, 2, 4, 5, 6, 7, 8) |> 
+# 	write_csv("sccomp_on_HCA_0.2.2/SUPPLEMENTARY_age_composition_tissue_estimates_contrasts.csv")
+
+
 # Get trend line to be used in the scatter plot of global compositional changes, plot_age_relative
 line_age_relative_mean =
 	
@@ -545,14 +582,16 @@ plot_age_relative =
       distinct(cell_type_harmonised, c_effect)
   ) |>
   
-  left_join(data_for_immune_proportion_relative |>
-              tidybulk::pivot_sample(sample_)) |>
+  left_join(
+  	data_for_immune_proportion_relative |>
+  		tidybulk::pivot_sample(.sample)
+  ) |>
 
   filter(development_stage != "unknown") |>
   filter(cell_type_harmonised != "immune_unclassified") |>
   #filter(tissue_harmonised != "blood") |>
   # Fix samples with multiple assays
-  unite("sample_", c(sample_ , assay), remove = FALSE) |>
+  unite("sample_", c(.sample , assay), remove = FALSE) |>
 
   # Fix groups
   unite("group", c(tissue_harmonised , file_id), remove = FALSE)  |>
@@ -597,6 +636,81 @@ plot_age_relative =
   ylab("Adjusted proportions") +
   guides(fill = "none", color = "none") +
   theme_multipanel
+
+# Plot for presentation B memory across tissues
+res_relative_proportions_age_tissue = 
+	differential_composition_age_relative |>
+	remove_unwanted_variation(~ age_days + tissue_harmonised + ( age_days | tissue_harmonised ), ~ age_days)  |> 
+	inner_join(data_for_immune_proportion_relative |> tidybulk::pivot_sample(.sample) )
+
+# Get trend line to be used in the scatter plot of global compositional changes, plot_age_relative
+line_age_relative_mean_b_memory_per_tisue =
+	
+	differential_composition_age_relative |>
+	filter(cell_type_harmonised=="b memory") |>
+	nest(data = -cell_type_harmonised) |>
+	
+	# Add tissue
+	mutate(
+		tissue_harmonised = 
+			list(
+				differential_composition_age_relative |> 
+				filter(factor=="tissue_harmonised") |> 
+				distinct(parameter) |> 
+				pull(1) |> 
+				str_remove("tissue_harmonised")
+			)
+	) |>
+	unnest(tissue_harmonised) |>
+	
+	mutate(x = list(seq(-3, 3, by = 0.1))) |>
+	mutate(y = pmap(list(data, x, tissue_harmonised), ~ {
+		( ..2 * ..1 |> filter(parameter == "age_days") |> pull(c_effect))  + # SLOPE
+			(..1 |> filter(parameter == "(Intercept)") |> pull(c_effect)) + # INTERCEPT
+			(..1 |> filter(parameter == glue("tissue_harmonised{..3}")) |> pull(c_effect)) + # INTERCEPT TISSUE
+			(..2 * ..1 |> filter(parameter == glue("{..3}___age_days")) |> pull(c_effect))   # GROUP-LEVEL SLOPE
+		
+	})) |>
+	dplyr::select(-data) |>
+	unnest(c(x, y)) |>
+	with_groups(x, ~ .x |> mutate(proportion = softmax(y))) |>
+	mutate(x_corrected = (x * 9610.807 / 0.6) + 12865.75) |>
+	filter(x_corrected |> between(30.0 , 30295.0))
+
+res_relative_proportions_age_tissue |>
+	
+	filter(cell_type_harmonised=="cd14 mono") |>
+	ggplot(aes(age_days_original, adjusted_proportion,colour = tissue_harmonised)) +
+	geom_point(
+		aes(fill = tissue_harmonised),
+		shape = 21,
+		stroke = 0,
+		size = 0.6
+	) +
+	# geom_line(
+	# 	aes(x_corrected, proportion, color = tissue_harmonised),
+	# 	data = 
+	# 		line_age_relative_mean_b_memory_per_tisue 
+	# ) +
+	geom_smooth(
+							method = "glm", 
+							method.args = list(family = "binomial"), 
+							se = FALSE, size=1) +
+	scale_y_continuous(trans = S_sqrt_trans(), labels = dropLeadingZero) +
+	scale_x_continuous(
+		labels = function(x)
+			round(x / 356)
+	) +
+	scale_fill_manual(values = tissue_color) +
+	scale_color_manual(values = tissue_color) +
+	xlab("Years") +
+	ylab("Adjusted proportions") +
+	guides(fill = "none", color = "none") +
+	theme_multipanel
+
+res_relative_proportions_age_tissue |> 
+
+
 
 
 # Fold change for cell type by organ
@@ -911,7 +1025,7 @@ p =
 
 
 ggsave(
-  "~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.1/figure_age.pdf",
+  "~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.2/figure_age.pdf",
   plot = p,
   units = c("mm"),
   width = 183 ,

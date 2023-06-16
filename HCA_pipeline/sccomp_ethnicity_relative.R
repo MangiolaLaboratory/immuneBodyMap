@@ -15,6 +15,8 @@ output_file_1 = args[[3]]
 output_blood = args[[4]]
 output_file_2 = args[[5]]
 
+"/vast/scratch/tmp"
+
 my_data =
   readRDS(input_file) |>
 

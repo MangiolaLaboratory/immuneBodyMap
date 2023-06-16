@@ -13,7 +13,8 @@ library(scales)
 library(ggplot2)
 
 
-result_directory = "~/PostDoc/CuratedAtlasQueryR/dev/sccomp_on_HCA_0.2.1"
+result_directory = "~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.2"
+result_directory_old = "~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.1"
 
 
 # Calculate softmax from an array of reals
@@ -60,7 +61,7 @@ clean_names = function(x){
 # Read inout files 
 data_for_immune_proportion_absolute_file = glue("{result_directory}/input_absolute.rds")
 data_for_immune_proportion = readRDS(data_for_immune_proportion_absolute_file)
-data_for_immune_proportion_relative_file = glue("{result_directory}/input_relative.rds")
+data_for_immune_proportion_relative_file = glue("{result_directory_old}/input_relative.rds")
 data_for_immune_proportion_relative = readRDS(data_for_immune_proportion_relative_file)
 
 # Color coding for tissue
@@ -87,22 +88,29 @@ names(cell_type_color) = names(cell_type_color) |>  str_replace("macrophage", "m
 
 # Read results
 differential_composition_sex_absolute_file = glue("{result_directory}/sex_absolute_FALSE.rds")
-differential_composition_sex_relative_file = glue("{result_directory}/sex_relative_FALSE.rds")
+differential_composition_sex_relative_file = glue("{result_directory_old}/sex_relative_FALSE.rds")
 proportions_sex_absolute_file = glue("{result_directory}/sex_absolute_FALSE_proportion_adjusted.rds")
 differential_composition_sex_relative = readRDS(differential_composition_sex_relative_file)  
 differential_composition_sex_absolute = readRDS(differential_composition_sex_absolute_file)
 proportions_sex_absolute_adjusted = readRDS(proportions_sex_absolute_file)
 
+# save csv for SUPPLEMENTARY
+differential_composition_sex_absolute |>
+	test_contrasts(test_composition_above_logit_fold_change = 0.1) |> 
+	select(-count_data) |>
+	write_csv("sccomp_on_HCA_0.2.2/SUPPLEMENTARY_sex_cellularity_estimates.csv")
+
+
 # Get parameter draws for relative abundance 
 # to manually plot the uncertainty
-draws_abundance = 
+draws_abundance_sex = 
   readRDS(differential_composition_sex_absolute_file)   |> 
   sccomp:::get_abundance_contrast_draws(contrasts = c(sexmale = "sexmale")) |> 
   filter(is_immune=="TRUE")
 
 # Get parameter draws for variability 
 # to manually plot the uncertainty
-draws_variability = 
+draws_variability_sex = 
   readRDS(differential_composition_sex_absolute_file)   |> 
   sccomp:::get_variability_contrast_draws( contrasts = c(sexmale = "sexmale")) |> 
   filter(is_immune=="TRUE") |> filter(parameter=="sexmale")
@@ -112,15 +120,15 @@ draws_variability =
 # Wtih uncertainty
 plot_sex_absolute_1D =
   tibble(
-    Variability = draws_variability |> pull(.value),
-    Abundance = draws_abundance |> pull(.value)
+    Variability = draws_variability_sex |> pull(.value),
+    Abundance = draws_abundance_sex |> pull(.value)
   ) |>
   tidybulk::as_matrix() |>
   bayesplot::mcmc_intervals(point_size = 1, inner_size = 0.5, outer_size = 0.25) +
   coord_flip() +
   xlab("Effect male immune cellularity") +
   theme_multipanel +
-  theme(axis.text.x = element_text(angle=90, hjust = 0.5))
+  theme(axis.text.x = element_text(angle=30, hjust = 0.5))
 
 # Create dataset to create the mannequin heatmap of the 
 # Tissues with differential immune cellularity
@@ -138,6 +146,24 @@ sex_absolute_organ_tissue =
     test_composition_above_logit_fold_change = 0.1
   ) |>
   filter(is_immune == "TRUE")
+
+# save csv for SUPPLEMENTARY
+differential_composition_sex_absolute |> 
+	test_contrasts(
+		contrasts =
+			differential_composition_sex_absolute |>
+			filter(parameter |> str_detect("___sex")) |>
+			distinct(parameter) |>
+			mutate(contrast = glue("sexmale + `{parameter}`") |> as.character()) |>
+			tidyr::extract(parameter, "tissue_harmonised", "(.+)___.+") |>
+			filter(contrast |> str_detect("_female", negate = TRUE)) |> 
+			deframe( ),
+		test_composition_above_logit_fold_change = 0.1
+	) |> 
+	select(-count_data) |>
+	select(1, 2, 4, 5, 6, 7, 8) |> 
+	write_csv("sccomp_on_HCA_0.2.2/SUPPLEMENTARY_sex_cellularity_tissue_estimates_contrasts.csv")
+
 
 # Draw the color palette for the mannequin heatmap of the 
 # Tissues with differential immune cellularity
@@ -157,37 +183,46 @@ colors_palette_for_organ_abundance =
   pull(color) |>
   scales::show_col(	cex_label = 0.5	)
 
-# Draw the boxplot for significant changes of the 
-# Tissues with differential immune cellularity
-plot_sex_absolute_organ_boxoplot_adjusted =
-  proportions_sex_absolute_adjusted |>
-  left_join(
-    data_for_immune_proportion |>
-      distinct(sample_, tissue_harmonised, ethnicity, sex,tissue, file_id)
-  ) |>
-  inner_join(
-    sex_absolute_organ_tissue |> 
-      filter(c_FDR<0.07) |> 
-      separate(parameter, c("tissue_harmonised", "sex"), sep="_") |>  
-      distinct(tissue_harmonised)
-  ) |> 
-  
-  mutate(tissue_harmonised = tissue_harmonised |> str_to_sentence()) |>
-  filter(is_immune =="TRUE") |>
-  ggplot(aes(sex, adjusted_proportion )) +
-  geom_boxplot(outlier.shape = NA, lwd = 0.2, fatten = 0.2) +
-  geom_jitter(aes(color = file_id), width = 0.1, size=0.1) +
-  facet_wrap(~ tissue_harmonised, scale="free_x", nrow = 1) +
-  guides(color = "none") +
-  ylab("Adjusted proportion") +
-  theme_multipanel +
-  theme(axis.text.x = element_text(angle=30, hjust = 1, vjust = 1))
+
+# 
+# # Draw the boxplot for significant changes of the 
+# # Tissues with differential immune cellularity
+# plot_sex_absolute_organ_boxoplot_adjusted =
+#   proportions_sex_absolute_adjusted |>
+#   left_join(
+#     data_for_immune_proportion |>
+#       distinct(sample_, tissue_harmonised, ethnicity, sex,tissue, file_id)
+#   ) |>
+#   inner_join(
+#     sex_absolute_organ_tissue |> 
+#       filter(c_FDR<0.07) |> 
+#       separate(parameter, c("tissue_harmonised", "sex"), sep="_") |>  
+#       distinct(tissue_harmonised)
+#   ) |> 
+#   
+#   mutate(tissue_harmonised = tissue_harmonised |> str_to_sentence()) |>
+#   filter(is_immune =="TRUE") |>
+#   ggplot(aes(sex, adjusted_proportion )) +
+#   geom_boxplot(outlier.shape = NA, lwd = 0.2, fatten = 0.2) +
+#   geom_jitter(aes(color = file_id), width = 0.1, size=0.1) +
+#   facet_wrap(~ tissue_harmonised, scale="free_x", nrow = 1) +
+#   guides(color = "none") +
+#   ylab("Adjusted proportion") +
+#   theme_multipanel +
+#   theme(axis.text.x = element_text(angle=30, hjust = 1, vjust = 1))
 
 
 
 #------------------------------#
 # Sex analyses for immune composition
 #------------------------------#
+
+# save csv for SUPPLEMENTARY
+differential_composition_sex_relative |>
+	test_contrasts(test_composition_above_logit_fold_change = 0.1) |> 
+	select(-count_data) |>
+	write_csv("sccomp_on_HCA_0.2.2/SUPPLEMENTARY_sex_composition_estimates.csv")
+
 
 # Volcano plot of cell type difference overall between sexes
 volcano_relative_sex = 
@@ -216,6 +251,8 @@ volcano_relative_sex =
   scale_color_brewer(palette="Set1", na.value = "grey50") +
   scale_size_discrete(range = c(0, 0.5)) +
   guides(size="none", color="none") +
+	ylab("False-discovery rate") +
+	xlab("Effect from baseline (female)") + 
   theme_multipanel
 
 #------------------------------#
@@ -224,63 +261,68 @@ volcano_relative_sex =
 
 
 # Read results
-
 differential_composition_ethnicity_absolute_file = glue("{result_directory}/ethnicity_absolute_FALSE.rds")
 proportions_ethnicity_absolute_file = glue("{result_directory}/ethnicity_absolute_FALSE_proportion_adjusted.rds")
-differential_composition_ethnicity_relative_file = glue("{result_directory}/ethnicity_relative_FALSE.rds")
+differential_composition_ethnicity_relative_file = glue("{result_directory_old}/ethnicity_relative_FALSE.rds")
 differential_composition_ethnicity_relative = readRDS(differential_composition_ethnicity_relative_file)
 differential_composition_ethnicity_absolute = readRDS(differential_composition_ethnicity_absolute_file)
 proportions_ethnicity_tissue_absolute_adjusted = readRDS(proportions_ethnicity_absolute_file)
 
- # Test differential immune cellularity 
+# save csv for SUPPLEMENTARY
+# Test differential immune cellularity 
 # using contrasts for each ethnicity compared with the 
 # Average of the other three
-data_for_ethinicity_absolute_plot =
-  differential_composition_ethnicity_absolute |>
+ differential_composition_ethnicity_absolute |>
   test_contrasts(
     c(
-      African = "1/3*(`ethnicityHispanic or Latin American` + ethnicityEuropean + ethnicityChinese) - ethnicityAfrican",
-      Hispanic = "1/3*(ethnicityAfrican + ethnicityEuropean + ethnicityChinese) - `ethnicityHispanic or Latin American`",
-      European = "1/3*(ethnicityAfrican + `ethnicityHispanic or Latin American` + ethnicityChinese) - ethnicityEuropean",
-      Chinese = "1/3*(ethnicityAfrican + `ethnicityHispanic or Latin American` + ethnicityEuropean) - ethnicityChinese"
-    )
+      African = "1/4*( `ethnicity_simplifiedOther` + `ethnicity_simplifiedHispanic or Latin American` + ethnicity_simplifiedEuropean + ethnicity_simplifiedChinese) - ethnicity_simplifiedAfrican",
+    Hispanic = "1/4*(`ethnicity_simplifiedOther` + ethnicity_simplifiedAfrican + ethnicity_simplifiedEuropean + ethnicity_simplifiedChinese) - `ethnicity_simplifiedHispanic or Latin American`",
+    European = "1/4*(`ethnicity_simplifiedOther` + ethnicity_simplifiedAfrican + `ethnicity_simplifiedHispanic or Latin American` + ethnicity_simplifiedChinese) - ethnicity_simplifiedEuropean",
+    Asian = "1/4*(`ethnicity_simplifiedOther` + ethnicity_simplifiedAfrican + `ethnicity_simplifiedHispanic or Latin American` + ethnicity_simplifiedEuropean) - ethnicity_simplifiedChinese",
+    Other = "1/4*(`ethnicity_simplifiedChinese` + ethnicity_simplifiedAfrican + `ethnicity_simplifiedHispanic or Latin American` + ethnicity_simplifiedEuropean) - ethnicity_simplifiedOther"
+   ), 
+   test_composition_above_logit_fold_change = 0.1
   ) |>
-  
-  filter(parameter %in% c("African",  "Hispanic", "European", "Chinese")) |>
-  filter(is_immune == "TRUE")
+  filter(parameter %in% c("African",  "Hispanic", "European", "Chinese", "Other")) |> 
+	select(-count_data) |>
+	write_csv("sccomp_on_HCA_0.2.2/SUPPLEMENTARY_ethnicity_cellularity_estimates.csv")
+
 
 # Plot effect uncertainty for abundance
-draws_abundance = 
+draws_abundance_ethnicity = 
   differential_composition_ethnicity_absolute   |> 
   sccomp:::get_abundance_contrast_draws(contrasts = c(
-    African = "1/3*(`ethnicityHispanic or Latin American` + ethnicityEuropean + ethnicityChinese) - ethnicityAfrican",
-    Hispanic = "1/3*(ethnicityAfrican + ethnicityEuropean + ethnicityChinese) - `ethnicityHispanic or Latin American`",
-    European = "1/3*(ethnicityAfrican + `ethnicityHispanic or Latin American` + ethnicityChinese) - ethnicityEuropean",
-    Asian = "1/3*(ethnicityAfrican + `ethnicityHispanic or Latin American` + ethnicityEuropean) - ethnicityChinese"
-  )) |> 
-  filter(is_immune=="TRUE")
+    African = "1/4*( `ethnicity_simplifiedOther` + `ethnicity_simplifiedHispanic or Latin American` + ethnicity_simplifiedEuropean + ethnicity_simplifiedChinese) - ethnicity_simplifiedAfrican",
+    Hispanic = "1/4*(`ethnicity_simplifiedOther` + ethnicity_simplifiedAfrican + ethnicity_simplifiedEuropean + ethnicity_simplifiedChinese) - `ethnicity_simplifiedHispanic or Latin American`",
+    European = "1/4*(`ethnicity_simplifiedOther` + ethnicity_simplifiedAfrican + `ethnicity_simplifiedHispanic or Latin American` + ethnicity_simplifiedChinese) - ethnicity_simplifiedEuropean",
+    Asian = "1/4*(`ethnicity_simplifiedOther` + ethnicity_simplifiedAfrican + `ethnicity_simplifiedHispanic or Latin American` + ethnicity_simplifiedEuropean) - ethnicity_simplifiedChinese",
+    Other = "1/4*(`ethnicity_simplifiedChinese` + ethnicity_simplifiedAfrican + `ethnicity_simplifiedHispanic or Latin American` + ethnicity_simplifiedEuropean) - ethnicity_simplifiedOther"
+  )) 
 
 # Plot effect uncertainty for varability
-draws_variability = 
+draws_variability_ethnicity = 
   differential_composition_ethnicity_absolute  |> 
   sccomp:::get_variability_contrast_draws( contrasts = c(
-    African = "1/3*(`ethnicityHispanic or Latin American` + ethnicityEuropean + ethnicityChinese) - ethnicityAfrican",
-    Hispanic = "1/3*(ethnicityAfrican + ethnicityEuropean + ethnicityChinese) - `ethnicityHispanic or Latin American`",
-    European = "1/3*(ethnicityAfrican + `ethnicityHispanic or Latin American` + ethnicityChinese) - ethnicityEuropean",
-    Asian = "1/3*(ethnicityAfrican + `ethnicityHispanic or Latin American` + ethnicityEuropean) - ethnicityChinese"
-  )) |> 
-  filter(is_immune=="TRUE") |> 
-  filter(parameter %in% c("Hispanic", "African", "European", "Asian")) 
+  	African = "1/4*( `ethnicity_simplifiedOther` + `ethnicity_simplifiedHispanic or Latin American` + ethnicity_simplifiedEuropean + ethnicity_simplifiedChinese) - ethnicity_simplifiedAfrican",
+  	Hispanic = "1/4*(`ethnicity_simplifiedOther` + ethnicity_simplifiedAfrican + ethnicity_simplifiedEuropean + ethnicity_simplifiedChinese) - `ethnicity_simplifiedHispanic or Latin American`",
+  	European = "1/4*(`ethnicity_simplifiedOther` + ethnicity_simplifiedAfrican + `ethnicity_simplifiedHispanic or Latin American` + ethnicity_simplifiedChinese) - ethnicity_simplifiedEuropean",
+  	Asian = "1/4*(`ethnicity_simplifiedOther` + ethnicity_simplifiedAfrican + `ethnicity_simplifiedHispanic or Latin American` + ethnicity_simplifiedEuropean) - ethnicity_simplifiedChinese",
+  	Other = "1/4*(`ethnicity_simplifiedChinese` + ethnicity_simplifiedAfrican + `ethnicity_simplifiedHispanic or Latin American` + ethnicity_simplifiedEuropean) - ethnicity_simplifiedOther"  )) |> 
+
+  filter(parameter %in% c("Hispanic", "African", "European", "Asian", "Other")) 
+
 
 # Plot the effects for abundance and variability 
 plot_ethnicity_absolute_1D =
   left_join(
-    draws_variability |> select(.value, parameter, .draw) |> rename(Variability = .value),
-    draws_abundance |> select(.value, parameter, .draw) |> rename(Abundance = .value),
+    draws_variability_ethnicity  |>   filter(is_immune=="TRUE") |>  select(.value, parameter, .draw) |> rename(Variability = .value),
+    draws_abundance_ethnicity |>   filter(is_immune=="TRUE") |>  select(.value, parameter, .draw) |> mutate(.value = -.value) |>  rename(Abundance = .value),
   ) |>
   select(-.draw) |> 
   select(parameter, everything()) |> 
   nest(data = -parameter) |> 
+	mutate(parameter = parameter |> as.character()) |> 
+	arrange(parameter) |> 
   mutate(plot = map2(
     data, parameter,
     ~ .x |> 
@@ -288,9 +330,9 @@ plot_ethnicity_absolute_1D =
       bayesplot::mcmc_intervals(point_size = 1, inner_size = 0.5, outer_size = 0.25) +
       coord_flip() +
       xlab("Effect male immune cellularity") +
-      xlim(-0.75, 0.75) +
+      xlim(-1.0, 1.0) +
       theme_multipanel +
-      theme(axis.text.x = element_text(angle=90, hjust = 0.5)) +
+      #theme(axis.text.x = element_text(angle=90, hjust = 0.5)) +
       ggtitle(.y)
   )) |> 
   rownames_to_column() |> 
@@ -305,6 +347,26 @@ plot_ethnicity_absolute_1D =
   pull(plot) |> 
   wrap_plots(nrow=1)
   
+# Boxplot relative to the above plot
+differential_composition_ethnicity_absolute_generated_plot = 
+	differential_composition_ethnicity_absolute |>
+	remove_unwanted_variation( ~ 0 + ethnicity_simplified, ~ 0 + ethnicity_simplified) |> 
+	inner_join( data_for_immune_proportion |> tidybulk::pivot_sample(sample_) ) |> 
+	filter(is_immune == "TRUE") |> 
+	mutate(ethnicity_simplified = case_when(
+		ethnicity_simplified=="Chinese" ~ "Asian",
+		ethnicity_simplified=="Hispanic or Latin American" ~ "Hispanic",
+		TRUE ~ ethnicity_simplified
+	)) |> 
+
+	ggplot(aes(tissue_harmonised ,adjusted_proportion )) +
+	geom_boxplot(aes(fill=tissue_harmonised), outlier.size = 0.1) +
+	facet_grid(.~fct_relevel(ethnicity_simplified), space = "free_x", scales = "free_x") + 
+	scale_fill_manual(values = tissue_color) +
+	theme_multipanel +
+	theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+
 # Test the difference in immune cellularity across ethnicities
 # Per tissue
 ethnicity_absolute_organ =
@@ -319,7 +381,7 @@ ethnicity_absolute_organ =
       filter(parameter |> str_detect("___ethnicity")) |>
       distinct(parameter) |>
       tidyr::extract( parameter, "ethnicity", "_(.+)___", remove = FALSE) |>
-      mutate(ethnicity = glue("ethnicity{ethnicity}")) |>
+      mutate(ethnicity = glue("ethnicity_simplified{ethnicity}")) |>
       mutate(contrast = glue("`{ethnicity}`  + `{parameter}`") |> as.character()) |>
       tidyr::extract(parameter, "tissue_harmonised", "(.+)___.+", remove = FALSE) |>
       select(tissue_harmonised, contrast) |> 
@@ -357,10 +419,14 @@ ethnicity_absolute_organ =
       filter(!is.na(this)) |> 
       select(tissue_harmonised, ethnicity, contrast) |> 
       unite("tissue_harmonised", c(tissue_harmonised, ethnicity)) |> 
-      deframe( )
+      deframe( ),
+    test_composition_above_logit_fold_change = 0.1
   )
 
-
+# save csv for SUPPLEMENTARY
+ethnicity_absolute_organ |>
+	select(-count_data) |>
+	write_csv("sccomp_on_HCA_0.2.2/SUPPLEMENTARY_ethnicity_cellularity_tissue_estimates_contrasts.csv")
 
 # Palette for the maniquin heatmap
 # About the tissue-level difference across ethnicities
@@ -431,6 +497,12 @@ data_for_ethinicity_relative_plot =
   
   filter(parameter %in% c("African",  "Hispanic", "European", "Chinese"))
 
+# save csv for SUPPLEMENTARY
+data_for_ethinicity_relative_plot |>
+	select(-count_data) |>
+	write_csv("sccomp_on_HCA_0.2.2/SUPPLEMENTARY_ethnicity_composition_estimates.csv")
+
+
 # Plot volcano of the differences at the immune composition level
 # (for each cell type)
 volcano_relative_ethnicity = 
@@ -454,6 +526,8 @@ volcano_relative_ethnicity =
   scale_x_continuous(trans="S_sqrt") +
   scale_color_brewer(palette="Set1", na.value = "grey50") +
   scale_size_discrete(range = c(0, 0.5)) +
+	ylab("False-discovery rate") +
+	xlab("Effect from baseline (average ethnicites)") + 
   theme_multipanel
 
 
@@ -466,22 +540,22 @@ plot =
   ((
     ((
       plot_sex_absolute_1D |
-        plot_spacer() |
-        plot_sex_absolute_organ_boxoplot_adjusted |
-        volcano_relative_sex
-    ) + plot_layout(width = c(12, 22, 12, 30))) /
+       # plot_spacer() |
+      #	plot_spacer() | #plot_sex_absolute_organ_boxoplot_adjusted |
+       volcano_relative_sex
+    ) + 
+    	plot_layout(width = c(12,  30))
+   ) /
       
       plot_spacer() /
       
-      (plot_ethnicity_absolute_1D  + plot_layout(width = c(2,2,2,2)) ) /
-      
       volcano_relative_ethnicity 
       
-  ) + plot_layout( height = c(55, 18, 20, 50))
+  ) + plot_layout( height = c(55, 18, 50))
 ) |
   ((
-    plot_spacer() / plot_ethnicity_absolute_organ_boxoplot_adjusted / plot_spacer()
-  )  + plot_layout( height = c(85, 50, 38)) ) +
+  	plot_ethnicity_absolute_1D / differential_composition_ethnicity_absolute_generated_plot / plot_spacer()
+  )  + plot_layout( height = c(38, 85, 50 )) ) +
   plot_layout(width = c(84, 97)) &
   theme(
     plot.margin = margin(0, 0, 0, 0, "pt"),
@@ -490,13 +564,11 @@ plot =
   )
 
 
-
-
 ggsave(
-  glue("~/PostDoc/CuratedAtlasQueryR/dev/sccomp_on_HCA_0.2.1/figure_demography.pdf"),
+  glue("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.2/figure_demography.pdf"),
   plot = plot,
   units = c("mm"),
   width = 183 ,
-  height = 180 ,
+  height = 135 ,
   limitsize = FALSE
 )
