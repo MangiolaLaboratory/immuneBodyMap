@@ -43,10 +43,6 @@ common_data =
   # get_metadata() |>
   readRDS( input_1) |>
 	
-	#!!! This is temporary
-	mutate(cell_ =  `_cell`, sample_ = `_sample`) |> 
-
-	
 	# I HAVE TO INTEGRATE INTO PIPELINE
 	# Correct fishy stem cell labelling
 	# If stem for the study's annotation and blueprint is non-immune it is probably wrong, 
@@ -81,13 +77,17 @@ common_data =
   ) |>
   as_tibble() |>
 
+	# Attach lineage
+	left_join(read_csv(lineage_table) |> replace_na(list(lineage_1 = "other_non_immune"))) |>
+	mutate(is_immune = lineage_1 == "immune") |>
+	
 	# Fix typo
 	mutate(tissue_harmonised = tissue_harmonised |> str_replace("plcenta", "placenta")) |>
 
   # Fix hematopoietic misclassification
   mutate(
     cell_type_harmonised = if_else(
-      cell_type_harmonised == "non_immune" &
+      !is_immune &
         cell_type |> str_detect("hematopoietic"),
       "stem",
       cell_type_harmonised
@@ -110,9 +110,7 @@ common_data =
   add_count(sample_, name = "sample_count") |> 
   filter(sample_count>30) |> 
   
-	# Attach lineage
-	left_join(read_csv(lineage_table) |> replace_na(list(lineage_1 = "other_non_immune"))) |>
-  mutate(is_immune = lineage_1 == "immune") |>
+
 
   # Format covatriates
   mutate(assay = assay |> str_replace_all(" ", "_") |> str_replace_all("-", "_")  |> str_remove_all("'")) |>
