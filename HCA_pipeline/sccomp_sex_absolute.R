@@ -24,13 +24,13 @@ differential_composition_sex_absolute =
   # filter
   filter(development_stage!="unknown") |>
   filter(sex != "unknown") |>
-  filter(age_days_original >= 15 * 365) |>
+  filter(age_days_original >= 8 * 365) |>
 
   # Keep big datasets
   nest(data = -c(sample_, sex, tissue_harmonised)) |>
-  add_count(sex, tissue_harmonised) |>
-  filter(n>2) |>
-  select(-n) |>
+  # add_count(sex, tissue_harmonised) |>
+  # filter(n>2) |>
+  # select(-n) |>
 	
 	# Keep tissues with both sexes
   nest(data = -c(sex, tissue_harmonised)) |>
@@ -53,15 +53,16 @@ differential_composition_sex_absolute =
 
   # Estimate
   sccomp_glm(
-    formula_composition = ~ sex + tissue_harmonised + ethnicity_simplified  + age_days +  assay_simplified + (1 | group) + (sex | tissue_harmonised_sex),
-    formula_variability = ~ sex + tissue_harmonised + ethnicity_simplified,
+    formula_composition = ~ sex + tissue_harmonised + ethnicity_simplified  + age_days +  assay_simplified + disease + (1 | group) + (sex | tissue_harmonised_sex),
+    formula_variability = ~ sex + tissue_harmonised + ethnicity_simplified + disease,
     sample_, is_immune,
-    check_outliers = F,
+    check_outliers = T,
     approximate_posterior_inference = FALSE,
     cores = 20,
     mcmc_seed = 42,
     verbose = T,
-    prior_mean_variable_association = list(intercept = c(3.6539176, 0.5), slope = c(-0.5255242, 0.1), standard_deviation = c(20, 40))
+    prior_mean_variable_association = list(intercept = c(3.6539176, 0.5), slope = c(-0.5255242, 0.1), standard_deviation = c(20, 40)),
+    output_directory_fit_draws = "/vast/scratch/users/mangiola.s", max_sampling_iterations = 5000
   )
 
 differential_composition_sex_absolute |>

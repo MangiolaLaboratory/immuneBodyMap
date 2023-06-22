@@ -43,7 +43,8 @@ if(filter_blood=="TRUE"){
       cores = 10,
       mcmc_seed = 42,
       verbose = T,
-      prior_mean_variable_association = list(intercept = c(3.6539176, 0.5), slope = c(-0.5255242, 0.1), standard_deviation = c(20, 40))
+      prior_mean_variable_association = list(intercept = c(3.6539176, 0.5), slope = c(-0.5255242, 0.1), standard_deviation = c(20, 40)),
+      output_directory_fit_draws = "/vast/scratch/users/mangiola.s"
     )
 
   res_relative_blood |> saveRDS(output_blood)
@@ -119,15 +120,17 @@ res_relative =
   
 		# Estimate
 		sccomp_glm(
-			formula_composition = ~ age_days + tissue_harmonised + sex + ethnicity  + assay + (1 | group) + (age_days | tissue_harmonised),
-			formula_variability = ~ age_days + tissue_harmonised ,
+			formula_composition = ~ age_days + tissue_harmonised + sex + ethnicity_simplified + assay_simplified + disease + (1 | group) + (age_days | tissue_harmonised),
+			formula_variability = ~ age_days + tissue_harmonised + disease,
 			sample_, cell_type_harmonised,
-			check_outliers = F,
+			check_outliers = T,
 			approximate_posterior_inference = FALSE,
 			cores = 20,
 			mcmc_seed = 42,
 			verbose = T,
-			prior_mean_variable_association = list(intercept = c(3.6539176, 0.5), slope = c(-0.5255242, 0.1), standard_deviation = c(20, 40))
+			prior_mean_variable_association = list(intercept = c(3.6539176, 0.5), slope = c(-0.5255242, 0.1), standard_deviation = c(20, 40)),
+			#output_directory_fit_draws = "/vast/scratch/users/mangiola.s", 
+			max_sampling_iterations = 5000
 		)
 
 res_relative |>

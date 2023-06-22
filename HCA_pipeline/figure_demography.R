@@ -13,8 +13,7 @@ library(scales)
 library(ggplot2)
 
 
-result_directory = "~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.2"
-result_directory_old = "~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.1"
+result_directory = "~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.4"
 
 
 # Calculate softmax from an array of reals
@@ -61,7 +60,7 @@ clean_names = function(x){
 # Read inout files 
 data_for_immune_proportion_absolute_file = glue("{result_directory}/input_absolute.rds")
 data_for_immune_proportion = readRDS(data_for_immune_proportion_absolute_file)
-data_for_immune_proportion_relative_file = glue("{result_directory_old}/input_relative.rds")
+data_for_immune_proportion_relative_file = glue("{result_directory}/input_relative.rds")
 data_for_immune_proportion_relative = readRDS(data_for_immune_proportion_relative_file)
 
 # Color coding for tissue
@@ -88,7 +87,7 @@ names(cell_type_color) = names(cell_type_color) |>  str_replace("macrophage", "m
 
 # Read results
 differential_composition_sex_absolute_file = glue("{result_directory}/sex_absolute_FALSE.rds")
-differential_composition_sex_relative_file = glue("{result_directory_old}/sex_relative_FALSE.rds")
+differential_composition_sex_relative_file = glue("{result_directory}/sex_relative_FALSE.rds")
 proportions_sex_absolute_file = glue("{result_directory}/sex_absolute_FALSE_proportion_adjusted.rds")
 differential_composition_sex_relative = readRDS(differential_composition_sex_relative_file)  
 differential_composition_sex_absolute = readRDS(differential_composition_sex_absolute_file)
@@ -98,7 +97,7 @@ proportions_sex_absolute_adjusted = readRDS(proportions_sex_absolute_file)
 differential_composition_sex_absolute |>
 	test_contrasts(test_composition_above_logit_fold_change = 0.1) |> 
 	select(-count_data) |>
-	write_csv("sccomp_on_HCA_0.2.2/SUPPLEMENTARY_sex_cellularity_estimates.csv")
+	write_csv("sccomp_on_HCA_0.2.3.2/SUPPLEMENTARY_sex_cellularity_estimates.csv")
 
 
 # Get parameter draws for relative abundance 
@@ -162,7 +161,7 @@ differential_composition_sex_absolute |>
 	) |> 
 	select(-count_data) |>
 	select(1, 2, 4, 5, 6, 7, 8) |> 
-	write_csv("sccomp_on_HCA_0.2.2/SUPPLEMENTARY_sex_cellularity_tissue_estimates_contrasts.csv")
+	write_csv("sccomp_on_HCA_0.2.3.2/SUPPLEMENTARY_sex_cellularity_tissue_estimates_contrasts.csv")
 
 
 # Draw the color palette for the mannequin heatmap of the 
@@ -221,7 +220,7 @@ colors_palette_for_organ_abundance =
 differential_composition_sex_relative |>
 	test_contrasts(test_composition_above_logit_fold_change = 0.1) |> 
 	select(-count_data) |>
-	write_csv("sccomp_on_HCA_0.2.2/SUPPLEMENTARY_sex_composition_estimates.csv")
+	write_csv("sccomp_on_HCA_0.2.3.2/SUPPLEMENTARY_sex_composition_estimates.csv")
 
 
 # Volcano plot of cell type difference overall between sexes
@@ -263,7 +262,7 @@ volcano_relative_sex =
 # Read results
 differential_composition_ethnicity_absolute_file = glue("{result_directory}/ethnicity_absolute_FALSE.rds")
 proportions_ethnicity_absolute_file = glue("{result_directory}/ethnicity_absolute_FALSE_proportion_adjusted.rds")
-differential_composition_ethnicity_relative_file = glue("{result_directory_old}/ethnicity_relative_FALSE.rds")
+differential_composition_ethnicity_relative_file = glue("{result_directory}/ethnicity_relative_FALSE.rds")
 differential_composition_ethnicity_relative = readRDS(differential_composition_ethnicity_relative_file)
 differential_composition_ethnicity_absolute = readRDS(differential_composition_ethnicity_absolute_file)
 proportions_ethnicity_tissue_absolute_adjusted = readRDS(proportions_ethnicity_absolute_file)
@@ -285,7 +284,7 @@ proportions_ethnicity_tissue_absolute_adjusted = readRDS(proportions_ethnicity_a
   ) |>
   filter(parameter %in% c("African",  "Hispanic", "European", "Chinese", "Other")) |> 
 	select(-count_data) |>
-	write_csv("sccomp_on_HCA_0.2.2/SUPPLEMENTARY_ethnicity_cellularity_estimates.csv")
+	write_csv("sccomp_on_HCA_0.2.3.2/SUPPLEMENTARY_ethnicity_cellularity_estimates.csv")
 
 
 # Plot effect uncertainty for abundance
@@ -426,7 +425,7 @@ ethnicity_absolute_organ =
 # save csv for SUPPLEMENTARY
 ethnicity_absolute_organ |>
 	select(-count_data) |>
-	write_csv("sccomp_on_HCA_0.2.2/SUPPLEMENTARY_ethnicity_cellularity_tissue_estimates_contrasts.csv")
+	write_csv("sccomp_on_HCA_0.2.3.2/SUPPLEMENTARY_ethnicity_cellularity_tissue_estimates_contrasts.csv")
 
 # Palette for the maniquin heatmap
 # About the tissue-level difference across ethnicities
@@ -500,7 +499,7 @@ data_for_ethinicity_relative_plot =
 # save csv for SUPPLEMENTARY
 data_for_ethinicity_relative_plot |>
 	select(-count_data) |>
-	write_csv("sccomp_on_HCA_0.2.2/SUPPLEMENTARY_ethnicity_composition_estimates.csv")
+	write_csv("sccomp_on_HCA_0.2.3.2/SUPPLEMENTARY_ethnicity_composition_estimates.csv")
 
 
 # Plot volcano of the differences at the immune composition level
@@ -565,7 +564,7 @@ plot =
 
 
 ggsave(
-  glue("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.2/figure_demography.pdf"),
+  glue("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.2/figure_demography.pdf"),
   plot = plot,
   units = c("mm"),
   width = 183 ,

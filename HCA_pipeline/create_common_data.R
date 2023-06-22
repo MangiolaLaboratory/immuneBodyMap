@@ -9,6 +9,7 @@ library(magrittr)
 library(patchwork)
 library(glue)
 library(forcats)
+library(stringr)
 
 source(
   "https://gist.githubusercontent.com/stemangiola/fc67b08101df7d550683a5100106561c/raw/a0853a1a4e8a46baf33bad6268b09001d49faf51/ggplot_theme_multipanel"
@@ -43,6 +44,11 @@ common_data =
   # get_metadata() |>
   readRDS( input_1) |>
 	
+	# Fix bug
+	mutate(tissue_harmonised = tissue_harmonised |> str_replace("vasculaturew", "vasculature")) |>
+	mutate(tissue_harmonised = tissue_harmonised |> str_replace("plcenta", "placenta")) |>
+	
+	
 	# I HAVE TO INTEGRATE INTO PIPELINE
 	# Correct fishy stem cell labelling
 	# If stem for the study's annotation and blueprint is non-immune it is probably wrong, 
@@ -59,11 +65,23 @@ common_data =
 		"skeletal muscle", "adipocytes", "epithelial", "smooth muscle", "chondrocytes", "endothelial"
 	))) |> 
 
+	# # Filter only primary data
+	# filter(is_primary_data_x=="TRUE") |>
+	
+	# Filter so we can add disease to the model
+	nest(data = -tissue_harmonised) |>
+	mutate(has_normal = map_int(data, ~ .x |> filter(disease == "normal") |> nrow()) > 0) |>
+	mutate(disease_count = map_int(data, ~ .x |> distinct(disease) |> nrow())) |>
+	filter(!(disease_count==1 & !has_normal)) |>
+	unnest(data) |>
+	# mutate(tissue_harmonised = tissue_harmonised |> fct_relevel(tissue_harmonised!="normal")) |>
+	
   dplyr::select(
     cell_,
     cell_type,
     cell_type_harmonised,
     file_id,
+    file_id_db,
     assay,
     age_days,
     development_stage,
@@ -73,7 +91,7 @@ common_data =
     tissue_harmonised,
     tissue,
     sample_,
-
+    disease
   ) |>
   as_tibble() |>
 
@@ -110,8 +128,6 @@ common_data =
   add_count(sample_, name = "sample_count") |> 
   filter(sample_count>30) |> 
   
-
-
   # Format covatriates
   mutate(assay = assay |> str_replace_all(" ", "_") |> str_replace_all("-", "_")  |> str_remove_all("'")) |>
   mutate(
@@ -123,7 +139,7 @@ common_data =
   ) |>
 
   # Fix samples with multiple assays
-  unite("sample_", c(sample_ , assay), remove = FALSE) |>
+  unite("sample_", c(sample_ , assay, disease), remove = FALSE) |>
 
   # Scale age
 	mutate(age_days_original = age_days) |>
@@ -150,7 +166,11 @@ common_data =
 	# Summarise assays to get more stable data simulations 
 	# 10x as baseline
 	mutate(assay_simplified = if_else(assay |> str_detect("10x"), "10x", assay)) |> 
-	mutate(assay_simplified = factor(assay_simplified)) 
+	mutate(assay_simplified = factor(assay_simplified)) |>
+	
+	# Establish the baseline for disease
+	mutate(disease = disease |> str_replace("normal", "aaa_normal"))
+	
 	
 	
 
@@ -165,7 +185,7 @@ common_data |>
 
 	# Eliminate the samples with immune enrichment/depletion
 	anti_join(
-		read_csv("dev/datasets_to_check_in_the_literature_checked.csv") |> 
+		read_csv("/stornext/Bioinf/data/bioinf-data/Papenfuss_lab/projects/mangiola.s/PostDoc/immuneHealthyBodyMap/dev/datasets_to_check_in_the_literature_checked.csv") |> 
 			filter(overall_immune_cells_enriched>0) |> 
 			distinct(file_id, tissue_harmonised)
 	) |> 

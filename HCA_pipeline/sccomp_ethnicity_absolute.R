@@ -32,19 +32,19 @@ differential_composition_ethnicity_absolute =
 
   # Estimate
   sccomp_glm(
-    formula_composition = ~ 0 + ethnicity_simplified + tissue_harmonised + sex  + age_days +  assay_simplified  + (ethnicity_simplified | tissue_harmonised_ethnicity),
+    formula_composition = ~ 0 + ethnicity_simplified + tissue_harmonised + sex  + age_days +  assay_simplified  + disease + (ethnicity_simplified | tissue_harmonised_ethnicity),
     formula_variability = ~ 0 + ethnicity_simplified + tissue_harmonised + sex,
     sample_, is_immune,
-    check_outliers = F,
+    check_outliers = T,
     approximate_posterior_inference = FALSE,
     cores = 20,
     mcmc_seed = 42,
     verbose = T,
-    prior_mean_variable_association = list(intercept = c(3.6539176, 0.5), slope = c(-0.5255242, 0.1), standard_deviation = c(20, 40))
+    prior_mean_variable_association = list(intercept = c(3.6539176, 0.5), slope = c(-0.5255242, 0.1), standard_deviation = c(10, 100)),
+    output_directory_fit_draws = "/vast/scratch/users/mangiola.s", max_sampling_iterations = 5000
   )
 
-differential_composition_ethnicity_absolute |>
-  saveRDS(output_file_1)
+differential_composition_ethnicity_absolute |> saveRDS(output_file_1)
 
 
 

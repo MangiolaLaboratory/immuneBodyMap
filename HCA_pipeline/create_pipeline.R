@@ -9,7 +9,7 @@ args = commandArgs(trailingOnly=TRUE)
 metadata_rds = args[[1]] # glue("{vast_directory}/metadata_annotated_0.2.2.rds")
 run_directory = args[[2]]
 
-run_directory |> dirname() |> dir.create( showWarnings = FALSE, recursive = TRUE)
+run_directory |> dir.create( showWarnings = FALSE, recursive = TRUE)
 
 vast_directory = "/vast/projects/cellxgene_curated"
 R_code_directory = glue("/home/users/allstaff/mangiola.s//PostDoc/immuneHealthyBodyMap/HCA_pipeline")
@@ -25,7 +25,7 @@ commands = c()
 commands =
   commands |>
   c(
-    glue("CATEGORY=create_input\nMEMORY=30024\nCORES=1\nWALL_TIME=10000"),
+    glue("CATEGORY=create_input\nMEMORY=60024\nCORES=1\nWALL_TIME=10000"),
     glue("{run_directory}/input_common.rds {run_directory}/input_absolute.rds {run_directory}/input_relative.rds:{metadata_rds}\n{tab}Rscript {R_code_directory}/create_common_data.R {metadata_rds} {lineage_df} {run_directory}/input_common.rds {run_directory}/input_absolute.rds {run_directory}/input_relative.rds")
   )
 

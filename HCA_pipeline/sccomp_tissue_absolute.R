@@ -25,7 +25,7 @@ res_absolute =
   unite("group", c(tissue_harmonised , file_id), remove = FALSE) |>
 
   sccomp_glm(
-    formula_composition = ~ 0 + tissue_harmonised + sex + ethnicity_simplified  + age_days + assay_simplified + (tissue_harmonised | group),
+    formula_composition = ~ 0 + tissue_harmonised + sex + ethnicity_simplified  + age_days + assay_simplified + disease + (tissue_harmonised | group),
     formula_variability = ~ 0 + tissue_harmonised + sex + ethnicity_simplified ,
     sample_, is_immune,
     check_outliers = T,
@@ -33,7 +33,8 @@ res_absolute =
     cores = 20,
     mcmc_seed = 42,
     verbose = T,
-    prior_mean_variable_association = list(intercept = c(3.6539176, 0.5), slope = c(-0.5255242, 0.1), standard_deviation = c(20, 40))
+    prior_mean_variable_association = list(intercept = c(3.6539176, 0.5), slope = c(-0.5255242, 0.1), standard_deviation = c(10, 100)),
+    output_directory_fit_draws = "/vast/scratch/users/mangiola.s", max_sampling_iterations = 5000
   )
 
 res_absolute |> saveRDS(output_file_1)
