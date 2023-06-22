@@ -4,7 +4,6 @@
 
 library(tidyverse)
 library(forcats)
-library(HCAquery)
 library(dittoSeq)
 library(sccomp)
 library(magrittr)
