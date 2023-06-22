@@ -3,7 +3,7 @@ This is the code repository for the study
 ## A body reference map of immune cell composition and communication tracks inflammation and plasticity loss through ageing
 
 ### Abstract
-Characterising the immune system in health and disease across traits like ageing, sex, and ethnicity is one of the pillars of personalised medicine. To identify markers of disease, we need a comprehensive physiological tissue-specific reference. The Human Cell Atlas and other large-scale single-cell sequencing initiatives enable for the first time to build that reference. This study presents a body map of composition and communication for a healthy immune system. We model this map across human developmental stages and demographics, including 29 million cells from 2744 samples across 30 tissues. Our analysis reveals patterns of progressive tissue-specific inflammation and loss of plasticity through ageing and provides a healthy reference body map of immune system composition. To enable this and future atlas-level analyses, we harmonised and curated the CELLxGENE human cell atlas and shared it with the scientific community through the CuratedAtlasQuery API. To enable an atlas-level compositional analysis of single-cell data, we developed sccompMultilevel, a statistical for multilevel analyses of single-cell data. The findings, the data and the tools this study provides will enable a deeper understanding of how the immune system responds to disease through ageing and across demographic groups.
+The presence of immune cells in non-lymphoid tissues throughout the body is vital in the fight against infections and cancer. Yet, a detailed map of immune cell distribution and interactions throughout the body is lacking. To address this gap, we harmonised and annotated 29 million cells across 12,981 single-cell RNA sequencing samples covering 45 anatomical sites to create a comprehensive compositional and communication map of the healthy immune system. This resource represents a 30-fold increase in cell count and a 10-fold increase in tissue coverage compared to the existing state-of-the-art. We used this resource to model compositional changes in the immune system with age and diversity across demographic groups and to investigate the impact of different technologies using a novel multilevel Bayesian model. Our analysis revealed patterns of progressive tissue-specific inflammation, loss of plasticity with age, and significant differences between ethnicities. This study represents a comprehensive healthy reference for precision medicine, immunology, infectious disease and cancer.
 
 ## Code for figures
 
@@ -12,3 +12,9 @@ Characterising the immune system in health and disease across traits like ageing
 - [Figure 5](https://github.com/stemangiola/immuneHealthyBodyMap/blob/master/HCA_pipeline/figure_demography.R)
 - [Figure 6](https://github.com/stemangiola/immuneHealthyBodyMap/blob/master/HCA_pipeline/figure_tissue.R)
 - [Figure 7](https://github.com/stemangiola/immuneHealthyBodyMap/blob/master/HCA_pipeline/figure_assay.R)
+
+## Data
+
+The data used for this study is available at `CuratedAtlasQueryR` version v0.99.2
+
+https://github.com/stemangiola/CuratedAtlasQueryR/releases/tag/v0.99.2
