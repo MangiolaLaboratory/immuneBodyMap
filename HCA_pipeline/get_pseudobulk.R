@@ -35,13 +35,13 @@ metadata = readRDS(metadata_DB)
 #   distinct( tissue_harmonised, cell_type_harmonised, is_immune) |>
 #   as_tibble() |>
 #   mutate(
-#     tissue_harmonised = tissue_harmonised |> str_replace_all(" ", "____"),
-#     cell_type_harmonised = cell_type_harmonised |> str_replace_all(" ", "____")
+#     tissue_harmonised = tissue_harmonised |> str_replace_all(" ", "__"),
+#     cell_type_harmonised = cell_type_harmonised |> str_replace_all(" ", "__")
 #   ) |>
 #   mutate(
-#     file_name = glue("{tissue_harmonised}__{cell_type_harmonised}__{is_immune}.rds") |>
+#     file_name = glue("{tissue_harmonised}____{cell_type_harmonised}____{is_immune}.rds") |>
 #       as.character()|>
-#       str_replace_all("/", "____"),
+#       str_replace_all("/", "__"),
 #     output_file_path =
 #       glue("{output_directory}/{file_name}") |>
 #       as.character()
@@ -50,7 +50,7 @@ metadata = readRDS(metadata_DB)
 # 	  list(output_file_path, tissue_harmonised, cell_type_harmonised, is_immune),
 # 		~
 # 			c(
-# 				glue("CATEGORY=pseudobulk\nMEMORY=50000\nCORES=1\nWALL_TIME=30000"),
+# 				glue("CATEGORY=pseudobulk\nMEMORY=50000\nCORES=1\nWALL_TIME=60000"),
 # 				glue(
 # 					"{..1}:{metadata_DB}\n{tab}Rscript {script_directory}/get_pseudobulk.R {..2} {..3} {..4} {..1}"
 # 				)
@@ -68,7 +68,7 @@ cell_type_harmonised = args[[2]] |> str_replace_all("____", " ")
 is_immune = args[[3]] 
 output_file = args[[4]] 
 
-metadata  = 
+seu  = 
   metadata |>
   filter(
       tissue_harmonised == !!tissue_harmonised & 
@@ -78,16 +78,30 @@ metadata  =
   get_single_cell_experiment(
     cache_directory = "/vast/projects/cellxgene_curated"
   ) |>
-	as.Seurat(data = NULL) |> 
+	as.Seurat(data = NULL) 
+
+print("calculating stats")
+
+stats = 
+	seu |>
+	select(sample_, nFeature_originalexp) |>
+	with_groups(sample_, ~ .x |>
+	summarise(
+		mean_nFeature = mean(nFeature_originalexp), 
+		median_nFeature = median(nFeature_originalexp)
+	)) 
+
+print("aggregating")
+
+
+seu |> 
 	
 	# Calculate summary stats
-	nest(data = -sample_) |> 
-	mutate(
-		mean_nFeature = map_dbl(data, ~ .x |> pull(nFeature_originalexp) |> mean()), 
-		median_nFeature = map_dbl(data, ~ .x |> pull(nFeature_originalexp) |> median())
-	) |> 
-	unnest(data) |>
-  tidyseurat::aggregate_cells(c(sample_, cell_type_harmonised)) |>
+	left_join(stats, by = "sample_") |>
+	mutate(sample_ = glue("{sample_}___{cell_type_harmonised}")) |>
+  tidyseurat::aggregate_cells( .sample = sample_,
+  	.metadata_columns_to_keep = c('cell_type_harmonised', 'sample_', 'orig.ident', 'file_id', 'assay', 'age_days', 'development_stage', 'sex', 'ethnicity', 'tissue_harmonised', 'tissue', 'disease', 'lineage_1', 'is_immune', 'sample_count', 'age_days_original', 'ethnicity_simplified', 'assay_simplified', 'mean_nFeature', 'median_nFeature')
+  ) |>
 	rename(counts = originalexp) |>
 	tidybulk::as_SummarizedExperiment(.sample, .feature, counts) |>
 	
