@@ -712,7 +712,9 @@ ggsave(
 
 # Differential Expression
 library(ggExtra)
-cell_types = readRDS("~/Documents/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.5/input_common.rds") |> distinct(tissue_harmonised) |> pull(tissue_harmonised) |> str_replace(" ", "_")
+library(magrittr)
+
+cell_types = readRDS("sccomp_on_HCA_0.2.3.5/input_common.rds") |> distinct(tissue_harmonised) |> pull(tissue_harmonised) |> str_replace(" ", "_")
 de_table = 
   dir("sccomp_on_HCA_0.2.3.5/DGEA", full.names = TRUE) |> 
   enframe(value="file") |> 
@@ -770,21 +772,21 @@ de_table =
 gene_chr = read_csv("symbol_chr.csv")
 
 
-de_table |> 
-  distinct(cell_type, tissue_harmonised, symbol, lineage) |> 
-  filter(!symbol %in% gene_chr$ID) |>  
-  mutate(exists = 1) |> 
-  complete(nesting(cell_type,tissue_harmonised, lineage), symbol, fill = list(exists = 0)) |> 
-  mutate(cell_type_tissue = glue("{cell_type} {tissue_harmonised}") ) |> 
-  
-  heatmap(
-    cell_type_tissue,
-    symbol,
-    exists
-  ) |> 
-  annotation_tile(cell_type) |> 
-  annotation_tile(lineage) |> 
-  annotation_tile(tissue_harmonised) 
+# de_table |> 
+#   distinct(cell_type, tissue_harmonised, symbol, lineage) |> 
+#   filter(!symbol %in% gene_chr$ID) |>  
+#   mutate(exists = 1) |> 
+#   complete(nesting(cell_type,tissue_harmonised, lineage), symbol, fill = list(exists = 0)) |> 
+#   mutate(cell_type_tissue = glue("{cell_type} {tissue_harmonised}") ) |> 
+#   
+#   heatmap(
+#     cell_type_tissue,
+#     symbol,
+#     exists
+#   ) |> 
+#   annotation_tile(cell_type) |> 
+#   annotation_tile(lineage) |> 
+#   annotation_tile(tissue_harmonised) 
 
 
 de_table |> 
@@ -861,8 +863,25 @@ ilc =
   filter(count_sample > 200) |> 
   as_tibble()  |> 
   with_groups(sample_, ~ .x |> sample_n(min(1000, n() ))) |> 
-  get_SingleCellExperiment()
-  
+	get_single_cell_experiment(cache_directory = "/vast/projects/cellxgene_curated", assays = "counts")
+
+library(DelayedArray)
+library(HDF5Array)
+ilc |> saveHDF5SummarizedExperiment("sccomp_on_HCA_0.2.3.5/ilc")
+
+
+th17 = 
+	get_metadata() |> 
+	filter(cell_type_harmonised == "cd4 th17") |>
+	filter(tissue_harmonised %in% c("lymph node", "heart", "blood", "kidney", "liver", "lung")) |> 
+	add_count(sample_, name = "count_sample") |> 
+	filter(count_sample > 200) |> 
+	as_tibble()  |> 
+	with_groups(sample_, ~ .x |> sample_n(min(1000, n() ))) |> 
+	get_single_cell_experiment(cache_directory = "/vast/projects/cellxgene_curated", assays = "counts")
+
+th17 |> saveHDF5SummarizedExperiment("sccomp_on_HCA_0.2.3.5/th17")
+
 
 plot_count_de = 
   de_table |> 
