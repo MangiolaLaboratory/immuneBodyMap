@@ -13,7 +13,7 @@ library(scales)
 library(ggplot2)
 
 
-result_directory = "~/Documents/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.4"
+result_directory = "~/Documents/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.5"
 
 
 # Calculate softmax from an array of reals
@@ -91,7 +91,7 @@ FDR_threshold_1_percent_change_at_20_percent_baseline = 0.017
 #------------------------------#
 
 # Read results
-differential_composition_sex_absolute_file = glue("{result_directory}/sex_absolute_FALSE.rds")
+differential_composition_sex_absolute_file = glue("{result_directory}/sex_absolute_FALSE_no_outlier.rds")
 proportions_sex_absolute_file = glue("{result_directory}/sex_absolute_FALSE_proportion_adjusted.rds")
 differential_composition_sex_absolute = readRDS(differential_composition_sex_absolute_file)
 proportions_sex_absolute_adjusted = readRDS(proportions_sex_absolute_file)
@@ -139,32 +139,32 @@ sex_absolute_organ_tissue =
   test_contrasts(
     contrasts =
       differential_composition_sex_absolute |>
-      filter(parameter |> str_detect("___sex")) |>
+      filter(parameter |> str_detect("sexmale___")) |>
       distinct(parameter) |>
       mutate(contrast = glue("sexmale + `{parameter}`") |> as.character()) |>
-      tidyr::extract(parameter, "tissue_harmonised", "(.+)___.+") |>
+      tidyr::extract(parameter, "tissue_harmonised", ".+___(.+)") |>
       filter(contrast |> str_detect("_female", negate = TRUE)) |> 
       deframe( ),
-    test_composition_above_logit_fold_change = 0.1
+    test_composition_above_logit_fold_change = FDR_threshold_1_percent_change_at_20_percent_baseline
   ) |>
   filter(is_immune == "TRUE")
 
-# save csv for SUPPLEMENTARY
-differential_composition_sex_absolute |> 
-	test_contrasts(
-		contrasts =
-			differential_composition_sex_absolute |>
-			filter(parameter |> str_detect("___sex")) |>
-			distinct(parameter) |>
-			mutate(contrast = glue("sexmale + `{parameter}`") |> as.character()) |>
-			tidyr::extract(parameter, "tissue_harmonised", "(.+)___.+") |>
-			filter(contrast |> str_detect("_female", negate = TRUE)) |> 
-			deframe( ),
-		test_composition_above_logit_fold_change = 0.1
-	) |> 
-	select(-count_data) |>
-	select(1, 2, 4, 5, 6, 7, 8) |> 
-	write_csv("sccomp_on_HCA_0.2.3.4/SUPPLEMENTARY_sex_cellularity_tissue_estimates_contrasts.csv")
+# # save csv for SUPPLEMENTARY
+# differential_composition_sex_absolute |> 
+# 	test_contrasts(
+# 		contrasts =
+# 			differential_composition_sex_absolute |>
+# 			filter(parameter |> str_detect("sexmale___")) |>
+# 			distinct(parameter) |>
+# 			mutate(contrast = glue("sexmale + `{parameter}`") |> as.character()) |>
+# 			tidyr::extract(parameter, "tissue_harmonised", ".+___(.+)") |>
+# 			filter(contrast |> str_detect("_female", negate = TRUE)) |> 
+# 			deframe( ),
+# 		test_composition_above_logit_fold_change = 0.1
+# 	) |> 
+# 	select(-count_data) |>
+# 	select(1, 2, 4, 5, 6, 7, 8) |> 
+# 	write_csv("sccomp_on_HCA_0.2.3.5/SUPPLEMENTARY_sex_cellularity_tissue_estimates_contrasts.csv")
 
 
 # Draw the color palette for the mannequin heatmap of the 
@@ -232,139 +232,182 @@ proportions_sex_relative_adjusted = readRDS(proportions_sex_relative_file)
 # 	write_csv("sccomp_on_HCA_0.2.3.4/SUPPLEMENTARY_sex_composition_estimates.csv")
 
 
-# Volcano plot of cell type difference overall between sexes
-volcano_relative_sex = 
-  differential_composition_sex_relative |>
-  
-  test_contrasts(test_composition_above_logit_fold_change = 0.1) |> 
-  filter(cell_type_harmonised != "non_immune") |> 
-  filter(cell_type_harmonised != "immune_unclassified") |> 
-  
-  filter(parameter == "sexmale") |> 
-  mutate(naive_experienced = case_when(
-    cell_type_harmonised |> str_detect("naive") ~ "Antigen naive lymphcites",
-    cell_type_harmonised |> str_detect("cd4|cd8|memory") ~ "Antigen experienced lymphcites"
+# # Volcano plot of cell type difference overall between sexes
+# volcano_relative_sex = 
+#   differential_composition_sex_relative |>
+#   
+#   test_contrasts(test_composition_above_logit_fold_change = 0.1) |> 
+#   filter(cell_type_harmonised != "non_immune") |> 
+#   filter(cell_type_harmonised != "immune_unclassified") |> 
+#   
+#   filter(parameter == "sexmale") |> 
+#   mutate(naive_experienced = case_when(
+#     cell_type_harmonised |> str_detect("naive") ~ "Antigen naive lymphcites",
+#     cell_type_harmonised |> str_detect("cd4|cd8|memory") ~ "Antigen experienced lymphcites"
+#   )) |> 
+#   mutate(significant = c_FDR<0.05) |> 
+#   mutate(cell_type_harmonised = case_when(c_FDR<0.05~cell_type_harmonised)) |> 
+#   ggplot(aes(c_effect, c_FDR)) + 
+#   
+#   geom_vline(xintercept = -0.1, color="grey", linetype = "dashed", size=0.2) +
+#   geom_vline(xintercept = 0.1, color="grey", linetype = "dashed", size=0.2) +
+#   geom_hline(yintercept = 0.05, color="grey", linetype = "dashed", size=0.2) +
+#   
+#   geom_point(aes(color=naive_experienced, size=significant)) +
+#   ggrepel::geom_text_repel(aes(label = cell_type_harmonised), size = 1.5 ) +
+#   scale_y_continuous(trans = tidybulk::log10_reverse_trans()) + 
+#   scale_x_continuous(trans="S_sqrt") +
+#   scale_color_brewer(palette="Set1", na.value = "grey50") +
+#   scale_size_discrete(range = c(0, 0.5)) +
+#   guides(size="none", color="none") +
+# 	ylab("False-discovery rate") +
+# 	xlab("Effect from baseline (female)") + 
+#   theme_multipanel
+
+tissue_baseline_plot_sex_relative = 
+  differential_composition_sex_relative |> 
+  sccomp_replicate(formula_composition = ~ 1 + age_days  + (1 + age_days  | tissue_harmonised)) |>
+  left_join(data_for_immune_proportion_relative |> distinct(sample_, tissue_harmonised)) |> 
+  with_groups(c(cell_type_harmonised, tissue_harmonised), ~ .x |> summarise(
+    lower = generated_proportions |> quantile(0.05),
+    mean = generated_proportions |> mean(),
+    upper = generated_proportions |> quantile(0.95),
   )) |> 
-  mutate(significant = c_FDR<0.05) |> 
-  mutate(cell_type_harmonised = case_when(c_FDR<0.05~cell_type_harmonised)) |> 
-  ggplot(aes(c_effect, c_FDR)) + 
+  nest(data = -cell_type_harmonised) |> 
+  filter(map_int(data, ~ .x |> filter(mean > 0.001) |> nrow()) > 3) |> 
+  unnest(data)
+
+variability_abundance_plot = 
+  differential_composition_sex_relative |> 
+  test_contrasts(test_composition_above_logit_fold_change = 0.2) |> 
+  filter(parameter=="sexmale") |> 
+  filter(! cell_type_harmonised %in% c("dnt", "immune_unclassified")) |> 
+  mutate(
+    c_lower = case_when(c_FDR<0.05 ~ c_lower),
+    c_upper = case_when(c_FDR<0.05 ~ c_upper),
+    v_lower = case_when(v_FDR<0.05 ~ v_lower),
+    v_upper = case_when(v_FDR<0.05 ~ v_upper),
+  ) |> 
   
-  geom_vline(xintercept = -0.1, color="grey", linetype = "dashed", size=0.2) +
-  geom_vline(xintercept = 0.1, color="grey", linetype = "dashed", size=0.2) +
-  geom_hline(yintercept = 0.05, color="grey", linetype = "dashed", size=0.2) +
+  # Filter cell types that are more than 3 tissues, 
+  # otherwise a body level inference does not make much sense
+  inner_join(    tissue_baseline_plot_sex_relative |> distinct(cell_type_harmonised) ) |> 
+
+  # Shorten names
+  mutate(cell_type_harmonised = cell_type_harmonised |> 
+           str_replace("megakaryocytes", "mega") |> 
+           str_remove("phage") |> 
+           str_replace("th1/th17", "th1/17") |> 
+           str_replace("mono", "mn") |> 
+           str_replace("tcm", "cm") |> 
+           str_replace("cd4 th", "Th") |> 
+           str_replace("memory", "mem") |> 
+           str_replace("naive", "nv") |> 
+           str_replace("terminal effector cd4 t", "cd4 eff") |> 
+           str_remove("cyte") 
+  ) |> 
   
-  geom_point(aes(color=naive_experienced, size=significant)) +
-  ggrepel::geom_text_repel(aes(label = cell_type_harmonised), size = 1.5 ) +
-  scale_y_continuous(trans = tidybulk::log10_reverse_trans()) + 
-  scale_x_continuous(trans="S_sqrt") +
-  scale_color_brewer(palette="Set1", na.value = "grey50") +
-  scale_size_discrete(range = c(0, 0.5)) +
-  guides(size="none", color="none") +
-	ylab("False-discovery rate") +
-	xlab("Effect from baseline (female)") + 
+  ggplot(aes(c_effect, v_effect, label=cell_type_harmonised)) + 
+  
+  geom_vline(xintercept = c(-0.2, 0.2), color="grey", linetype="dashed") + 
+  geom_hline(yintercept = c(-0.2, 0.2), color="grey", linetype="dashed") + 
+  
+  geom_linerange(aes(ymin = v_lower, ymax = v_upper), color="#D12424", alpha = 0.8) +
+  geom_linerange(aes(xmin = c_lower, xmax = c_upper), color = "#4297C6", alpha=0.8) +
+  
+  geom_point() + 
+  ggrepel::geom_text_repel() +
+  coord_cartesian(ylim=c(NA, 1.2)) +
   theme_multipanel
-
-
-
-
-# Get trend line to be used in the scatter plot of global compositional changes, plot_sex_relative
-line_sex_relative_mean =
-  
-  differential_composition_sex_relative |>
-  filter(cell_type_harmonised != "immune_unclassified") |>
-  nest(data = -cell_type_harmonised) |>
-  mutate(x = list(seq(-3, 3, by = 0.1))) |>
-  mutate(y = map2(data, x, ~ {
-    .y *
-      (.x |> filter(parameter == "sexmale") |> pull(c_effect)) +
-      (.x |> filter(parameter == "(Intercept)") |> pull(c_effect))
-    
-  })) |>
-  dplyr::select(-data) |>
-  unnest(c(x, y)) |>
-  with_groups(x, ~ .x |> mutate(proportion = softmax(y))) |>
-  mutate(x_corrected = (x * 9610.807 / 0.6) + 12865.75) |>
-  filter(x_corrected |> between(30.0 , 30295.0))
 
 
 # Scatter plot of the significant cell types which compositon change through ageing
 # The proportions are adjusted to exclude other effects including
 # Sex, ethnicity, random effects (e.g. datasets) and technology
 
-outliers_df = 
+# outliers_df =
+#   differential_composition_sex_relative |>
+#   select(cell_type_harmonised, count_data) |>
+#   unnest(count_data) |>
+#   distinct() |>
+#   filter(outlier) |>
+#   select(cell_type_harmonised, sample_)
+
+
+significant_cell_types_plot_sex_relative = 
+  differential_composition_sex_relative |>
+  test_contrasts(test_composition_above_logit_fold_change = 0.2) |>
+  filter(parameter == "sexmale") |>
+  filter(c_FDR<0.05 | v_FDR < 0.05) |>
+  mutate(is_compositionally_different = c_FDR<0.05) |> 
+  distinct(cell_type_harmonised, c_effect, is_compositionally_different) |> 
+  
+  # Filter cell types that are more than 3 tissues, 
+  # otherwise a body level inference does not make much sense
+  inner_join(    tissue_baseline_plot_sex_relative |> distinct(cell_type_harmonised) ) 
+
+confidence_interval_plot_sex_relative = 
   differential_composition_sex_relative |> 
-  select(cell_type_harmonised, count_data) |>
-  unnest(count_data) |> 
-  distinct() |> 
-  filter(outlier) |> 
-  select(cell_type_harmonised, sample_)
+  sccomp_replicate(formula_composition = ~ sex) |>
+  left_join(data_for_immune_proportion_relative |> distinct(sample_, sex)) |> 
+  with_groups(c(sex, cell_type_harmonised), ~ .x |> summarise(
+    lower = generated_proportions |> quantile(0.05),
+    mean = generated_proportions |> mean(),
+    upper = generated_proportions |> quantile(0.95),
+  )) |> 
+  inner_join(significant_cell_types_plot_sex_relative) 
 
 plot_sex_relative =
-  proportions_sex_relative_adjusted |>
-  
-  # Drop outliers
-  anti_join( outliers_df ) |> 
-  
-  # Filter
-  filter(cell_type_harmonised != "immune_unclassified")  |> 
-  
-  # Filter granulocytes because different in blood or solid
-  #filter(cell_type_harmonised != "dnt") |> 
-  
-  inner_join(
-    differential_composition_sex_relative |>
-      test_contrasts(test_composition_above_logit_fold_change = 0.1) |> 
-      filter(parameter == "sexmale") |>
-      filter(c_FDR<0.05) |>
-      distinct(cell_type_harmonised, c_effect)
-  ) |>
-  
-  inner_join(
-    data_for_immune_proportion_relative |>
-      tidybulk::pivot_sample(sample_)
-  ) |>
-  
-  filter(development_stage != "unknown") |>
-  filter(cell_type_harmonised != "immune_unclassified") |>
-  #filter(tissue_harmonised != "blood") |>
-  # Fix samples with multiple assays
-  unite("sample_", c(sample_ , assay), remove = FALSE) |>
-  
-  # Fix groups
-  unite("group", c(tissue_harmonised , file_id), remove = FALSE)  |>
-  
-  # Relevel
-  arrange(c_effect) %>%
-  mutate(cell_type_harmonised = factor(cell_type_harmonised, levels = unique(.$cell_type_harmonised))) |> 
-  
-  ggplot(aes(sex, adjusted_proportion)) +
-  geom_boxplot() +
+  ggplot() +
   geom_jitter(
-    aes(fill = tissue_harmonised),
+    aes(sex, adjusted_proportion, fill = tissue_harmonised),
     shape = 21,
     stroke = 0,
-    size = 0.4
+    size = 0.4,
+    data = 
+      proportions_sex_relative_adjusted |>
+      
+      # Attach sex
+      inner_join(
+        data_for_immune_proportion_relative |>
+          tidybulk::pivot_sample(sample_)
+      ) |>
+      
+      # Filter cell types that are more than 3 tissues, 
+      # otherwise a body level inference does not make much sense
+      inner_join(    tissue_baseline_plot_sex_relative |> filter(mean>0.005) |>  distinct(tissue_harmonised, cell_type_harmonised)  ) |> 
+      
+      # Drop outliers
+      # anti_join( outliers_df ) |>
+      
+      # Filter
+      filter(cell_type_harmonised != "immune_unclassified")  |>
+      
+      # Filter granulocytes because different in blood or solid
+      #filter(cell_type_harmonised != "dnt") |>
+      
+      inner_join(significant_cell_types_plot_sex_relative ) |>
+      
+      filter(development_stage != "unknown") |>
+      filter(!cell_type_harmonised %in% c("immune_unclassified", "dnt")) |>
+      #filter(tissue_harmonised != "blood") |>
+      # Fix samples with multiple assays
+      unite("sample_", c(sample_ , assay), remove = FALSE) |>
+      
+      # Fix groups
+      unite("group", c(tissue_harmonised , file_id), remove = FALSE) 
+    
   ) +
-  
-  # geom_line(
-  #   aes(sex, proportion, color = significant),
-  #   data = line_sex_relative_mean |>
-  #     
-  #     # Filter granulocytes because different in blood or solid
-  #     filter(cell_type_harmonised != "dnt") |> 
-  #     
-  #     # Join statistics
-  #     inner_join(
-  #       differential_composition_sex_relative |>
-  #         test_contrasts(test_composition_above_logit_fold_change = FDR_threshold_1_percent_change_at_20_percent_baseline) |> 
-  #         filter(parameter == "sexmale") |>
-  #         mutate(significant = c_FDR < 0.05) |>
-  #         filter(cell_type_harmonised != "immune_unclassified") |>
-  #         dplyr::select(cell_type_harmonised, significant) |> 
-  #         filter(significant)
-  #     )
-  # ) +
-  facet_wrap( ~ cell_type_harmonised, ncol = 3, scale="free_y") +
+  geom_point(aes(sex, mean),
+           data = confidence_interval_plot_sex_relative,
+           color = "red"
+          ) +
+  geom_line(aes(sex, mean, group = cell_type_harmonised),
+             data = confidence_interval_plot_sex_relative,
+             color = "red"
+  ) +
+  geom_linerange(aes(x = sex,ymin = lower, ymax = upper), color = "grey29", size = 0.5, data = confidence_interval_plot_sex_relative) +
+  facet_wrap( ~ fct_reorder(cell_type_harmonised, !is_compositionally_different), nrow=2, scale="free_y") +
   scale_y_continuous(trans = S_sqrt_trans(), labels = dropLeadingZero) +
   scale_fill_manual(values = tissue_color) +
   scale_color_manual(values = c("TRUE" = "red", "FALSE" = "black")) +
@@ -373,78 +416,81 @@ plot_sex_relative =
   guides(fill = "none", color = "none") +
   theme_multipanel
 
-# Plot for presentation B memory across tissues
-res_relative_proportions_sex_tissue = 
-  differential_composition_sex_relative |>
-  remove_unwanted_variation(~ sexmale + tissue_harmonised + ( sexmale | tissue_harmonised ), ~ sexmale)  |> 
-  inner_join(data_for_immune_proportion_relative |> tidybulk::pivot_sample(sample_) )
+# # Plot for presentation B memory across tissues
+# res_relative_proportions_sex_tissue = 
+#   differential_composition_sex_relative |>
+#   remove_unwanted_variation(~ 1 + sex + tissue_harmonised + ( 1 + sex | tissue_harmonised ), ~ sex)  |> 
+#   inner_join(data_for_immune_proportion_relative |> tidybulk::pivot_sample(sample_) )
+# 
+# res_relative_proportions_sex_tissue |> saveRDS("~/Documents/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.5/res_relative_proportions_sex_tissue.rds")
 
-res_relative_proportions_sex_tissue |> saveRDS("~/Documents/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.4/res_relative_proportions_sex_tissue.rds")
+res_relative_proportions_sex_tissue = readRDS("~/Documents/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.5/res_relative_proportions_sex_tissue.rds")
 
-# Get trend line to be used in the scatter plot of global compositional changes, plot_sex_relative
-line_sex_relative_mean_b_memory_per_tisue =
-  
-  differential_composition_sex_relative |>
-  filter(cell_type_harmonised=="b memory") |>
-  nest(data = -cell_type_harmonised) |>
-  
-  # Add tissue
-  mutate(
-    tissue_harmonised = 
-      list(
-        differential_composition_sex_relative |> 
-          filter(factor=="tissue_harmonised") |> 
-          distinct(parameter) |> 
-          pull(1) |> 
-          str_remove("tissue_harmonised")
-      )
-  ) |>
-  unnest(tissue_harmonised) |>
-  
-  mutate(x = list(seq(-3, 3, by = 0.1))) |>
-  mutate(y = pmap(list(data, x, tissue_harmonised), ~ {
-    ( ..2 * ..1 |> filter(parameter == "sexmale") |> pull(c_effect))  + # SLOPE
-      (..1 |> filter(parameter == "(Intercept)") |> pull(c_effect)) + # INTERCEPT
-      (..1 |> filter(parameter == glue("tissue_harmonised{..3}")) |> pull(c_effect)) + # INTERCEPT TISSUE
-      (..2 * ..1 |> filter(parameter == glue("{..3}___sex_days")) |> pull(c_effect))   # GROUP-LEVEL SLOPE
-    
-  })) |>
-  dplyr::select(-data) |>
-  unnest(c(x, y)) |>
-  with_groups(x, ~ .x |> mutate(proportion = softmax(y))) |>
-  mutate(x_corrected = (x * 9610.807 / 0.6) + 12865.75) |>
-  filter(x_corrected |> between(30.0 , 30295.0))
 
-res_relative_proportions_sex_tissue |>
-  
-  filter(cell_type_harmonised=="cd14 mono") |>
-  ggplot(aes(sexmale, adjusted_proportion,colour = tissue_harmonised)) +
-  geom_point(
-    aes(fill = tissue_harmonised),
-    shape = 21,
-    stroke = 0,
-    size = 0.6
-  ) +
-  # geom_line(
-  # 	aes(x_corrected, proportion, color = tissue_harmonised),
-  # 	data = 
-  # 		line_sex_relative_mean_b_memory_per_tisue 
-  # ) +
-  geom_smooth(
-    method = "glm", 
-    method.args = list(family = "binomial"), 
-    se = FALSE, size=1) +
-  scale_y_continuous(trans = S_sqrt_trans(), labels = dropLeadingZero) +
-  scale_x_continuous(
-    labels = function(x)
-      round(x / 356)
-  ) +
-  scale_fill_manual(values = tissue_color) +
-  scale_color_manual(values = tissue_color) +
-  xlab("Years") +
-  ylab("Adjusted proportions") +
-  guides(fill = "none", color = "none") +
-  theme_multipanel
+# # Get trend line to be used in the scatter plot of global compositional changes, plot_sex_relative
+# line_sex_relative_mean_b_memory_per_tisue =
+#   
+#   differential_composition_sex_relative |>
+#   filter(cell_type_harmonised=="b memory") |>
+#   nest(data = -cell_type_harmonised) |>
+#   
+#   # Add tissue
+#   mutate(
+#     tissue_harmonised = 
+#       list(
+#         differential_composition_sex_relative |> 
+#           filter(factor=="tissue_harmonised") |> 
+#           distinct(parameter) |> 
+#           pull(1) |> 
+#           str_remove("tissue_harmonised")
+#       )
+#   ) |>
+#   unnest(tissue_harmonised) |>
+#   
+#   mutate(x = list(seq(-3, 3, by = 0.1))) |>
+#   mutate(y = pmap(list(data, x, tissue_harmonised), ~ {
+#     ( ..2 * ..1 |> filter(parameter == "sexmale") |> pull(c_effect))  + # SLOPE
+#       (..1 |> filter(parameter == "(Intercept)") |> pull(c_effect)) + # INTERCEPT
+#       (..1 |> filter(parameter == glue("tissue_harmonised{..3}")) |> pull(c_effect)) + # INTERCEPT TISSUE
+#       (..2 * ..1 |> filter(parameter == glue("{..3}___sex_days")) |> pull(c_effect))   # GROUP-LEVEL SLOPE
+#     
+#   })) |>
+#   dplyr::select(-data) |>
+#   unnest(c(x, y)) |>
+#   with_groups(x, ~ .x |> mutate(proportion = softmax(y))) |>
+#   mutate(x_corrected = (x * 9610.807 / 0.6) + 12865.75) |>
+#   filter(x_corrected |> between(30.0 , 30295.0))
+# 
+# res_relative_proportions_sex_tissue |>
+#   
+#   filter(cell_type_harmonised=="cd14 mono") |>
+#   ggplot(aes(sexmale, adjusted_proportion,colour = tissue_harmonised)) +
+#   geom_point(
+#     aes(fill = tissue_harmonised),
+#     shape = 21,
+#     stroke = 0,
+#     size = 0.6
+#   ) +
+#   # geom_line(
+#   # 	aes(x_corrected, proportion, color = tissue_harmonised),
+#   # 	data = 
+#   # 		line_sex_relative_mean_b_memory_per_tisue 
+#   # ) +
+#   geom_smooth(
+#     method = "glm", 
+#     method.args = list(family = "binomial"), 
+#     se = FALSE, size=1) +
+#   scale_y_continuous(trans = S_sqrt_trans(), labels = dropLeadingZero) +
+#   scale_x_continuous(
+#     labels = function(x)
+#       round(x / 356)
+#   ) +
+#   scale_fill_manual(values = tissue_color) +
+#   scale_color_manual(values = tissue_color) +
+#   xlab("Years") +
+#   ylab("Adjusted proportions") +
+#   guides(fill = "none", color = "none") +
+#   theme_multipanel
 
 # res_relative_proportions_sex_tissue |> 
 
@@ -458,9 +504,9 @@ differential_composition_sex_relative |>
   print_estimate_plus_minus_relative(
     contrasts_baseline = 
       differential_composition_sex_relative |>
-      filter(parameter |> str_detect("___sex_days")) |>
+      filter(parameter |> str_detect("sexmale___")) |>
       tidyr::extract(parameter, "tissue_harmonised", "(.+)___.+", remove = FALSE) |>
-      mutate(parameter = glue("__{parameter}")) |> 
+      mutate(parameter = glue("{parameter}")) |> 
       distinct(parameter, tissue_harmonised) |>
       mutate(contrast = glue("`(Intercept)` + `tissue_harmonised{tissue_harmonised}`") |> as.character()) |>
       select(parameter, contrast) |> 
@@ -502,10 +548,10 @@ df_heatmap_sex_relative_organ_cell_type =
   test_contrasts(
     contrasts =
       differential_composition_sex_relative |>
-      filter(parameter |> str_detect("___sex_days")) |>
+      filter(parameter |> str_detect("sexmale___")) |>
       distinct(parameter) |>
       mutate(contrast = glue("sexmale + `{parameter}`") |> as.character()) |>
-      tidyr::extract(parameter, "tissue_harmonised", "(.+)___.+") |>
+      tidyr::extract(parameter, "tissue_harmonised", ".+___(.+)") |>
       deframe( ),
     #test_composition_above_logit_fold_change = FDR_threshold_1_percent_change_at_20_percent_baseline
   )  |>
@@ -523,7 +569,7 @@ df_heatmap_sex_relative_organ_cell_type =
   mutate(data = map2(
     data, is_treg,
     ~ {
-      if(.y) .x |> mutate(c_effect = c_effect/7 )
+      if(.y) .x |> mutate(c_effect = c_effect/10 )
       else(.x)
     }
   )) |> 
@@ -658,7 +704,7 @@ plot_heatmap_sex_relative_organ_cell_type =
 # Save heatmap separately
 plot_heatmap_sex_relative_organ_cell_type |>
   save_pdf(
-    filename = "~/Documents/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.4/plot_heatmap_sex_relative_organ_cell_type.pdf",
+    filename = "~/Documents/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.5/plot_heatmap_sex_relative_organ_cell_type.pdf",
     width = 80*1.5, height = 60*1.5, units = "mm"
   )
 
@@ -676,16 +722,13 @@ plot =
   ((
     ((
       plot_sex_absolute_1D |
-       # plot_spacer() |
-      #	plot_spacer() | #plot_sex_absolute_organ_boxoplot_adjusted |
-       volcano_relative_sex
+        variability_abundance_plot |
+        plot_sex_relative
     ) + 
-    	plot_layout(width = c(12,  30))
+    	plot_layout(width = c(1, 3, 4))
    ) /
       
-      plot_spacer() /
-      
-      volcano_relative_ethnicity 
+     plot_heatmap_sex_relative_organ_cell_type
       
   ) + plot_layout( height = c(55, 18, 50))
 ) |
@@ -770,22 +813,25 @@ de_table =
 gene_chr = read_csv("symbol_chr.csv")
 
 
-de_table |> 
-  distinct(cell_type, tissue_harmonised, symbol, lineage) |> 
-  filter(!symbol %in% gene_chr$ID) |>  
-  mutate(exists = 1) |> 
-  complete(nesting(cell_type,tissue_harmonised, lineage), symbol, fill = list(exists = 0)) |> 
-  mutate(cell_type_tissue = glue("{cell_type} {tissue_harmonised}") ) |> 
-  
-  heatmap(
-    cell_type_tissue,
-    symbol,
-    exists
-  ) |> 
-  annotation_tile(cell_type) |> 
-  annotation_tile(lineage) |> 
-  annotation_tile(tissue_harmonised) 
+# de_table |> 
+#   distinct(cell_type, tissue_harmonised, symbol, lineage) |> 
+#   filter(!symbol %in% gene_chr$ID) |>  
+#   mutate(exists = 1) |> 
+#   complete(nesting(cell_type,tissue_harmonised, lineage), symbol, fill = list(exists = 0)) |> 
+#   mutate(cell_type_tissue = glue("{cell_type} {tissue_harmonised}") ) |> 
+#   
+#   heatmap(
+#     cell_type_tissue,
+#     symbol,
+#     exists
+#   ) |> 
+#   annotation_tile(cell_type) |> 
+#   annotation_tile(lineage) |> 
+#   annotation_tile(tissue_harmonised) 
 
+de_table |> 
+  with_groups(tissue_harmonised, ~ .x |> count(cell_type) |> summarise(mean_de = median(n)))
+  count(cell_type, tissue_harmonised) 
 
 de_table |> 
   count(cell_type, tissue_harmonised) |> 
