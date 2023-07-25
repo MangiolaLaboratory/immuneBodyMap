@@ -11,9 +11,11 @@ library(tidyHeatmap)
 library(ComplexHeatmap)
 library(scales)
 library(ggplot2)
+library(targets)
+library(tidybulk)
+library(tidySummarizedExperiment)
 
-
-result_directory = "~/Documents/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.5"
+result_directory = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab/projects/mangiola.s/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.5"
 
 
 # Calculate softmax from an array of reals
@@ -422,9 +424,9 @@ plot_sex_relative =
 #   remove_unwanted_variation(~ 1 + sex + tissue_harmonised + ( 1 + sex | tissue_harmonised ), ~ sex)  |> 
 #   inner_join(data_for_immune_proportion_relative |> tidybulk::pivot_sample(sample_) )
 # 
-# res_relative_proportions_sex_tissue |> saveRDS("~/Documents/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.5/res_relative_proportions_sex_tissue.rds")
+# res_relative_proportions_sex_tissue |> saveRDS("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.5/res_relative_proportions_sex_tissue.rds")
 
-res_relative_proportions_sex_tissue = readRDS("~/Documents/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.5/res_relative_proportions_sex_tissue.rds")
+res_relative_proportions_sex_tissue = readRDS(glue("{result_directory}/res_relative_proportions_sex_tissue.rds"))
 
 
 # # Get trend line to be used in the scatter plot of global compositional changes, plot_sex_relative
@@ -704,13 +706,503 @@ plot_heatmap_sex_relative_organ_cell_type =
 # Save heatmap separately
 plot_heatmap_sex_relative_organ_cell_type |>
   save_pdf(
-    filename = "~/Documents/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.5/plot_heatmap_sex_relative_organ_cell_type.pdf",
+    filename = glue("{result_directory}/plot_heatmap_sex_relative_organ_cell_type.pdf"),
     width = 80*1.5, height = 60*1.5, units = "mm"
   )
 
 
+# DE
+
+# Plot of importance of composition vs transcription
 
 
+# de_sex = 
+# 	tar_meta(store = glue("{result_directory}/_targets__sex"), starts_with("data_")) |> 
+# 	filter(!is.na(data)) |>
+# 	mutate(se = map(
+# 		name, 
+# 		~ tar_read_raw(.x, store = glue("{result_directory}/_targets__sex")) |> 
+# 			pivot_transcript(), 
+# 		.progress=T
+# 	))
+# de_sex |> saveRDS("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.5/de_sex.rds")
+
+
+
+plot_ranks_cell_type = 
+	differential_composition_sex_relative |> 
+	test_contrasts() |>
+	filter(parameter=="sexmale") |>
+	arrange(c_FDR) |>
+	rowid_to_column("rank_composition") |>
+	select(cell_type = cell_type_harmonised, rank_composition) |>
+
+
+
+	full_join(
+		
+		# DE
+		readRDS("sccomp_on_HCA_0.2.3.5/de_sex.rds") |>
+			unnest(se) |>
+			count(name, P_sex_adjusted < 0.05) |> 
+			drop_na() |> 
+			spread(`P_sex_adjusted < 0.05`, n) |> 
+			mutate(proportion_significant = `TRUE` / (`FALSE` + `TRUE`)) |> 
+			arrange(desc(proportion_significant)) |>
+			rowid_to_column("rank_de") |>
+			
+			rename(cell_type = name) |>
+			
+			# Parse cell type
+			mutate(cell_type = 
+						 	cell_type |> 
+						 	str_remove("data_") |> 
+						 	str_replace_all("__", " ") |> 
+						 	str_replace("th1 th17", "th1/th17") 
+						) ,
+		by = join_by(cell_type)
+		
+	) |>
+	select(cell_type, contains("rank")) |>
+	pivot_longer(contains("rank")) |>
+	mutate(name = name |> str_remove("rank")) |>
+	
+	# Parse cell types
+	mutate(cell_type_formatted = cell_type |> 
+				 	str_replace("megakaryocytes", "mega") |> 
+				 	str_remove("phage") |> 
+				 	str_replace("th1 th17", "th1/17") |> 
+				 	str_replace("mono", "mn") |> 
+				 	str_replace("tcm", "cm") |> 
+				 	str_replace("cd4 th", "Th") |> 
+				 	str_replace("memory", "mem") |> 
+				 	str_replace("naive", "nv") |> 
+				 	str_replace("terminal effector cd4 t", "cd4 eff") |> 
+				 	str_remove("cyte") 
+	) |>
+	
+	filter(!cell_type %in% c("immune_unclassified", "dnt")) |>
+	# Plot
+	ggplot(aes(name, value, group=cell_type,  label=cell_type_formatted)) +
+	geom_line(aes(color = cell_type)) +
+	geom_point(aes(color = cell_type)) +
+	geom_text() +
+	scale_color_manual(values = cell_type_color) +
+	scale_y_reverse() +
+	guides(color = "none") +
+	theme_multipanel
+
+
+
+# de_sex_tissue =
+# 	tar_meta(store = glue("pseudobulk_0.2.3.4/_targets__sex_tissue"), starts_with("data_")) |>
+# 	filter(!is.na(data)) |>
+# 	mutate(se = map(
+# 		name,
+# 		~ tar_read_raw(.x, store = glue("pseudobulk_0.2.3.4/_targets__sex_tissue")) |>
+# 			pivot_transcript(),
+# 		.progress=T
+# 	))
+# de_sex_tissue |> saveRDS("sccomp_on_HCA_0.2.3.5/de_sex_tissue.rds")
+
+
+plot_ranks_tissue = 
+	differential_composition_sex_relative |> 
+	test_contrasts() |>
+	filter(parameter |> str_detect("sexmale___")) |>
+	with_groups(parameter, ~ .x |> summarise(median_FDR= median(c_FDR))) |>
+	arrange(median_FDR) |>
+	rowid_to_column("rank_composition") |>
+	mutate(tissue = parameter |> str_remove("sexmale___")) |>
+	select(tissue , rank_composition) |>
+	
+	
+	
+	full_join(
+		
+		# DE
+		readRDS("sccomp_on_HCA_0.2.3.5/de_sex_tissue.rds") |>
+			filter(map_lgl(se, ~ "P_sex_adjusted" %in% colnames(.x))) |>
+			mutate(n = map(
+				se,
+				~ .x |>
+					filter(!.feature %in% gene_chr$ID) |>
+					count( P_sex_adjusted < 0.05)
+			)) |>
+			unnest(n) |>
+			filter(!is.na(`P_sex_adjusted < 0.05`)) |>
+			select(name,`P_sex_adjusted < 0.05`, n) |>
+			spread(`P_sex_adjusted < 0.05`, n) |> 
+			mutate(proportion_significant = `TRUE` / (`FALSE` + `TRUE`)) |> 
+			arrange(desc(proportion_significant)) |>
+			rowid_to_column("rank_de") |>
+			
+			rename(tissue = name) |>
+			mutate(tissue = tissue |> str_remove("data_")) |>
+			# Parse cell type
+			mutate(tissue = case_when(
+				tissue == "node" ~ "lymph node",
+				tissue == "large" ~ "intestine large",
+				tissue == "small" ~ "intestine small",
+				TRUE ~ tissue
+			)) ,
+		by = join_by(tissue)
+		
+	) |>
+	select(tissue, contains("rank")) |>
+	pivot_longer(contains("rank")) |>
+	mutate(name = name |> str_remove("rank")) |>
+	
+	# Parse cell types
+	mutate(
+		tissue =
+			tissue |>
+			str_replace_all("_", " ") |>
+			str_replace("gland", "gld") |>
+			str_replace("skeletal", "sk")
+	) |>
+	
+	# Plot
+	ggplot(aes(name, value, group=tissue,  label=tissue)) +
+	geom_line(aes(color = tissue)) +
+	geom_point(aes(color = tissue)) +
+	geom_text() +
+	scale_color_manual(values = tissue_color) +
+	scale_y_reverse() +
+	guides(color = "none") +
+	theme_multipanel
+
+
+ # tar_read_raw("data_bone", store = glue("pseudobulk_0.2.3.4/_targets__sex_tissue")) |>
+ # 	filter(.feature=="PSPH") |>
+ # 	ggplot(aes(sex, counts_scaled + 1)) +
+ # 	geom_boxplot(fill ="white", outlier.shape = NA) +
+ # 	geom_jitter(aes(color = cell_type_harmonised), size = 0.2, height =0) +
+ # 	facet_wrap(~ cell_type_harmonised, scales = "free_y") +
+ # 	scale_y_log10() +
+ # 	theme_bw()
+
+gene_chr = read_csv("symbol_chr.csv")
+
+
+library(ggVennDiagram)
+
+list(
+	tissue = 
+		readRDS("sccomp_on_HCA_0.2.3.5/de_sex_tissue.rds") |> 
+		filter(map_lgl(se, ~ "P_sex_adjusted" %in% colnames(.x))) |>
+		mutate(se = map(se, ~ .x |> select(P_sex_adjusted, .feature))) |>
+		select(se, name) |>
+		unnest(se) |>
+		add_count(.feature, name = "n_tissue") |>
+		filter(n_tissue >= 5) |>
+		count(P_sex_adjusted<0.05, .feature, n_tissue) |>
+		filter(`P_sex_adjusted < 0.05`) |>
+		mutate(proportion = n/n_tissue) |>
+		filter(proportion > 0.30) |>
+		filter(!.feature %in% gene_chr$ID) |> 
+		pull(.feature),
+	cell_type = 
+		readRDS("sccomp_on_HCA_0.2.3.5/de_sex.rds") |> 
+		filter(map_lgl(se, ~ "P_sex_adjusted" %in% colnames(.x))) |>
+		mutate(se = map(se, ~ .x |> select(P_sex_adjusted, .feature))) |>
+		select(se, name) |>
+		unnest(se) |>
+		add_count(.feature, name = "n_cell_type") |>
+		filter(n_cell_type >= 5) |>
+		count(P_sex_adjusted<0.05, .feature, n_cell_type) |>
+		filter(`P_sex_adjusted < 0.05`) |>
+		mutate(proportion = n/n_cell_type) |>
+		filter(proportion > 0.30) |>
+		filter(!.feature %in% gene_chr$ID) |> 
+		pull(.feature)
+) |>
+euler(fshape = "ellipse") |>
+plot(quantities = TRUE)
+
+
+list(
+	`tissue\nC1QA C1QB\nCEP170 OXNAD1` = 
+		readRDS("sccomp_on_HCA_0.2.3.5/de_sex_tissue.rds") |> 
+		filter(map_lgl(se, ~ "P_sex_adjusted" %in% colnames(.x))) |>
+		mutate(se = map(se, ~ .x |> select(P_sex_adjusted, .feature))) |>
+		select(se, name) |>
+		unnest(se) |>
+		add_count(.feature, name = "n_tissue") |>
+		filter(n_tissue >= 5) |>
+		count(P_sex_adjusted<0.05, .feature, n_tissue) |>
+		filter(`P_sex_adjusted < 0.05`) |>
+		mutate(proportion = n/n_tissue) |>
+		filter(proportion > 0.50) |>
+		filter(!.feature %in% gene_chr$ID) |> 
+		pull(.feature),
+	`cell_type\nLOC105377224` = 
+		readRDS("sccomp_on_HCA_0.2.3.5/de_sex.rds") |> 
+		filter(map_lgl(se, ~ "P_sex_adjusted" %in% colnames(.x))) |>
+		mutate(se = map(se, ~ .x |> select(P_sex_adjusted, .feature))) |>
+		select(se, name) |>
+		unnest(se) |>
+		add_count(.feature, name = "n_cell_type") |>
+		filter(n_cell_type >= 5) |>
+		count(P_sex_adjusted<0.05, .feature, n_cell_type) |>
+		filter(`P_sex_adjusted < 0.05`) |>
+		mutate(proportion = n/n_cell_type) |>
+		filter(proportion > 0.50) |>
+		filter(!.feature %in% gene_chr$ID) |> 
+		pull(.feature)
+) |>
+	euler(fshape = "ellipse") |>
+	plot(quantities = TRUE)
+
+# job::job({
+# 
+# 	library(future)
+# 	library(furrr)
+# 	library("future.batchtools")
+# 
+# 	slurm <-
+# 		`batchtools_slurm` |>
+# 		future::tweak( template = glue("/stornext/Bioinf/data/bioinf-data/Papenfuss_lab/projects/mangiola.s/third_party_sofware/slurm_batchtools.tmpl"),
+# 									 resources=list(
+# 									 	ncpus = 2,
+# 									 	memory = 40000,
+# 									 	walltime = 72800
+# 									 )
+# 		)
+# 	plan(slurm)
+# 
+# 
+# 	se_adjust =
+# 		tar_meta(store = glue("pseudobulk_0.2.3.4/_targets__sex_tissue"), starts_with("data_")) |>
+# 		filter(!is.na(data)) |>
+# 
+# 		mutate(se = future_map(
+# 			name,
+# 			~ {
+# 				se = tar_read_raw(.x, store = glue("pseudobulk_0.2.3.4/_targets__sex_tissue"))
+# 
+# 				if(SummarizedExperiment::ncol(se)==0) return(NULL)
+# 				if(!"P_sex_adjusted" %in% colnames(SummarizedExperiment::rowData(se))) return(NULL)
+# 
+# 				# Get formula
+# 				factor_unwanted =
+# 					se |>
+# 					attr("internals") %$%
+# 					glmmseq_lme4 %>%
+# 					`@` (formula) |>
+# 					as.character() %>%
+# 					.[[3]] |>
+# 					str_split("\\+")  %>%
+# 					.[[1]] |>
+# 					str_subset("\\(|\\||sex", negate = TRUE) |>
+# 					str_trim()
+# 
+# 				# Make object lighter
+# 				attr(se, "internals")$glmmseq_lme4 = NULL
+# 
+# 				se |>
+# 					adjust_abundance(
+# 						.factor_of_interest = c(sex),
+# 						.factor_unwanted = any_of(factor_unwanted)  ,
+# 						.abundance = counts_scaled,
+# 						method = "limma_remove_batch_effect"
+# 					)  |>
+# 					tidySummarizedExperiment::filter(P_sex_adjusted<0.05) |>
+# 					tidySummarizedExperiment::select(
+# 						.feature, .sample, sample_, 
+# 						contains("counts"), contains("sexmale"), 
+# 						tissue_harmonised, cell_type_harmonised, 
+# 						sex, P_sex_adjusted, P_sex
+# 					)
+# 
+# 
+# 			},
+# 			.progress=T
+# 		))
+# 
+# })
+# 
+# se_adjust |> saveRDS("sccomp_on_HCA_0.2.3.5/de_sex_tissue_adjusted.rds")
+
+se_adjust = 
+	readRDS("sccomp_on_HCA_0.2.3.5/de_sex_tissue_adjusted.rds")
+
+xx = 
+	se_adjust |> 
+	pull(se) %>% 
+	.[[3]] |> 
+	
+	# Significant
+	filter(P_sex_adjusted<0.05)  |>
+	
+	# Non sex genes
+	filter(!.feature %in% gene_chr$ID) |> 
+
+	# Filter cell types for which we have both sexes
+	as_tibble() |>
+	nest(data = -c(.feature, cell_type_harmonised)) |>
+	filter(map_int(data, ~ .x |> distinct(sex) |> nrow()) >1) |>
+	filter(map_int(data, ~ .x |> filter(counts_scaled >1) |> nrow()) >0) |>
+	unnest(data) |>
+	
+	nest(data = -c(.feature, contains("mode"), sexmale, P_sex_adjusted)) |>
+	mutate(cell_type_to_select = map(data, ~ .x |> pull(cell_type_harmonised) |> unique())) |>
+	select(-data) |>
+
+	
+	pivot_longer(cols = contains("mode"), names_sep = "_cell_type_harmonised__", names_to = c("cell_type", "stat")) |>
+	filter(map2_lgl(cell_type, cell_type_to_select, ~ .x %in% .y)) |>
+	with_groups(c(.feature,P_sex_adjusted, sexmale), ~ .x |> summarise(mode_sd = sd(value), n = n())) |> 
+	arrange(mode_sd) |>
+	
+	# Only filter confident
+	filter(n>5) |> 
+	filter(P_sex_adjusted<0.001) |> 
+	filter(abs(sexmale)>1)
+
+
+genes_consistent = xx|> head(100) |> pull(.feature)
+	
+genes_diverse = xx |> tail(100) |> pull(.feature)
+
+
+
+x1 = 
+	se_adjust |> 
+	pull(se) %>% 
+	.[[3]] |>
+	filter(sexmale>0) |>
+	mutate(entrez = AnnotationDbi::mapIds(org.Hs.eg.db::org.Hs.eg.db,
+																				keys = .feature,
+																				keytype = "SYMBOL",
+																				column = "ENTREZID",
+																				multiVals = "first"
+	)) |>
+	test_gene_overrepresentation(
+		.do_test = .feature %in% genes_consistent,
+		species = "Homo sapiens", .entrez = entrez) 
+
+x2 = se_adjust |> 
+	pull(se) %>% 
+	.[[3]] |>
+	filter(sexmale>0) |>
+	mutate(entrez = AnnotationDbi::mapIds(org.Hs.eg.db::org.Hs.eg.db,
+																				keys = .feature,
+																				keytype = "SYMBOL",
+																				column = "ENTREZID",
+																				multiVals = "first"
+	)) |>
+	test_gene_overrepresentation(
+		.do_test = .feature %in% genes_diverse,
+		species = "Homo sapiens", .entrez = entrez)
+
+se_adjust |>
+	select(name, se) |>
+	filter(!map_lgl(se, is.null)) |>
+	mutate(se = map(se, 
+									~ .x |> 
+										filter(.feature== "LONRF1") |> 
+										as_tibble()
+	)) |>
+	unnest(se) |>
+	ggplot(aes(sex, counts_scaled_adjusted + 1)) +
+	geom_boxplot(fill ="white", outlier.shape = NA) +
+	geom_jitter(aes(color = tissue_harmonised), size = 0.2, height =0) +
+	facet_grid(tissue_harmonised ~ cell_type_harmonised , scales = "free_y") +
+	scale_y_log10() +
+	theme_bw() 
+
+
+
+# Export single cell
+ bone_pseudobulk_samples =
+ 	tar_read_raw("data_bone", store = glue("pseudobulk_0.2.3.4/_targets__sex_tissue")) |>
+  distinct(sample_) |> 
+ 	extract(col = sample_, into = "sample_", regex = "([a-zA-Z0-9]+)_*") |>
+ 	pull(sample_)
+ 
+
+ library(DelayedArray)
+ library(HDF5Array)
+
+ 
+ get_metadata() |> 
+ #	filter(cell_type_harmonised == "cd4 th17") |>
+ 	filter(tissue_harmonised %in% c("bone")) |> 
+ 	filter(sample_ %in% bone_pseudobulk_samples) |>
+ 	add_count(sample_, name = "count_sample") |> 
+ 	filter(count_sample > 200) |> 
+ 	as_tibble()  |> 
+ 	#with_groups(sample_, ~ .x |> sample_n(min(1000, n() ))) |> 
+ 	get_single_cell_experiment(cache_directory = "/vast/projects/cellxgene_curated", assays = "counts") |>
+ 	saveHDF5SummarizedExperiment("sccomp_on_HCA_0.2.3.5/bone")
+ 
+ # kidney
+ kidney_pseudobulk_samples =
+ 	tar_read_raw("data_kidney", store = glue("pseudobulk_0.2.3.4/_targets__sex_tissue")) |>
+ 	distinct(sample_) |> 
+ 	extract(col = sample_, into = "sample_", regex = "([a-zA-Z0-9]+)_*") |>
+ 	pull(sample_)
+ 
+ get_metadata() |> 
+ 	#	filter(cell_type_harmonised == "cd4 th17") |>
+ 	filter(tissue_harmonised %in% c("kidney")) |> 
+ 	filter(sample_ %in% kidney_pseudobulk_samples) |>
+ 	add_count(sample_, name = "count_sample") |> 
+ 	filter(count_sample > 200) |> 
+ 	as_tibble()  |> 
+ 	with_groups(sample_, ~ .x |> sample_n(min(2000, n() ))) |> 
+ 	get_single_cell_experiment(cache_directory = "/vast/projects/cellxgene_curated", assays = "counts") |>
+ 	saveHDF5SummarizedExperiment("sccomp_on_HCA_0.2.3.5/kidney")
+ 
+ 
+ # adipose
+adipose_pseudobulk_samples =
+ 	tar_read_raw("data_adipose", store = glue("pseudobulk_0.2.3.4/_targets__sex_tissue")) |>
+ 	distinct(sample_) |> 
+ 	extract(col = sample_, into = "sample_", regex = "([a-zA-Z0-9]+)_*") |>
+ 	pull(sample_)
+ 
+ 
+ get_metadata() |> 
+ 	#	filter(cell_type_harmonised == "cd4 th17") |>
+ 	filter(tissue_harmonised %in% c("adipose")) |> 
+ 	filter(sample_ %in% adipose_pseudobulk_samples) |>
+ 	add_count(sample_, name = "count_sample") |> 
+ 	filter(count_sample > 200) |> 
+ 	as_tibble()  |> 
+ 	#with_groups(sample_, ~ .x |> sample_n(min(1000, n() ))) |> 
+ 	get_single_cell_experiment(cache_directory = "/vast/projects/cellxgene_curated", assays = "counts") |>
+ 	saveHDF5SummarizedExperiment("sccomp_on_HCA_0.2.3.5/adipose")
+ 
+ 
+ 
+
+ 
+do.call(
+	cbind,
+	tar_meta(store = glue("pseudobulk_0.2.3.4/_targets__sex_tissue"), starts_with("se_filtered")) |>
+		filter(!is.na(data)) |>
+		mutate(se = map(
+			name,
+			~ tar_read_raw(.x, store = glue("pseudobulk_0.2.3.4/_targets__sex_tissue")),
+			.progress=T
+		)) |>
+		pull(se)
+)
+
+
+
+	
+
+se |>
+	filter(.feature== "NCOA7") |>
+	ggplot(aes(sex, counts_scaled + 1)) +
+	geom_boxplot(fill ="white", outlier.shape = NA) +
+	geom_jitter(aes(color = tissue_harmonised), size = 0.2, height =0) +
+	facet_wrap(~ tissue_harmonised, scales = "free_y") +
+	scale_y_log10() +
+	theme_bw()
 
 
 # Clean environment
@@ -744,7 +1236,7 @@ plot =
 
 
 ggsave(
-  glue("~/Documents/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.4/figure_demography.pdf"),
+	glue("{result_directory}/figure_demography.pdf"),
   plot = plot,
   units = c("mm"),
   width = 183 ,
@@ -757,9 +1249,9 @@ ggsave(
 library(ggExtra)
 library(magrittr)
 
-cell_types = readRDS("sccomp_on_HCA_0.2.3.5/input_common.rds") |> distinct(tissue_harmonised) |> pull(tissue_harmonised) |> str_replace(" ", "_")
+cell_types = readRDS(glue("{result_directory}/input_common.rds")) |> distinct(tissue_harmonised) |> pull(tissue_harmonised) |> str_replace(" ", "_")
 de_table = 
-  dir("sccomp_on_HCA_0.2.3.5/DGEA", full.names = TRUE) |> 
+  dir(glue("{result_directory}/DGEA"), full.names = TRUE) |> 
   enframe(value="file") |> 
   mutate(de = map(file, read_csv)) |>
   mutate(tissue_harmonised = map(
@@ -812,7 +1304,6 @@ de_table =
   
 
 
-gene_chr = read_csv("symbol_chr.csv")
 
 
 # de_table |> 
