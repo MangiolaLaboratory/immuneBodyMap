@@ -1,7 +1,7 @@
 
 library(targets)
 library(glue)
-result_directory = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab/projects/mangiola.s/PostDoc/immuneHealthyBodyMap/pseudobulk_0.2.3.4"
+result_directory = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/pseudobulk_0.2.3.4"
 
 
 	
@@ -17,7 +17,7 @@ tar_script({
 	library(glue)
 	library(tidySummarizedExperiment)
 	
-	result_directory = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab/projects/mangiola.s/PostDoc/immuneHealthyBodyMap/pseudobulk_0.2.3.4"
+	result_directory = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/pseudobulk_0.2.3.4"
 	
 	#-----------------------#
 	# Future SLURM
@@ -27,7 +27,7 @@ tar_script({
 	library("future.batchtools")
 	slurm <- 
 		`batchtools_slurm` |>
-		future::tweak( template = glue("/stornext/Bioinf/data/bioinf-data/Papenfuss_lab/projects/mangiola.s/third_party_sofware/slurm_batchtools.tmpl"),
+		future::tweak( template = glue("/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/third_party_sofware/slurm_batchtools.tmpl"),
 									 resources=list(
 									 	ncpus = 20,
 									 	memory = 6000,
@@ -35,30 +35,6 @@ tar_script({
 									 )
 		)
 	plan(slurm)
-	
-	#-----------------------#
-	# Future SLURM
-	#-----------------------#
-	
-	# small_slurm = 
-	# 	crew_controller_slurm(
-	# 		name = "small_slurm",
-	# 		slurm_memory_gigabytes_per_cpu = 8,
-	# 		slurm_cpus_per_task = 1, 
-	# 		workers = 200, 
-	# 		verbose = F, 
-	# 		script_lines = "module load R/4.2.1",
-	# 	)
-	# 
-	# big_slurm = 
-	# 	crew_controller_slurm(
-	# 		name = "big_slurm",
-	# 		slurm_memory_gigabytes_per_cpu = 4,
-	# 		slurm_cpus_per_task = 11, 
-	# 		workers = 200, 
-	# 		verbose = F, 
-	# 		script_lines = "module load R/4.2.1",
-	# 	)
 	
 	#-----------------------#
 	# Packages
@@ -76,45 +52,6 @@ tar_script({
 	#-----------------------#
 	# Functions
 	#-----------------------#
-	
-	build_pseudobulk = function(metadata, tissue_harmonised, cell_type_harmonised, is_immune){
-		
-		# Get seurat from CuratedAtlasQuery
-		seu = 				
-			metadata |>
-			filter(
-				tissue_harmonised == !!tissue_harmonised & 
-					cell_type_harmonised == !!cell_type_harmonised &
-					is_immune == !!is_immune
-			) |>
-			get_single_cell_experiment(
-				cache_directory = "/vast/projects/cellxgene_curated"
-			) |>
-			as.Seurat(data = NULL) 
-		
-		# Calculate median number of genes genes per samples
-		stats = 
-			seu |>
-			select(sample_, nFeature_originalexp) |>
-			with_groups(sample_, ~ .x |>
-										summarise(
-											mean_nFeature = mean(nFeature_originalexp), 
-											median_nFeature = median(nFeature_originalexp)
-										)) 
-		
-		
-		seu |> 
-			
-			# Calculate summary stats
-			left_join(stats, by = "sample_") |>
-			mutate(sample_ = glue("{sample_}___{cell_type_harmonised}")) |>
-			tidyseurat::aggregate_cells( .sample = sample_,
-																	 .metadata_columns_to_keep = c('cell_type_harmonised', 'sample_', 'file_id', 'assay', 'age_days', 'development_stage', 'sex', 'ethnicity', 'tissue_harmonised', 'tissue', 'disease', 'lineage_1', 'is_immune', 'sample_count', 'age_days_original', 'ethnicity_simplified', 'assay_simplified', 'mean_nFeature', 'median_nFeature')
-			) |>
-			rename(counts = originalexp) |>
-			tidybulk::as_SummarizedExperiment(.sample, .feature, counts) 
-		
-	}
 	
 	samples_NOT_complete_confounders_for_ethnicity_assay = function(se){
 		
@@ -320,7 +257,7 @@ tar_script({
 			unlist() |>
 			unique()
 		
-		# Vell types with enough samples
+		# Cell types with enough samples
 		cell_type_to_keep = 
 			se |> 
 			distinct(sample_, cell_type_harmonised) |> 
@@ -403,12 +340,109 @@ tar_make_future(
 )
 })
 
-
-tar_read(se_filtered_bladder, store = glue("{result_directory}/_targets__sex_tissue"))[1:100,] |> analyse(max_rows_for_matrix_multiplication = 10000, cores = 10)
-# tar_make(
-# 	script = glue("{result_directory}/_targets__sex_tissue.R"), 
-# 	store = glue("{result_directory}/_targets__sex_tissue")
-# )
+# 
+# # Non immune
+# tar_meta( store = glue("{result_directory}/_targets__pseudobulk"))	|>
+# 	filter(name |> str_detect("non_immune")) |>
+# 	mutate(se = map(name, ~ tar_read_raw(name=.x, store = glue("{result_directory}/_targets__pseudobulk") ), .progress = TRUE)) |>
+# 	filter(map_int(se, ~ .x |> distinct(sex) |> nrow()) > 1) |>
+# 	mutate(se = map(se, ~ .x |> filter(.aggregated_cells > 10) )) |>
+# 	# mutate(se = map(se, ~ .x |> filter(sample_ %in% (.x |>
+# 	# 																								 	assay("counts") |> 
+# 	# 																								 	apply(2, function(x) (x>0) |> which() |> length()) |>
+# 	# 																								 	enframe() |>
+# 	# 																								 	mutate(value = as.character(value), name = as.character(name)) |>
+# 	# 																								 	filter(value > 5000) |>
+# 	# 																								 	pull(name))))) |>
+# 	filter(map_int(se, ~ .x |> distinct(sample_) |> nrow()) > 10) |>
+# 	mutate(se = map(
+# 		se,
+# 		~ {
+# 			
+# 			if(ncol(se) == 0) return(se)
+# 			
+# 			if(se |> distinct(sex, ethnicity_simplified) |> count(ethnicity_simplified) |> pull(n) |> max() == 1)
+# 				return(se)
+# 			
+# 			# Build the formula
+# 			factors = 
+# 				c("sex", "ethnicity_simplified", "assay_simplified", "age_days", ".aggregated_cells", "disease") |>
+# 				enframe(value = "factor") |>
+# 				mutate(n = map_int(
+# 					factor, ~ se |> select(.x) |> distinct() |> nrow()
+# 				)) |>
+# 				filter(n>1) |>
+# 				pull(factor) |>
+# 				str_c(collapse = " + ")
+# 			
+# 			# The default
+# 			my_formula = glue("~ {factors}")
+# 			method = "edgeR_quasi_likelihood"
+# 			
+# 			
+# 			if( 	se |> distinct(file_id) |> nrow() > 1	){
+# 				my_formula = glue("{my_formula} + (1 | file_id)")
+# 				method = "glmmseq_lme4"
+# 			}
+# 			
+# 			# Normalise
+# 			se = se |> quantile_normalise_abundance() 
+# 			
+# 			# Select abundant genes within tissues and unite
+# 			abundant_genes = 
+# 				se |>
+# 				nest(data = -cell_type_harmonised) |>
+# 				mutate(abundant_genes = map(
+# 					data,
+# 					~ .x |>
+# 						keep_abundant(.abundance = counts_scaled, factor_of_interest = c(sex)) |>
+# 						rownames(), 
+# 					.progress = TRUE
+# 				)) |>
+# 				pull(abundant_genes) |>
+# 				unlist() |>
+# 				unique()
+# 			
+# 			se =
+# 				se |>
+# 				
+# 				# Scale continuous variables
+# 				mutate(age_days = scale(age_days) |> as.numeric()) |>
+# 				
+# 				# Filter abundant genes
+# 				filter(.feature %in% abundant_genes) |>
+# 				
+# 				# otherwise I get error for some reason
+# 				mutate(across(any_of(c("sex", "ethnicity_simplified", "assay_simplified", "file_id")), as.character)) |>
+# 				mutate(ethnicity_simplified = ethnicity_simplified |> str_replace("European", "aaa_European")) |>
+# 				
+# 				# Drop random effect grouping with no enough data
+# 				nest(data = -c(sex, ethnicity_simplified, cell_type_harmonised)) |> 
+# 				add_count(cell_type_harmonised) |> 
+# 				filter(n>1) |> 
+# 				unnest(data) |>
+# 				
+# 				# Test
+# 				test_differential_abundance(
+# 					as.formula(my_formula),
+# 					.abundance = counts_scaled,
+# 					method = method,
+# 					cores = cores, 
+# 					max_rows_for_matrix_multiplication = max_rows_for_matrix_multiplication
+# 				)
+# 		}
+# 	))
 # 	
-# })
-
+# 
+# 
+# 
+# 
+# 
+# tar_read(se_filtered_bladder, store = glue("{result_directory}/_targets__sex_tissue"))[1:100,] |> analyse(max_rows_for_matrix_multiplication = 10000, cores = 10)
+# # tar_make(
+# # 	script = glue("{result_directory}/_targets__sex_tissue.R"), 
+# # 	store = glue("{result_directory}/_targets__sex_tissue")
+# # )
+# # 	
+# # })
+# 

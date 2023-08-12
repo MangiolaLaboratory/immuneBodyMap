@@ -185,7 +185,7 @@ common_data |>
 
 	# Eliminate the samples with immune enrichment/depletion
 	anti_join(
-		read_csv("/stornext/Bioinf/data/bioinf-data/Papenfuss_lab/projects/mangiola.s/PostDoc/immuneHealthyBodyMap/dev/datasets_to_check_in_the_literature_checked.csv") |> 
+		read_csv("/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/dev/datasets_to_check_in_the_literature_checked.csv") |> 
 			filter(overall_immune_cells_enriched>0) |> 
 			distinct(file_id, tissue_harmonised)
 	) |> 

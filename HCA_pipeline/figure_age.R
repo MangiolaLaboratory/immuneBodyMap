@@ -18,9 +18,9 @@ library(ggplot2)
 # get_metadata_local(cache_directory = "/vast/projects/RCP/human_cell_atlas/metadata_annotated_0.2.3.sqlite") |>  filter(cell_ == "GCACTAATCCTGGCTT_TSP1_endopancreas_1") |> select(cell_, file_id, lineage_1)
 
 # Set up files names 
-differential_composition_age_absolute_file = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab/projects/mangiola.s/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.3/age_absolute_FALSE.rds"
-data_for_immune_proportion_absolute_file = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab/projects/mangiola.s/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.3/input_absolute.rds"
-proportions_age_absolute_file = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab/projects/mangiola.s/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.3/age_absolute_FALSE_proportion_adjusted.rds"
+differential_composition_age_absolute_file = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.4/age_absolute_FALSE.rds"
+data_for_immune_proportion_absolute_file = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.4/input_absolute.rds"
+proportions_age_absolute_file = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.4/age_absolute_FALSE_proportion_adjusted.rds"
 
 # Calculate softmax from an array of reals
 softmax <- function (x) {
@@ -65,7 +65,7 @@ clean_names = function(x){
 # Read files
 ## from http://tr.im/hH5A
 data_for_immune_proportion = readRDS(data_for_immune_proportion_absolute_file)
-data_for_immune_proportion_relative_file = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab/projects/mangiola.s/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.3/input_relative.rds"
+data_for_immune_proportion_relative_file = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.4/input_relative.rds"
 data_for_immune_proportion_relative = readRDS(data_for_immune_proportion_relative_file)
 
 # Color coding for tissue
@@ -103,7 +103,7 @@ differential_composition_age = readRDS(differential_composition_age_absolute_fil
 differential_composition_age |>
 	test_contrasts(test_composition_above_logit_fold_change = FDR_threshold_1_percent_change_at_20_percent_baseline) |> 
 	select(-count_data) |>
-	write_csv("/stornext/Bioinf/data/bioinf-data/Papenfuss_lab/projects/mangiola.s/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.3/SUPPLEMENTARY_age_cellularity_estimates.csv")
+	write_csv("/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.4/SUPPLEMENTARY_age_cellularity_estimates.csv")
 
 
 # Function that calculate the approximate proportional change from an effect in the iverse logit  space
@@ -423,8 +423,8 @@ adjusted_counts_for_cellularity_tissue_effects  |>
 #------------------------------#
 
 # Load data
-differential_composition_age_relative_file = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab/projects/mangiola.s/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.3/age_relative_FALSE.rds"
-proportions_age_relative_file = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab/projects/mangiola.s/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.3/age_relative_FALSE_proportion_adjusted.rds"
+differential_composition_age_relative_file = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.3/age_relative_FALSE.rds"
+proportions_age_relative_file = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.3/age_relative_FALSE_proportion_adjusted.rds"
 differential_composition_age_relative =  readRDS(differential_composition_age_relative_file)
 proportions_age_relative = readRDS(proportions_age_relative_file) 
 
@@ -649,7 +649,7 @@ res_relative_proportions_age_tissue =
 	remove_unwanted_variation(~ age_days + tissue_harmonised + ( age_days | tissue_harmonised ), ~ age_days)  |> 
 	inner_join(data_for_immune_proportion_relative |> tidybulk::pivot_sample(sample_) )
 
-res_relative_proportions_age_tissue |> saveRDS("/stornext/Bioinf/data/bioinf-data/Papenfuss_lab/projects/mangiola.s/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.3/res_relative_proportions_age_tissue.rds")
+res_relative_proportions_age_tissue |> saveRDS("/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.3/res_relative_proportions_age_tissue.rds")
 
 # Get trend line to be used in the scatter plot of global compositional changes, plot_age_relative
 line_age_relative_mean_b_memory_per_tisue =
@@ -908,7 +908,7 @@ plot_heatmap_age_relative_organ_cell_type =
 # Save heatmap separately
 plot_heatmap_age_relative_organ_cell_type |>
   save_pdf(
-    filename = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab/projects/mangiola.s/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.3/plot_heatmap_age_relative_organ_cell_type.pdf",
+    filename = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.3/plot_heatmap_age_relative_organ_cell_type.pdf",
     width = 80*1.5, height = 60*1.5, units = "mm"
   )
 
@@ -948,14 +948,14 @@ gc()
 
 # Plot the association of cell residency with age
 plot_trends_residency =
-  readRDS("/stornext/Bioinf/data/bioinf-data/Papenfuss_lab/projects/mangiola.s/PostDoc/immuneHealthyBodyMap/residency_data.rds") |>
+  readRDS("/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/residency_data.rds") |>
   
   filter(cell_type_harmonised |> str_detect("naive", negate = T)) |>
   separate(cell_type_harmonised, "cell_type_harmonised", sep = " ") |>
   
   # Filter significant
   inner_join(
-    readRDS("/stornext/Bioinf/data/bioinf-data/Papenfuss_lab/projects/mangiola.s/PostDoc/immuneHealthyBodyMap/residency_estimates_random_effects.rds") |> 
+    readRDS("/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/residency_estimates_random_effects.rds") |> 
       filter((`l-90% CI` * `u-90% CI`) > 0) |> 
       filter(Marker == "residency_axel") |> 
       
@@ -1033,7 +1033,7 @@ p =
 
 
 ggsave(
-  "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab/projects/mangiola.s/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.3/figure_age.pdf",
+  "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.3/figure_age.pdf",
   plot = p,
   units = c("mm"),
   width = 183 ,
