@@ -73,7 +73,8 @@ res_relative =
     mcmc_seed = 42,
     verbose = T,
     prior_mean_variable_association = list(intercept = c(3.6539176, 0.5), slope = c(-0.5255242, 0.1), standard_deviation = c(20, 40)),
-    output_directory_fit_draws = "/vast/scratch/users/mangiola.s", max_sampling_iterations = 5000
+    # output_directory_fit_draws = "/vast/scratch/users/mangiola.s", 
+    max_sampling_iterations = 5000
   )
 
 res_relative |> saveRDS(output_file_1)

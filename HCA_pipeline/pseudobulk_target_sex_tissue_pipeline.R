@@ -1,0 +1,448 @@
+
+library(targets)
+library(glue)
+result_directory = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/pseudobulk_0.2.3.4"
+
+
+	
+
+tar_script({
+	
+	library(targets, tarchetypes, crew, "crew.cluster")
+	library(tarchetypes)
+	# library(crew)
+	# library(crew.cluster)
+	library(tidyverse)
+	library(stringr)
+	library(glue)
+	library(tidySummarizedExperiment)
+	
+	result_directory = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/pseudobulk_0.2.3.4"
+	
+	#-----------------------#
+	# Future SLURM
+	#-----------------------#
+	
+	library(future)
+	library("future.batchtools")
+	slurm <- 
+		`batchtools_slurm` |>
+		future::tweak( template = glue("/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/third_party_sofware/slurm_batchtools.tmpl"),
+									 resources=list(
+									 	ncpus = 20,
+									 	memory = 6000,
+									 	walltime = 172800
+									 )
+		)
+	plan(slurm)
+	
+	#-----------------------#
+	# Packages
+	#-----------------------#
+	tar_option_set( 
+		packages = c("tidybulk", "stringr", "tibble", "tidySummarizedExperiment", "purrr", "glue", "dplyr"),
+		storage = "worker", 
+		retrieval = "worker", 
+		error = "continue"	
+		# ,
+		# controller = crew_controller_group(small_slurm, big_slurm),
+		# resources = tar_resources(crew = tar_resources_crew("small_slurm"))
+	)
+	
+	#-----------------------#
+	# Functions
+	#-----------------------#
+	
+	samples_NOT_complete_confounders_for_ethnicity_assay = function(se){
+		
+		
+		
+		se = 
+			se |> 
+			# distinct(assay_simplified, ethnicity_simplified, .sample) |>
+			# 
+			nest(se_data = -c(assay_simplified, ethnicity_simplified)) |>
+			
+			# How many ethnicity per assay
+			nest(data = -assay_simplified) |> 
+			mutate(n1 = map_int(data, ~ .x |> distinct(ethnicity_simplified) |> nrow())) |> 
+			unnest(data) |> 
+			
+			# How many assay per ethnicity
+			nest(data = - ethnicity_simplified) |> 
+			mutate(n2 = map_int(data, ~ .x |> distinct(assay_simplified) |> nrow())) |> 
+			unnest(data) 
+		
+		# Replace ethnicity
+		dummy_assay = se |> arrange(desc(n1 + n2)) |> slice(1) |> pull(assay_simplified)
+		
+		se |>
+			mutate(assay_simplified = if_else(n1 + n2 < 3, dummy_assay, assay_simplified)) 	|>
+			
+			# # Filter
+			# filter(!(n1==1 & n2==1)) |>
+			select(-n1, -n2) |>
+			
+			unnest_summarized_experiment(se_data) 
+		# |>
+		# 	pull(.sample) |>
+		# 	unique()
+	}
+	
+	samples_NOT_complete_confounders_for_ethnicity_disease = function(se){
+		
+		
+		
+		se = 
+			se |> 
+			#distinct(disease, ethnicity_simplified, .sample) |>
+			
+			nest(se_data = -c(disease, ethnicity_simplified)) |>
+			
+			# How many ethnicity per assay
+			nest(data = -disease) |> 
+			mutate(n1 = map_int(data, ~ .x |> distinct(ethnicity_simplified) |> nrow())) |> 
+			unnest(data) |> 
+			
+			# How many assay per ethnicity
+			nest(data = - ethnicity_simplified) |> 
+			mutate(n2 = map_int(data, ~ .x |> distinct(disease) |> nrow())) |> 
+			unnest(data) 
+		
+		
+		# Replace ethnicity
+		dummy_ethnicity = se |> arrange(desc(n1 + n2)) |> slice(1) |> pull(ethnicity_simplified)
+		
+		se |>
+			mutate(ethnicity_simplified = if_else(n1 + n2 < 3, dummy_ethnicity, ethnicity_simplified)) 	|>
+			
+			# # Filter
+			# filter(!(n1==1 & n2==1)) |>
+			select(-n1, -n2) |>
+			
+			unnest_summarized_experiment(se_data)
+		# |>
+		# 	pull(.sample) |>
+		# 	unique()
+	}
+	
+	merge_and_filter = function(se_files){
+		se = 
+			do.call(cbind, 
+							glue("{result_directory}/{se_files}") |> 
+								map(
+									~ .x |>
+										readRDS() |>
+										select(-any_of("orig.ident")) |>
+										select(
+											.aggregated_cells, .feature,median_nFeature, .sample, age_days, assay_simplified,cell_type_harmonised,
+											counts, disease, ethnicity_simplified , file_id, sex, tissue_harmonised, sample_
+										)
+								) 
+							)
+		
+		# Filter
+		se = 
+			se |> 
+			filter(sex != "unknown") |>
+			filter(.aggregated_cells > 10) 
+		
+		# Samble to subset
+		# Filter at least 5000 genes recorded
+		se = 
+			se |>
+			filter(.sample %in% (
+				se |>
+					assay("counts") |> 
+					apply(2, function(x) (x>0) |> which() |> length()) |>
+					enframe() |>
+					mutate(value = as.character(value), name = as.character(name)) |>
+					filter(value > 5000) |>
+					pull(name)
+			)) 
+		
+		# Eliminate complete confounders
+		se = 
+			se |>
+			samples_NOT_complete_confounders_for_ethnicity_assay() |>
+			samples_NOT_complete_confounders_for_ethnicity_disease()
+		
+		# Filter disease
+		se = 
+			se |>
+			filter(disease %in% (
+				se |>
+					distinct(disease, sex) |>
+					count(disease) |>
+					filter(n>1) |>
+					pull(disease)
+			))
+		
+		# Filter tissue that has two sexes
+		if(ncol(se)>0)
+			se = 
+				se |>
+				filter(tissue_harmonised %in% (
+					se |>
+						distinct(tissue_harmonised, sex) |>
+						count(tissue_harmonised) |>
+						filter(n>1) |>
+						pull(tissue_harmonised)
+				))
+		
+		se
+		
+	}
+	
+	analyse = function(se, max_rows_for_matrix_multiplication = NULL, cores = 1){
+		
+		if(ncol(se) == 0) return(se)
+		
+		if(se |> distinct(sex, ethnicity_simplified) |> count(ethnicity_simplified) |> pull(n) |> max() == 1)
+			return(se)
+		
+		# Build the formula
+		factors = 
+			c("sex", "ethnicity_simplified", "assay_simplified", "age_days", ".aggregated_cells", "disease") |>
+			enframe(value = "factor") |>
+			mutate(n = map_int(
+				factor, ~ se |> select(.x) |> distinct() |> nrow()
+			)) |>
+			filter(n>1) |>
+			pull(factor) |>
+			str_c(collapse = " + ")
+		
+		random_effects = 
+			c("sex", "ethnicity_simplified") |>
+			enframe(value = "factor") |>
+			mutate(n = map_int(
+				factor, ~ se |> select(all_of(.x)) |> distinct() |> nrow()
+			))   |>
+			filter(n>1) |>
+			pull(factor) |>
+			str_c(collapse = " + ")
+		
+		# The default
+		my_formula = glue("~ {factors}")
+		method = "edgeR_quasi_likelihood"
+		
+		if( 
+			se |> distinct(cell_type_harmonised) |> nrow() > 1 &
+			length(random_effects) > 0
+		) {
+			my_formula = glue("{my_formula} + (1 + {random_effects} | cell_type_harmonised)")
+			method = "glmmseq_lme4"
+		}
+		
+		if( 	se |> distinct(file_id) |> nrow() > 1	){
+			my_formula = glue("{my_formula} + (1 | sample_)")
+			method = "glmmseq_lme4"
+		}
+		
+		# Normalise
+		se = se |> quantile_normalise_abundance() 
+		
+		# Select abundant genes within tissues and unite
+		abundant_genes = 
+			se |>
+			nest(data = -cell_type_harmonised) |>
+			mutate(abundant_genes = map(
+				data,
+				~ .x |>
+					keep_abundant(.abundance = counts_scaled, factor_of_interest = c(sex)) |>
+					rownames(), 
+				.progress = TRUE
+			)) |>
+			pull(abundant_genes) |>
+			unlist() |>
+			unique()
+		
+		# Cell types with enough samples
+		cell_type_to_keep = 
+			se |> 
+			distinct(sample_, cell_type_harmonised) |> 
+			count(  cell_type_harmonised) |>
+			filter(n > 3) |>
+			pull(cell_type_harmonised)
+		
+		se =
+			se |>
+			
+			# Scale continuous variables
+			mutate(age_days = scale(age_days) |> as.numeric()) |>
+			
+			# Filter abundant genes
+			filter(.feature %in% abundant_genes) |>
+			
+			# Filter cell types to keep
+			filter(cell_type_harmonised %in% cell_type_to_keep) |>
+			
+			# otherwise I get error for some reason
+			mutate(across(any_of(c("sex", "ethnicity_simplified", "assay_simplified", "file_id", "tissue_harmonised")), as.character)) |>
+			mutate(ethnicity_simplified = ethnicity_simplified |> str_replace("European", "aaa_European")) |>
+			
+			# Drop random effect grouping with no enough data
+			nest(data = -c(sex, ethnicity_simplified, cell_type_harmonised)) |> 
+			add_count(cell_type_harmonised) |> 
+			filter(n>1) |> 
+			unnest(data) |>
+			
+			# Test
+			test_differential_abundance(
+				as.formula(my_formula),
+				.abundance = counts_scaled,
+				method = method,
+				cores = cores, 
+				max_rows_for_matrix_multiplication = max_rows_for_matrix_multiplication
+			)
+	}
+	
+	#-----------------------#
+	# Workflow
+	#-----------------------#
+	tar_map(
+		
+		# Input
+		values = 
+			result_directory |>
+			dir( pattern = ".rds") |>
+			enframe(value = "file") |>
+			tidyr::extract(col = file, into = c("tissue", "cell_type"), regex = "/?([a-zA-Z]+)____(.+)____TRUE\\.rds", remove = FALSE) |> 
+			filter(!is.na(cell_type)) |>
+			select(tissue, file) |>
+			nest(cell_type_files = -tissue) |>
+			mutate(cell_type_files = map(cell_type_files, ~.x$file)),
+		
+		# Names jobs
+		names = "tissue",
+		
+		# Filter
+		tar_target(se_filtered, merge_and_filter(cell_type_files)),
+		
+		# Estimate
+		tar_target(
+			data, analyse(se_filtered, max_rows_for_matrix_multiplication = 10000, cores = 18)
+			# , 
+			# resources = tar_resources(crew = tar_resources_crew("big_slurm"))
+			
+		)
+	)
+}, ask = FALSE, script = glue("{result_directory}/_targets__sex_tissue.R") )
+
+
+job::job({
+
+tar_make_future(
+	script = glue("{result_directory}/_targets__sex_tissue.R"),
+	store = glue("{result_directory}/_targets__sex_tissue"), 
+	workers = 200, 
+	garbage_collection = TRUE
+)
+})
+
+# 
+# # Non immune
+# tar_meta( store = glue("{result_directory}/_targets__pseudobulk"))	|>
+# 	filter(name |> str_detect("non_immune")) |>
+# 	mutate(se = map(name, ~ tar_read_raw(name=.x, store = glue("{result_directory}/_targets__pseudobulk") ), .progress = TRUE)) |>
+# 	filter(map_int(se, ~ .x |> distinct(sex) |> nrow()) > 1) |>
+# 	mutate(se = map(se, ~ .x |> filter(.aggregated_cells > 10) )) |>
+# 	# mutate(se = map(se, ~ .x |> filter(sample_ %in% (.x |>
+# 	# 																								 	assay("counts") |> 
+# 	# 																								 	apply(2, function(x) (x>0) |> which() |> length()) |>
+# 	# 																								 	enframe() |>
+# 	# 																								 	mutate(value = as.character(value), name = as.character(name)) |>
+# 	# 																								 	filter(value > 5000) |>
+# 	# 																								 	pull(name))))) |>
+# 	filter(map_int(se, ~ .x |> distinct(sample_) |> nrow()) > 10) |>
+# 	mutate(se = map(
+# 		se,
+# 		~ {
+# 			
+# 			if(ncol(se) == 0) return(se)
+# 			
+# 			if(se |> distinct(sex, ethnicity_simplified) |> count(ethnicity_simplified) |> pull(n) |> max() == 1)
+# 				return(se)
+# 			
+# 			# Build the formula
+# 			factors = 
+# 				c("sex", "ethnicity_simplified", "assay_simplified", "age_days", ".aggregated_cells", "disease") |>
+# 				enframe(value = "factor") |>
+# 				mutate(n = map_int(
+# 					factor, ~ se |> select(.x) |> distinct() |> nrow()
+# 				)) |>
+# 				filter(n>1) |>
+# 				pull(factor) |>
+# 				str_c(collapse = " + ")
+# 			
+# 			# The default
+# 			my_formula = glue("~ {factors}")
+# 			method = "edgeR_quasi_likelihood"
+# 			
+# 			
+# 			if( 	se |> distinct(file_id) |> nrow() > 1	){
+# 				my_formula = glue("{my_formula} + (1 | file_id)")
+# 				method = "glmmseq_lme4"
+# 			}
+# 			
+# 			# Normalise
+# 			se = se |> quantile_normalise_abundance() 
+# 			
+# 			# Select abundant genes within tissues and unite
+# 			abundant_genes = 
+# 				se |>
+# 				nest(data = -cell_type_harmonised) |>
+# 				mutate(abundant_genes = map(
+# 					data,
+# 					~ .x |>
+# 						keep_abundant(.abundance = counts_scaled, factor_of_interest = c(sex)) |>
+# 						rownames(), 
+# 					.progress = TRUE
+# 				)) |>
+# 				pull(abundant_genes) |>
+# 				unlist() |>
+# 				unique()
+# 			
+# 			se =
+# 				se |>
+# 				
+# 				# Scale continuous variables
+# 				mutate(age_days = scale(age_days) |> as.numeric()) |>
+# 				
+# 				# Filter abundant genes
+# 				filter(.feature %in% abundant_genes) |>
+# 				
+# 				# otherwise I get error for some reason
+# 				mutate(across(any_of(c("sex", "ethnicity_simplified", "assay_simplified", "file_id")), as.character)) |>
+# 				mutate(ethnicity_simplified = ethnicity_simplified |> str_replace("European", "aaa_European")) |>
+# 				
+# 				# Drop random effect grouping with no enough data
+# 				nest(data = -c(sex, ethnicity_simplified, cell_type_harmonised)) |> 
+# 				add_count(cell_type_harmonised) |> 
+# 				filter(n>1) |> 
+# 				unnest(data) |>
+# 				
+# 				# Test
+# 				test_differential_abundance(
+# 					as.formula(my_formula),
+# 					.abundance = counts_scaled,
+# 					method = method,
+# 					cores = cores, 
+# 					max_rows_for_matrix_multiplication = max_rows_for_matrix_multiplication
+# 				)
+# 		}
+# 	))
+# 	
+# 
+# 
+# 
+# 
+# 
+# tar_read(se_filtered_bladder, store = glue("{result_directory}/_targets__sex_tissue"))[1:100,] |> analyse(max_rows_for_matrix_multiplication = 10000, cores = 10)
+# # tar_make(
+# # 	script = glue("{result_directory}/_targets__sex_tissue.R"), 
+# # 	store = glue("{result_directory}/_targets__sex_tissue")
+# # )
+# # 	
+# # })
+# 
