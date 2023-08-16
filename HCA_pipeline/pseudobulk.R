@@ -1,6 +1,6 @@
 
 library(targets)
-result_directory = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab/projects/mangiola.s/PostDoc/immuneHealthyBodyMap/pseudobulk_0.2.3.4"
+result_directory = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/pseudobulk_0.2.3.4"
 
 
 tar_script({
@@ -14,7 +14,7 @@ tar_script({
 	library(tidyverse)
 	library(crew.cluster)
 	
-	result_directory = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab/projects/mangiola.s/PostDoc/immuneHealthyBodyMap/pseudobulk_0.2.3.4"
+	result_directory = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/pseudobulk_0.2.3.4"
 	
 	
 	#-----------------------#
@@ -24,7 +24,7 @@ tar_script({
 	# library(future)
 	# library("future.batchtools")
 	# slurm <- future::tweak(batchtools_slurm,
-	# 											 template = glue("/stornext/Bioinf/data/bioinf-data/Papenfuss_lab/projects/mangiola.s/third_party_sofware/slurm_batchtools.tmpl"),
+	# 											 template = glue("/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/third_party_sofware/slurm_batchtools.tmpl"),
 	# 											 resources=list(
 	# 											 	ncpus = 20,
 	# 											 	memory = 5000,

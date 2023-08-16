@@ -14,7 +14,6 @@ output_file_1 = args[[3]]
 output_blood = args[[4]]
 output_file_2 = args[[5]]
 
-"/vast/scratch/tmp"
 
 my_data =
   readRDS(input_file) |>
@@ -98,17 +97,17 @@ res_relative =
   my_data |>
 
   # Estimate
-  sccomp_glm(
-    formula_composition = ~ 0 + ethnicity_simplified + tissue_harmonised + sex  + age_days +  assay_simplified  + disease + (ethnicity_simplified | tissue_harmonised_ethnicity),
-    formula_variability = ~ 0 + ethnicity_simplified + tissue_harmonised + sex,
+  sccomp_estimate(
+    formula_composition = ~ 1 + ethnicity_simplified + sex + age_days +  assay_simplified  + disease + (1 + sex + age_days + ethnicity_simplified | tissue_harmonised),
+    formula_variability = ~ 1 + ethnicity_simplified + sex + disease,
     sample_, cell_type_harmonised,
-    check_outliers = F,
     approximate_posterior_inference = FALSE,
     cores = 20,
     mcmc_seed = 42,
     verbose = T,
-    prior_mean_variable_association = list(intercept = c(3.6539176, 0.5), slope = c(-0.5255242, 0.1), standard_deviation = c(10, 100)),
-    output_directory_fit_draws = "/vast/scratch/users/mangiola.s", max_sampling_iterations = 5000
+    prior_mean_variable_association = list(intercept = c(3.6539176, 0.5), slope = c(-0.5255242, 0.1), standard_deviation = c(20, 40)),
+    #output_directory_fit_draws = "/vast/scratch/users/mangiola.s", 
+    max_sampling_iterations = 5000
   )
 
 
@@ -117,5 +116,5 @@ res_relative |>
 
 # Remove unwanted variation
 res_relative |>
-  remove_unwanted_variation(~ 0 + ethnicity_simplified, ~ 0 + ethnicity_simplified) |>
+  remove_unwanted_variation(~  ethnicity_simplified, ~  ethnicity_simplified) |>
   saveRDS(output_file_2)

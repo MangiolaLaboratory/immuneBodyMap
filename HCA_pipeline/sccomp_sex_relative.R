@@ -19,7 +19,7 @@ my_data =
   # filter
   filter(development_stage!="unknown") |>
   filter(sex != "unknown") |>
-  filter(age_days_original >= 19 * 365) |>
+  filter(age_days_original >= 8 * 365) |>
 
   # Keep shared tissues
   nest(data = -c(sample_, sex, tissue_harmonised)) |>
@@ -41,7 +41,7 @@ my_data =
   #     filter(min_count_file_id>1)
   # ) |>
 
-  unite("group", c(tissue_harmonised , file_id, sex), remove = FALSE) |>
+  unite("group", c(tissue_harmonised , file_id), remove = FALSE) |>
   unite("tissue_harmonised_sex", c(tissue_harmonised , sex), remove = FALSE)
 
 print(colnames(my_data))
@@ -136,17 +136,18 @@ res_relative =
   unnest(data) |> 
 
   # Estimate
-  sccomp_glm(
-    formula_composition = ~ sex + tissue_harmonised + ethnicity_simplified  + age_days +  assay_simplified + disease + (1 | group) + (sex | tissue_harmonised_sex),
-    formula_variability = ~ sex + tissue_harmonised + ethnicity_simplified + disease ,
+  sccomp_estimate(
+    formula_composition = ~ 1 + sex + ethnicity_simplified  + disease + age_days +  assay_simplified  + group  + (1 + sex + age_days + ethnicity_simplified | tissue_harmonised),
+    formula_variability = ~ 1 + sex + ethnicity_simplified + disease ,
     sample_, cell_type_harmonised,
-    check_outliers = T,
+    check_outliers = F,
     approximate_posterior_inference = FALSE,
     cores = 20,
     mcmc_seed = 42,
     verbose = T,
     prior_mean_variable_association = list(intercept = c(3.6539176, 0.5), slope = c(-0.5255242, 0.1), standard_deviation = c(20, 40)),
-    output_directory_fit_draws = "/vast/scratch/users/mangiola.s", max_sampling_iterations = 5000
+    #output_directory_fit_draws = "/vast/scratch/users/mangiola.s", 
+    max_sampling_iterations = 5000
   )
 
 res_relative |>

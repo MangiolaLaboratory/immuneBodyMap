@@ -21,7 +21,7 @@ library(tidyseurat)
 library(tidybulk)
 library(magrittr)
 
-root_directory = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab/projects/mangiola.s/PostDoc/immuneHealthyBodyMap"
+root_directory = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap"
 metadata_DB = glue("{root_directory}/sccomp_on_HCA_0.2.3.4/input_relative.rds")
 metadata = readRDS(metadata_DB)
   

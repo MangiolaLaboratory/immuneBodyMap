@@ -13,6 +13,7 @@ input_file = args[[2]]
 output_file_1 = args[[3]]
 output_file_1_blood = args[[4]]
 output_file_2 = args[[5]]
+output_file_3 = args[[6]]
 
 differential_composition_ethnicity_absolute =
   readRDS(input_file) |>
@@ -30,25 +31,30 @@ differential_composition_ethnicity_absolute =
   unite("tissue_harmonised_ethnicity", c(tissue_harmonised , ethnicity_simplified), remove = FALSE) |>
 
   # Estimate
-  sccomp_glm(
-    formula_composition = ~ 0 + ethnicity_simplified + tissue_harmonised + sex  + age_days +  assay_simplified  + disease + (ethnicity_simplified | tissue_harmonised_ethnicity),
-    formula_variability = ~ 0 + ethnicity_simplified + tissue_harmonised + sex,
+  sccomp_estimate(
+    formula_composition = ~ 1 + ethnicity_simplified + sex + age_days +  assay_simplified  + disease + (1 + sex + age_days + ethnicity_simplified | tissue_harmonised),
+    formula_variability = ~ 1 + ethnicity_simplified + sex + disease,
     sample_, is_immune,
-    check_outliers = T,
     approximate_posterior_inference = FALSE,
     cores = 20,
     mcmc_seed = 42,
     verbose = T,
     prior_mean_variable_association = list(intercept = c(3.6539176, 0.5), slope = c(-0.5255242, 0.1), standard_deviation = c(10, 100)),
-    output_directory_fit_draws = "/vast/scratch/users/mangiola.s", max_sampling_iterations = 5000
+    #output_directory_fit_draws = "/vast/scratch/users/mangiola.s", 
+    max_sampling_iterations = 5000
   )
 
 differential_composition_ethnicity_absolute |> saveRDS(output_file_1)
 
+differential_composition_ethnicity_absolute_no_outlier = 
+  differential_composition_ethnicity_absolute |> 
+  sccomp_remove_outliers(max_sampling_iterations = 4000) 
 
+differential_composition_ethnicity_absolute_no_outlier |> 
+  saveRDS(output_file_2)
 
 # Counts RUV Absolute
-differential_composition_ethnicity_absolute |>
-  remove_unwanted_variation(~ 0 + ethnicity_simplified + (ethnicity_simplified | tissue_harmonised_ethnicity), ~ 0 + ethnicity_simplified) |>
-  saveRDS(output_file_2)
+differential_composition_ethnicity_absolute_no_outlier |>
+  remove_unwanted_variation(~  ethnicity_simplified, ~  ethnicity_simplified) |>
+  saveRDS(output_file_3)
 
