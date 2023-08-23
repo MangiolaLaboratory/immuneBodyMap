@@ -3,7 +3,6 @@ library(targets)
 library(glue)
 library(CuratedAtlasQueryR)
 
-
 # Get input
 
 
@@ -111,11 +110,16 @@ tar_script({
 	# Packages
 	#-----------------------#
 	tar_option_set( 
-		packages = c("CuratedAtlasQueryR", "stringr", "tibble", "tidySingleCellExperiment", "dplyr", "Seurat", "tidyseurat", "glue", "qs",  "purrr", "tidybulk", "tidySummarizedExperiment"), 
+		packages = c(
+			"CuratedAtlasQueryR", "stringr", "tibble", "tidySingleCellExperiment", "dplyr", "Matrix",
+			"Seurat", "tidyseurat", "glue", "qs",  "purrr", "tidybulk", "tidySummarizedExperiment", "edgeR"
+		), 
 		storage = "worker", 
 		retrieval = "worker", 
 		error = "continue", 		
-		format = "qs"
+		format = "qs",
+		#debug = "pseudobulk_df_db574b63", # Set the target you want to debug.
+		cue = tar_cue(mode = "never") # Force skip non-debugging outdated targets.
 	)
 	
 	#-----------------------#
@@ -137,18 +141,18 @@ tar_script({
 	
 	small_slurm = 
 		tar_resources(
-		future = tar_resources_future(
-			plan = tweak(
-				batchtools_slurm,
-				template = glue("/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/third_party_sofware/slurm_batchtools.tmpl"),
-				resources = list(
-					ncpus = 2,
-					memory = 40000,
-					walltime = 172800
+			future = tar_resources_future(
+				plan = tweak(
+					batchtools_slurm,
+					template = glue("/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/third_party_sofware/slurm_batchtools.tmpl"),
+					resources = list(
+						ncpus = 2,
+						memory = 40000,
+						walltime = 172800
+					)
 				)
 			)
 		)
-	)
 	
 	big_slurm = 
 		tar_resources(
@@ -236,6 +240,24 @@ tar_script({
 				age_days, development_stage, sex, tissue_harmonised, disease, 
 				ethnicity_simplified, assay_simplified
 			) |>
+			
+			# Cell type for non immune are not summarised ernought I'm loosing a lot of samples
+			filter(cell_type_harmonised != "animal_cell") |>
+			mutate(cell_type_harmonised = case_when(
+				cell_type_harmonised |> str_detect("fibro") ~ "stromal_cell",
+				cell_type_harmonised |> str_detect("chondro") ~ "connective_tissue_cell",
+				cell_type_harmonised |> str_detect("adipoc") ~ "fat_cell",
+				cell_type_harmonised |> str_detect("hematopoietic") ~ "hematopoietic_cell",
+				cell_type_harmonised |> str_detect("epithe") ~ "epithelial_cell",
+				cell_type_harmonised |> str_detect("hepato") ~ "hepatic_cell",
+				cell_type_harmonised |> str_detect("keratino") ~ "keratinocyte",
+				cell_type_harmonised == "neuron" ~ "neural_cell",
+				cell_type_harmonised |> str_detect("progenitor") ~ "hematopoietic_cell",
+				cell_type_harmonised |> str_detect("stem") ~ "hematopoietic_cell",
+				cell_type_harmonised |> str_detect("tendon") ~ "connective_tissue_cell",
+				TRUE ~ cell_type_harmonised
+			)) |>
+			
 			# group
 			nest(data = -c(cell_type_harmonised, tissue_harmonised)) 
 		
@@ -253,7 +275,8 @@ tar_script({
 								 	str_replace_all(" ", "_") |>
 								 	str_replace_all("/", "__")
 					) |>
-					tidySingleCellExperiment::aggregate_cells( .sample = sample_se	) 
+					tidySingleCellExperiment::aggregate_cells( .sample = sample_se	), 
+				.progress = TRUE
 			)) 
 		
 	}
@@ -331,27 +354,12 @@ tar_script({
 		# 	unique()
 	}
 	
-	analyse = function(se, max_rows_for_matrix_multiplication = NULL, cores = 1){
+	aggregate = function(se_df){
 		
 		# Read
 		se = 
-			se |>
-			filter(cell_type_harmonised != "animal_cell") |>
-			# Cell type for non immune are not summarised ernought I'm loosing a lot of samples
-			mutate(cell_type_harmonised = case_when(
-				cell_type_harmonised |> str_detect("fibro") ~ "stromal_cell",
-				cell_type_harmonised |> str_detect("chondro") ~ "connective_tissue_cell",
-				cell_type_harmonised |> str_detect("adipoc") ~ "fat_cell",
-				cell_type_harmonised |> str_detect("hematopoietic") ~ "hematopoietic_cell",
-				cell_type_harmonised |> str_detect("epithe") ~ "epithelial_cell",
-				cell_type_harmonised |> str_detect("hepato") ~ "hepatic_cell",
-				cell_type_harmonised |> str_detect("keratino") ~ "keratinocyte",
-				cell_type_harmonised == "neuron" ~ "neural_cell",
-				cell_type_harmonised |> str_detect("progenitor") ~ "hematopoietic_cell",
-				cell_type_harmonised |> str_detect("stem") ~ "hematopoietic_cell",
-				cell_type_harmonised |> str_detect("tendon") ~ "connective_tissue_cell",
-				TRUE ~ cell_type_harmonised
-			)) |>
+			se_df |>
+			
 			mutate(data = pmap(
 				list(data, cell_type_harmonised, tissue_harmonised),
 				~ ..1 |>
@@ -361,7 +369,45 @@ tar_script({
 			pull(data)
 		
 		# Merge
-		se = do.call(cbind,  se)
+		se = do.call(cbind,  se)	
+		
+		tibble(tissue_harmonised, se = list(!!se))
+	}
+	
+	se_add_dispersion = function(se_df){
+		
+		se_df |> 
+			mutate(se = map(
+				se,
+				~ {
+					counts = .x |> assay("counts_scaled")
+					
+					.x |> 
+						left_join(
+							
+							# Dispersion data frame
+							estimateDisp(counts)$tagwise.dispersion |> 
+								setNames(rownames(counts)) |>
+								enframe(name = ".feature", value = "dispersion")
+						)
+				}
+			))
+		
+	}
+	
+	split_by_gene = function(se_df){
+		se_df |> 
+			mutate(se = map(
+				se,
+				~ .x |> 
+					mutate(chunk___ = sample(1:10, n(), replace = TRUE)) |>
+					nest(se_chunk = chunk___)
+			)) |>
+			unnest(se) |> 
+			select(-chunk___)
+	}
+	
+	analyse = function(se, max_rows_for_matrix_multiplication = NULL, cores = 1){
 		
 		# Filter
 		se = 
@@ -515,7 +561,8 @@ tar_script({
 				.abundance = counts_scaled,
 				method = method,
 				cores = cores, 
-				max_rows_for_matrix_multiplication = max_rows_for_matrix_multiplication
+				max_rows_for_matrix_multiplication = max_rows_for_matrix_multiplication,
+				dispersion = dispersion
 			)
 	}
 	
@@ -531,7 +578,7 @@ tar_script({
 			cell_type_harmonised, tissue_harmonised,
 			deployment = "main"
 		),
-
+		
 		# Get pseudobulk
 		tar_target(	
 			pseudobulk_df, 
@@ -542,32 +589,52 @@ tar_script({
 		
 		# tissue analysis
 		tarchetypes::tar_group_by(pseudobulk_df_tissue, pseudobulk_df, tissue_harmonised),
+		
+		# Group samples
+		tar_target(
+			pseudobulk_df_tissue_merged, 
+			pseudobulk_df_tissue |> aggregate() |> se_add_dispersion(), 
+			pattern = map(pseudobulk_df_tissue), 
+			resources = small_slurm
+		),
+		
+		# Split in gene chunks
+		tar_target(
+			pseudobulk_df_tissue_split_by_gene, 
+			pseudobulk_df_tissue_merged |> split_by_gene(), 
+			pattern = map(pseudobulk_df_tissue_merged), 
+			resources = small_slurm
+		),
+		
+		# Analyse
 		tar_target(
 			estimates, 
-			analyse(pseudobulk_df_tissue, max_rows_for_matrix_multiplication = 10000, cores = 18), 
-			pattern = map(pseudobulk_df_tissue), 
-			iteration = "list",
+			pseudobulk_df_tissue_split_by_gene |> mutate(se = map(
+				se,
+				~ .x |> analyse(max_rows_for_matrix_multiplication = 10000, cores = 18)
+			)), 
+			pattern = map(pseudobulk_df_tissue_split_by_gene), 
 			resources = big_slurm
 		)
 	)
 	
 	
-}, ask = FALSE, script = glue("{result_directory}/_targets__pseudobulk_non_immune.R"))
+}, ask = FALSE, script = glue("{result_directory}/_targets__pseudobulk_non_immune_split.R"))
 
 job::job({
 	result_directory = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/pseudobulk_0.2.3.5_non_immune"
 	
 	tar_make_future(
-		script = glue("{result_directory}/_targets__pseudobulk_non_immune.R"),
-		store = glue("{result_directory}/_targets__pseudobulk_non_immune"), 
+		script = glue("{result_directory}/_targets__pseudobulk_non_immune_split.R"),
+		store = glue("{result_directory}/_targets__pseudobulk_non_immune_split"), 
 		workers = 200, 
 		garbage_collection = TRUE
 	)
 })
 
-tar_read(pseudobulk_df_tissue, store = glue("{result_directory}/_targets__pseudobulk_non_immune"), branches = 1)
+tar_read(pseudobulk_df_tissue, store = glue("{result_directory}/_targets__pseudobulk_non_immune_split"), branches = 1)
 
 tar_visnetwork(
-	store = glue("{result_directory}/_targets__pseudobulk_non_immune")
+	store = glue("{result_directory}/_targets__pseudobulk_non_immune_split")
 )
-	
+

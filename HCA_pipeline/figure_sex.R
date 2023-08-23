@@ -1602,6 +1602,45 @@ bone_pseudobulk_samples =
 library(DelayedArray)
 library(HDF5Array)
 
+# Genes for bone
+xx = readRDS("sccomp_on_HCA_0.2.3.5/de_sex_tissue.rds") |>
+	rename(tissue = name) |>
+	mutate(tissue = tissue |> str_remove("data_")) |>
+	# Parse cell type
+	mutate(tissue = case_when(
+		tissue == "node" ~ "lymph node",
+		tissue == "large" ~ "intestine large",
+		tissue == "small" ~ "intestine small",
+		tissue == "gland" ~ "adrenal gland",
+		TRUE ~ tissue
+	)) |>
+	filter(map_lgl(se, ~ "P_sex_adjusted" %in% colnames(.x))) |>
+	
+	left_join(
+		de_sex_tissue_non_immune |>
+			select(tissue, se_non_immune = se) 
+	) |>
+	
+	mutate(se = map2(
+		se,se_non_immune,
+		~ {
+			.x = .x |>
+				filter(!.feature %in% gene_chr$ID) 
+			
+			if(!is.null(.y)) 	.x = .x |>	filter(!.feature %in% (.y |> pull(.feature))) 
+			.x 
+			
+		}
+	)) |> 
+	filter(tissue == "bone") |> 
+	unnest(se) |> 
+	filter(P_sex_adjusted< 0.05) |>
+	
+	# Save
+	arrange(desc(abs(sexmale))) |> 
+	select(.feature, sexmale, P_sex_adjusted, contains("sexmale")) |>
+	saveRDS("sccomp_on_HCA_0.2.3.5/de_sex_tissue_bone_for_alex.rds")
+
 
 get_metadata() |> 
 	#	filter(cell_type_harmonised == "cd4 th17") |>

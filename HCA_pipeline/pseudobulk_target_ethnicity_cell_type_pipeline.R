@@ -340,6 +340,10 @@ tar_script(	{
 			)
 	}
 	
+
+	
+	
+	
 	#-----------------------#
 	# Workflow
 	#-----------------------#
@@ -361,6 +365,9 @@ tar_script(	{
 		
 		# Filter
 		tar_target(se_filtered, merge_and_filter(cell_type_files)),
+		
+		# Dispersion
+		tar_target(dispersion, se_to_dispersion(se_filtered)),
 		
 		# Estimate
 		tar_target(
