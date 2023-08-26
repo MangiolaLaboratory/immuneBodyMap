@@ -118,11 +118,11 @@ res_relative =
   unnest(data) |> 
   
 		# Estimate
-		sccomp_glm(
-			formula_composition = ~ age_days + tissue_harmonised + sex + ethnicity_simplified + assay_simplified + disease + (1 | group) + (age_days | tissue_harmonised),
-			formula_variability = ~ age_days + tissue_harmonised + disease,
+		sccomp_estimate(
+			formula_composition = ~ age_days*sex + disease + ethnicity_simplified + assay_simplified + disease + group + (1 + age_days + sex + ethnicity_simplified | tissue_harmonised),
+			formula_variability = ~ age_days*sex + disease,
 			sample_, cell_type_harmonised,
-			check_outliers = T,
+			#check_outliers = T,
 			approximate_posterior_inference = FALSE,
 			cores = 20,
 			mcmc_seed = 42,

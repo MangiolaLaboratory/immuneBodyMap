@@ -376,14 +376,15 @@ ethnicity_absolute_organ =
   	
   	# Create contrasts dinamically
     contrasts =
-      differential_composition_ethnicity_absolute |>
-      filter(parameter |> str_detect("___ethnicity")) |>
+    	differential_composition_ethnicity_absolute |>
+      filter(parameter |> str_detect("ethnicity") ) |>
       distinct(parameter) |>
-      tidyr::extract( parameter, "ethnicity", "_(.+)___", remove = FALSE) |>
+      tidyr::extract( parameter, "ethnicity", "ethnicity_simplified(.+)___", remove = FALSE) |>
+    	filter(!is.na(ethnicity)) |>
       mutate(ethnicity = glue("ethnicity_simplified{ethnicity}")) |>
       mutate(contrast = glue("`{ethnicity}`  + `{parameter}`") |> as.character()) |>
-      tidyr::extract(parameter, "tissue_harmonised", "(.+)___.+", remove = FALSE) |>
-      select(tissue_harmonised, contrast) |> 
+      tidyr::extract(parameter, "tissue_harmonised", ".+___(.+)", remove = FALSE) |>
+      select(ethnicity, tissue_harmonised, contrast) |> 
       separate(tissue_harmonised, c("tissue_harmonised", "ethnicity"), sep="_") |> 
       add_count(tissue_harmonised) |> mutate(contrast = glue("({contrast})")) |>  
       pivot_wider(names_from = ethnicity, values_from = contrast) |> 

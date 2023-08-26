@@ -32,8 +32,8 @@ differential_composition_ethnicity_absolute =
 
   # Estimate
   sccomp_estimate(
-    formula_composition = ~ 1 + ethnicity_simplified + sex + age_days +  assay_simplified  + disease + (1 + sex + age_days + ethnicity_simplified | tissue_harmonised),
-    formula_variability = ~ 1 + ethnicity_simplified + sex + disease,
+  	formula_composition = ~ age_days*sex + disease + ethnicity_simplified + assay_simplified + disease + group + (1 + age_days + sex + ethnicity_simplified | tissue_harmonised),
+  	formula_variability = ~ age_days*sex + disease + ethnicity_simplified,
     sample_, is_immune,
     approximate_posterior_inference = FALSE,
     cores = 20,

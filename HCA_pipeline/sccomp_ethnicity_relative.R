@@ -33,9 +33,9 @@ if(filter_blood=="TRUE"){
     filter(tissue_harmonised=="blood") |>
 
     # Estimate
-    sccomp_glm(
-      formula_composition = ~ 0 + ethnicity  + sex  + age_days +  assay   + (1 | group),
-      formula_variability = ~ 0 + ethnicity  + sex,
+  	sccomp_estimate(
+    	formula_composition = ~ age_days*sex + disease + ethnicity_simplified + assay_simplified + disease + group + (1 + age_days + sex + ethnicity_simplified | tissue_harmonised),
+    	formula_variability = ~ age_days*sex + disease,
       sample_, cell_type_harmonised, counts_from_tissue,
       check_outliers = F,
       approximate_posterior_inference = FALSE,
@@ -43,7 +43,8 @@ if(filter_blood=="TRUE"){
       mcmc_seed = 42,
       verbose = T,
       prior_mean_variable_association = list(intercept = c(3.6539176, 0.5), slope = c(-0.5255242, 0.1), standard_deviation = c(20, 40)),
-      output_directory_fit_draws = "/vast/scratch/users/mangiola.s"
+      #output_directory_fit_draws = "/vast/scratch/users/mangiola.s"
+    	max_sampling_iterations = 5000
     )
 
   res_relative_blood |> saveRDS(output_blood)

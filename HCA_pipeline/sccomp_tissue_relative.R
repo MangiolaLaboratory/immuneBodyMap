@@ -63,9 +63,9 @@ res_relative =
 	unite("group", c(tissue_harmonised , file_id), remove = FALSE) |> 
 
   # Estimate
-  sccomp_glm(
-    formula_composition = ~ 0 + tissue_harmonised + sex + ethnicity_simplified  + age_days + assay_simplified + disease + (tissue_harmonised | group),
-    formula_variability = ~ 0 + tissue_harmonised + sex + ethnicity_simplified + disease,
+  sccomp_estimate(
+  	formula_composition = ~ 0 + tissue_harmonised + sex + age_days + disease + ethnicity_simplified  + assay_simplified + (0 + tissue_harmonised | group),
+  	formula_variability = ~ 0 + tissue_harmonised + sex + age_days + disease,
     sample_, cell_type_harmonised,
     check_outliers = T,
     approximate_posterior_inference = FALSE,

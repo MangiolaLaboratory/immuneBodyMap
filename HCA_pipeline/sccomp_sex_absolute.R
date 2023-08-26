@@ -51,9 +51,9 @@ differential_composition_sex_absolute =
   unite("tissue_harmonised_sex", c(tissue_harmonised , sex), remove = FALSE) |>
 
   # Estimate
-  sccomp_estimate(
-    formula_composition = ~ 1 + sex + ethnicity_simplified  + disease + age_days +  assay_simplified  + group  + (1 + sex + age_days + ethnicity_simplified | tissue_harmonised),
-    formula_variability = ~ 1 + sex + ethnicity_simplified + disease ,
+	sccomp_estimate(
+		formula_composition = ~ age_days*sex + disease + ethnicity_simplified + assay_simplified + disease + group + (1 + age_days * sex + ethnicity_simplified | tissue_harmonised),
+		formula_variability = ~ age_days*sex + disease,
     sample_, is_immune,
     check_outliers = T,
     approximate_posterior_inference = FALSE,

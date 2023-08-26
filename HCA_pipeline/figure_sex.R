@@ -1,6 +1,6 @@
 library(tidyverse)
 library(forcats)
-library(CuratedAtlasQueryR)
+#library(CuratedAtlasQueryR)
 library(dittoSeq)
 library(sccomp)
 library(magrittr)
@@ -16,7 +16,7 @@ library(tidybulk)
 library(tidySummarizedExperiment)
 
 home = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s"
-result_directory = glue("{home}/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.5")
+result_directory = glue("{home}/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.6_interaction_sex_age")
 
 
 # Calculate softmax from an array of reals
@@ -167,7 +167,7 @@ sex_absolute_organ_tissue =
 # 	) |> 
 # 	select(-count_data) |>
 # 	select(1, 2, 4, 5, 6, 7, 8) |> 
-# 	write_csv("sccomp_on_HCA_0.2.3.5/SUPPLEMENTARY_sex_cellularity_tissue_estimates_contrasts.csv")
+# 	write_csv("sccomp_on_HCA_0.2.3.6_interaction_sex_age/SUPPLEMENTARY_sex_cellularity_tissue_estimates_contrasts.csv")
 
 
 # Draw the color palette for the mannequin heatmap of the 
@@ -425,7 +425,7 @@ plot_sex_relative =
 #   remove_unwanted_variation(~ 1 + sex + tissue_harmonised + ( 1 + sex | tissue_harmonised ), ~ sex)  |> 
 #   inner_join(data_for_immune_proportion_relative |> tidybulk::pivot_sample(sample_) )
 # 
-# res_relative_proportions_sex_tissue |> saveRDS("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.5/res_relative_proportions_sex_tissue.rds")
+# res_relative_proportions_sex_tissue |> saveRDS("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.6_interaction_sex_age/res_relative_proportions_sex_tissue.rds")
 
 res_relative_proportions_sex_tissue = readRDS(glue("{result_directory}/res_relative_proportions_sex_tissue.rds"))
 
@@ -726,11 +726,11 @@ plot_heatmap_sex_relative_organ_cell_type |>
 # 			pivot_transcript(), 
 # 		.progress=T
 # 	))
-# de_sex |> saveRDS("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.5/de_sex.rds")
+# de_sex |> saveRDS("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.6_interaction_sex_age/de_sex.rds")
 
 
 rank_de_cell_type = 
-	readRDS("sccomp_on_HCA_0.2.3.5/de_sex.rds") |>
+	readRDS("sccomp_on_HCA_0.2.3.6_interaction_sex_age/de_sex.rds") |>
 	unnest(se) |>
 	count(name, P_sex_adjusted < 0.05) |> 
 	drop_na() |> 
@@ -821,7 +821,7 @@ plot_ranks_cell_type =
 # 			pivot_transcript(),
 # 		.progress=T
 # 	))
-# de_sex_tissue |> saveRDS("sccomp_on_HCA_0.2.3.5/de_sex_tissue.rds")
+# de_sex_tissue |> saveRDS("sccomp_on_HCA_0.2.3.6_interaction_sex_age/de_sex_tissue.rds")
 
 # de_sex_tissue_non_immune =
 # 	tar_meta(store = glue("pseudobulk_0.2.3.5_non_immune/_targets__pseudobulk_non_immune"), starts_with("estimates_")) |>
@@ -837,17 +837,17 @@ plot_ranks_cell_type =
 # 			},
 # 		.progress=T
 # 	))
-# de_sex_tissue_non_immune |> saveRDS("sccomp_on_HCA_0.2.3.5/de_sex_tissue_non_immune.rds")
+# de_sex_tissue_non_immune |> saveRDS("sccomp_on_HCA_0.2.3.6_interaction_sex_age/de_sex_tissue_non_immune.rds")
 
 de_sex_tissue_non_immune = 
-	readRDS("sccomp_on_HCA_0.2.3.5/de_sex_tissue_non_immune.rds") |>
+	readRDS("sccomp_on_HCA_0.2.3.6_interaction_sex_age/de_sex_tissue_non_immune.rds") |>
 	mutate(tissue = map_chr(se, ~ .x |> pull(tissue_harmonised) |> unique())) |> 
 	filter(!is.na(tissue)) |>
 	filter(map_lgl(se, ~ "P_sex_adjusted" %in% colnames(.x), .progress = TRUE)) |>
 	mutate(se = map(se, ~ .x |> select(.feature, P_sex_adjusted)))
 
 de_sex_tissue = 
-	readRDS("sccomp_on_HCA_0.2.3.5/de_sex_tissue.rds") |>
+	readRDS("sccomp_on_HCA_0.2.3.6_interaction_sex_age/de_sex_tissue.rds") |>
 	rename(tissue = name) |>
 	mutate(tissue = tissue |> str_remove("data_")) |>
 	# Parse cell type
@@ -992,7 +992,7 @@ venn_0_3 =
 			filter(!.feature %in% gene_chr$ID) |> 
 			pull(.feature),
 		cell_type = 
-			readRDS("sccomp_on_HCA_0.2.3.5/de_sex.rds") |> 
+			readRDS("sccomp_on_HCA_0.2.3.6_interaction_sex_age/de_sex.rds") |> 
 			filter(map_lgl(se, ~ "P_sex_adjusted" %in% colnames(.x))) |>
 			mutate(se = map(se, ~ .x |> select(P_sex_adjusted, .feature))) |>
 			select(se, name) |>
@@ -1028,7 +1028,7 @@ venn_0_5 =
 			filter(!.feature %in% gene_chr$ID) |> 
 			pull(.feature),
 		`tissue\nC1QA C1QB\nCEP170 OXNAD1` = 
-			readRDS("sccomp_on_HCA_0.2.3.5/de_sex_tissue.rds") |> 
+			readRDS("sccomp_on_HCA_0.2.3.6_interaction_sex_age/de_sex_tissue.rds") |> 
 			filter(map_lgl(se, ~ "P_sex_adjusted" %in% colnames(.x))) |>
 			mutate(se = map(se, ~ .x |> select(P_sex_adjusted, .feature))) |>
 			select(se, name) |>
@@ -1042,7 +1042,7 @@ venn_0_5 =
 			filter(!.feature %in% gene_chr$ID) |> 
 			pull(.feature),
 		`cell_type\nLOC105377224` = 
-			readRDS("sccomp_on_HCA_0.2.3.5/de_sex.rds") |> 
+			readRDS("sccomp_on_HCA_0.2.3.6_interaction_sex_age/de_sex.rds") |> 
 			filter(map_lgl(se, ~ "P_sex_adjusted" %in% colnames(.x))) |>
 			mutate(se = map(se, ~ .x |> select(P_sex_adjusted, .feature))) |>
 			select(se, name) |>
@@ -1061,7 +1061,7 @@ venn_0_5 =
 
 # # Which genes are shared across tissue programs
 # 
-# readRDS("sccomp_on_HCA_0.2.3.5/de_sex_tissue.rds") |> 
+# readRDS("sccomp_on_HCA_0.2.3.6_interaction_sex_age/de_sex_tissue.rds") |> 
 # 	filter(map_lgl(se, ~ "P_sex_adjusted" %in% colnames(.x))) |>
 # 	mutate(se = map(se, ~ .x |> select(P_sex_adjusted, .feature))) |>
 # 	select(se, name) |>
@@ -1085,7 +1085,7 @@ venn_0_5 =
 
 
 plot_genes_most_altered = 
-	readRDS("sccomp_on_HCA_0.2.3.5/de_sex.rds") |> 
+	readRDS("sccomp_on_HCA_0.2.3.6_interaction_sex_age/de_sex.rds") |> 
 	filter(map_lgl(se, ~ "P_sex_adjusted" %in% colnames(.x))) |>
 	mutate(se = map(se, ~ .x |> select(P_sex_adjusted, .feature))) |>
 	select(se, name) |>
@@ -1213,7 +1213,7 @@ plot_genes_most_altered =
 # 		
 # 		# join the non immune DE
 # 		left_join(
-# 			readRDS("sccomp_on_HCA_0.2.3.5/de_sex_tissue_non_immune.rds") |>
+# 			readRDS("sccomp_on_HCA_0.2.3.6_interaction_sex_age/de_sex_tissue_non_immune.rds") |>
 # 				mutate(tissue = map_chr(se, ~ .x |> pull(tissue_harmonised) |> unique())) |> 
 # 				filter(!is.na(tissue)) |>
 # 				filter(map_lgl(se, ~ "P_sex_adjusted" %in% colnames(.x), .progress = TRUE)) |>
@@ -1298,7 +1298,7 @@ plot_genes_most_altered =
 # 	
 # })
 # 
-# se_adjust |> qs::qsave("sccomp_on_HCA_0.2.3.5/de_sex_tissue_adjusted.qs")
+# se_adjust |> qs::qsave("sccomp_on_HCA_0.2.3.6_interaction_sex_age/de_sex_tissue_adjusted.qs")
 
 # # Cell type DE
 # job::job({
@@ -1448,14 +1448,14 @@ plot_genes_most_altered =
 # 	
 # })
 # 
-# se_adjust_cell_type |> qs::qsave("sccomp_on_HCA_0.2.3.5/de_sex_cell_type_adjusted.qs")
+# se_adjust_cell_type |> qs::qsave("sccomp_on_HCA_0.2.3.6_interaction_sex_age/de_sex_cell_type_adjusted.qs")
 
 
 
 
 # Select tissue pathways
 xx = 
-	qs::qread("sccomp_on_HCA_0.2.3.5/de_sex_tissue_adjusted.qs") |> 
+	qs::qread("sccomp_on_HCA_0.2.3.6_interaction_sex_age/de_sex_tissue_adjusted.qs") |> 
 	select(name, enriched_m_f, enriched_pathways, generic_vc_cell_specific) |>
 	mutate(enriched_pathways = map(
 		enriched_pathways,
@@ -1603,7 +1603,7 @@ library(DelayedArray)
 library(HDF5Array)
 
 # Genes for bone
-xx = readRDS("sccomp_on_HCA_0.2.3.5/de_sex_tissue.rds") |>
+xx = readRDS("sccomp_on_HCA_0.2.3.6_interaction_sex_age/de_sex_tissue.rds") |>
 	rename(tissue = name) |>
 	mutate(tissue = tissue |> str_remove("data_")) |>
 	# Parse cell type
@@ -1639,7 +1639,7 @@ xx = readRDS("sccomp_on_HCA_0.2.3.5/de_sex_tissue.rds") |>
 	# Save
 	arrange(desc(abs(sexmale))) |> 
 	select(.feature, sexmale, P_sex_adjusted, contains("sexmale")) |>
-	saveRDS("sccomp_on_HCA_0.2.3.5/de_sex_tissue_bone_for_alex.rds")
+	saveRDS("sccomp_on_HCA_0.2.3.6_interaction_sex_age/de_sex_tissue_bone_for_alex.rds")
 
 
 get_metadata() |> 
@@ -1651,7 +1651,7 @@ get_metadata() |>
 	as_tibble()  |> 
 	#with_groups(sample_, ~ .x |> sample_n(min(1000, n() ))) |> 
 	get_single_cell_experiment(cache_directory = "/vast/projects/cellxgene_curated", assays = "counts") |>
-	saveHDF5SummarizedExperiment("sccomp_on_HCA_0.2.3.5/bone")
+	saveHDF5SummarizedExperiment("sccomp_on_HCA_0.2.3.6_interaction_sex_age/bone")
 
 # kidney
 kidney_pseudobulk_samples =
@@ -1669,7 +1669,7 @@ get_metadata() |>
 	as_tibble()  |> 
 	with_groups(sample_, ~ .x |> sample_n(min(2000, n() ))) |> 
 	get_single_cell_experiment(cache_directory = "/vast/projects/cellxgene_curated", assays = "counts") |>
-	saveHDF5SummarizedExperiment("sccomp_on_HCA_0.2.3.5/kidney")
+	saveHDF5SummarizedExperiment("sccomp_on_HCA_0.2.3.6_interaction_sex_age/kidney")
 
 
 # adipose
@@ -1689,7 +1689,7 @@ get_metadata() |>
 	as_tibble()  |> 
 	#with_groups(sample_, ~ .x |> sample_n(min(1000, n() ))) |> 
 	get_single_cell_experiment(cache_directory = "/vast/projects/cellxgene_curated", assays = "counts") |>
-	saveHDF5SummarizedExperiment("sccomp_on_HCA_0.2.3.5/adipose")
+	saveHDF5SummarizedExperiment("sccomp_on_HCA_0.2.3.6_interaction_sex_age/adipose")
 
 
 
@@ -1885,7 +1885,7 @@ ilc =
 
 library(DelayedArray)
 library(HDF5Array)
-ilc |> saveHDF5SummarizedExperiment("sccomp_on_HCA_0.2.3.5/ilc")
+ilc |> saveHDF5SummarizedExperiment("sccomp_on_HCA_0.2.3.6_interaction_sex_age/ilc")
 
 
 th17 = 
@@ -1898,7 +1898,7 @@ th17 =
 	with_groups(sample_, ~ .x |> sample_n(min(1000, n() ))) |> 
 	get_single_cell_experiment(cache_directory = "/vast/projects/cellxgene_curated", assays = "counts")
 
-th17 |> saveHDF5SummarizedExperiment("sccomp_on_HCA_0.2.3.5/th17")
+th17 |> saveHDF5SummarizedExperiment("sccomp_on_HCA_0.2.3.6_interaction_sex_age/th17")
 
 
 plot_count_de = 
