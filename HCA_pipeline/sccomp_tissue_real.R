@@ -62,9 +62,9 @@ res_relative =
 	unite("group", c(tissue_harmonised , file_id), remove = FALSE) |> 
 
   # Estimate
-  sccomp_glm(
-    formula_composition = ~ 0 + tissue_harmonised + sex + ethnicity_simplified  + age_days + assay_simplified + disease + (tissue_harmonised | group),
-    formula_variability = ~ 0 + tissue_harmonised + ethnicity_simplified + assay_simplified + disease,
+	sccomp_estimate(
+		formula_composition = ~ 0 + tissue_harmonised + disease + sex * age_days  + ethnicity_simplified  + assay_simplified + (0 + tissue_harmonised | group),
+		formula_variability = ~ 0 + tissue_harmonised + disease ,
     sample_, cell_type_harmonised,
     check_outliers = F,
     approximate_posterior_inference = FALSE,
@@ -72,7 +72,8 @@ res_relative =
     mcmc_seed = 42,
     verbose = T,
     prior_mean_variable_association = list(intercept = c(3.6539176, 0.5), slope = c(-0.5255242, 0.1), standard_deviation = c(20, 40)),
-    output_directory_fit_draws = "/vast/scratch/users/mangiola.s", max_sampling_iterations = 5000
+    #output_directory_fit_draws = "/vast/scratch/users/mangiola.s", 
+  	max_sampling_iterations = 5000
   )
 
 res_relative |> saveRDS(output_file_1)

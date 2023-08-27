@@ -74,25 +74,17 @@ res_relative =
   my_data |>
 
 		# Estimate
-		sccomp_glm(
-			formula_composition = ~ 0 + assay + tissue_harmonised + sex + ethnicity_simplified + age_days + disease + (assay | group) ,
-			formula_variability = ~ 0 + assay + tissue_harmonised + sex + ethnicity_simplified + + disease,
+	sccomp_estimate(
+			formula_composition = ~ assay_simplified + disease + age_days*sex + ethnicity_simplified + group + (1 + age_days*sex + ethnicity_simplified | tissue_harmonised),
+			formula_variability = ~ assay_simplified + disease ,
 			sample_, cell_type_harmonised,
-			check_outliers = F,
 			approximate_posterior_inference = FALSE,
-			contrasts = c(
-        "assay10x_3_v3 - assay10x_3_v2" ,
-        "assaysci_RNA_seq - assay10x_3_v2" ,
-        "assaymicrowell_seq - assay10x_3_v2" ,
-        "assay10x_5_v2 - assay10x_3_v2" ,
-        "assay10x_5_v1 - assay10x_3_v2" ,
-        "assaySmart_seq2  - assay10x_3_v2"
-			),
 			cores = 10,
 			mcmc_seed = 42,
 			verbose = T,
 			prior_mean_variable_association = list(intercept = c(3.6539176, 0.5), slope = c(-0.5255242, 0.1), standard_deviation = c(20, 40)),
-			output_directory_fit_draws = "/vast/scratch/users/mangiola.s", max_sampling_iterations = 5000
+			#output_directory_fit_draws = "/vast/scratch/users/mangiola.s", 
+			max_sampling_iterations = 5000
 		)
 
 

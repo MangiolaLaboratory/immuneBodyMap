@@ -38,10 +38,10 @@ immune_non_immune_differential_composition_age =
 
 	mutate(age_days_2 = age_days^2) |> 
 	
-	# Model
-	sccomp_glm(
-		formula_composition = ~ age_days  + tissue_harmonised + sex + ethnicity_simplified + assay_simplified + disease + (1 | group) + (age_days | tissue_harmonised),
-		formula_variability = ~ age_days  + tissue_harmonised + disease,
+	# Estimate
+	sccomp_estimate(
+		formula_composition = ~ age_days*sex + disease + ethnicity_simplified + assay_simplified + group + (1 + age_days*sex + ethnicity_simplified | tissue_harmonised),
+		formula_variability = ~ age_days*sex + disease,
 		sample_, is_immune,
 		check_outliers = T,
 		approximate_posterior_inference = FALSE,
@@ -49,8 +49,10 @@ immune_non_immune_differential_composition_age =
 		mcmc_seed = 42,
 		verbose = T,
 		prior_mean_variable_association = list(intercept = c(3.6539176, 0.5), slope = c(-0.5255242, 0.1), standard_deviation = c(20, 40)),
-		output_directory_fit_draws = "/vast/scratch/users/mangiola.s", max_sampling_iterations = 5000
-	)
+		#output_directory_fit_draws = "/vast/scratch/users/mangiola.s", 
+		max_sampling_iterations = 5000
+	) |> 
+	sccomp_remove_outliers(max_sampling_iterations = 4000) 
 
 immune_non_immune_differential_composition_age |>
 
