@@ -209,7 +209,7 @@ tar_script(	{
 		# Filter
 		se = 
 			se |> 
-			filter(sex != "unknown") |>
+			# filter(sex != "unknown") |>
 			filter(.aggregated_cells > 10) 
 		
 		# Samble to subset
@@ -235,13 +235,21 @@ tar_script(	{
 		# Filter ethnicity_simplified
 		se = 
 			se |>
-			filter(disease %in% (
-				se |>
-					distinct(disease, ethnicity_simplified) |>
-					count(disease) |>
-					filter(n>1) |>
-					pull(disease)
-			))
+
+		  nest(se_data = -c(disease, ethnicity_simplified)) |>
+		  
+		  # How many ethnicity per assay
+		  nest(data = -disease) |> 
+		  mutate(n1 = map_int(data, ~ .x |> distinct(ethnicity_simplified) |> nrow())) |> 
+		  unnest(data) |> 
+		  
+		  # How many assay per ethnicity
+		  nest(data = - ethnicity_simplified) |> 
+		  mutate(n2 = map_int(data, ~ .x |> distinct(disease) |> nrow())) |> 
+		  unnest(data) |> 
+		  filter(n1 + n2 == 2) |>
+		  select(n1, n2) |>
+		  unnest(se_data) |>
 		
 		# Filter tissue that has two sexes
 		se = 
