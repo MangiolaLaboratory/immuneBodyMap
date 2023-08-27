@@ -137,7 +137,7 @@ res_relative =
 
   # Estimate
   sccomp_estimate(
-  	formula_composition = ~ age_days*sex + disease + ethnicity_simplified + assay_simplified + disease + group + (1 + age_days + sex + ethnicity_simplified | tissue_harmonised),
+  	formula_composition = ~ age_days*sex + disease + ethnicity_simplified + assay_simplified + group + (1 + age_days*sex + ethnicity_simplified | tissue_harmonised),
   	formula_variability = ~ age_days*sex + disease,
     sample_, cell_type_harmonised,
     check_outliers = F,

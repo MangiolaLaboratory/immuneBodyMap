@@ -12,7 +12,6 @@ input_file = args[[2]]
 output_file_1 = args[[3]]
 output_file_1_blood = args[[4]]
 output_file_2 = args[[5]]
-output_file_3 = args[[6]]
 
 differential_composition_sex_absolute =
   readRDS(input_file) |>
@@ -52,7 +51,7 @@ differential_composition_sex_absolute =
 
   # Estimate
 	sccomp_estimate(
-		formula_composition = ~ age_days*sex + disease + ethnicity_simplified + assay_simplified + disease + group + (1 + age_days * sex + ethnicity_simplified | tissue_harmonised),
+		formula_composition = ~ age_days*sex + disease + ethnicity_simplified + assay_simplified + group + (1 + age_days*sex + ethnicity_simplified | tissue_harmonised),
 		formula_variability = ~ age_days*sex + disease,
     sample_, is_immune,
     check_outliers = T,
@@ -63,18 +62,13 @@ differential_composition_sex_absolute =
     prior_mean_variable_association = list(intercept = c(3.6539176, 0.5), slope = c(-0.5255242, 0.1), standard_deviation = c(20, 40)),
     #output_directory_fit_draws = "/vast/scratch/users/mangiola.s",
     max_sampling_iterations = 5000
-  )
+  ) |> 
+	sccomp_remove_outliers(max_sampling_iterations = 4000) 
 
 differential_composition_sex_absolute |>
   saveRDS(output_file_1)
 
-differential_composition_sex_absolute_no_outlier = 
-  differential_composition_sex_absolute |> 
-  sccomp_remove_outliers(max_sampling_iterations = 4000) 
 
-differential_composition_sex_absolute_no_outlier |> 
-  saveRDS(output_file_2)
-
-differential_composition_sex_absolute_no_outlier |>
+differential_composition_sex_absolute |>
 		remove_unwanted_variation(~ sex, ~ sex) |>
-		saveRDS(output_file_3)
+		saveRDS(output_file_2)

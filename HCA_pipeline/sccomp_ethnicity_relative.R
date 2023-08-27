@@ -21,6 +21,8 @@ my_data =
   # Scale days
   mutate(age_days = age_days  |> scale(center = FALSE) |> as.numeric()) |>
 
+	unite("group", c(tissue_harmonised , file_id), remove = FALSE) |>
+	
   unite("tissue_harmonised_ethnicity", c(tissue_harmonised , ethnicity_simplified), remove = FALSE) 
 
 if(filter_blood=="TRUE"){
@@ -99,8 +101,8 @@ res_relative =
 
   # Estimate
   sccomp_estimate(
-    formula_composition = ~ 1 + ethnicity_simplified + sex + age_days +  assay_simplified  + disease + (1 + sex + age_days + ethnicity_simplified | tissue_harmonised),
-    formula_variability = ~ 1 + ethnicity_simplified + sex + disease,
+  	formula_composition = ~ disease + age_days*sex + ethnicity_simplified + assay_simplified + group + (1 + age_days*sex + ethnicity_simplified | tissue_harmonised),
+  	formula_variability = ~ disease,
     sample_, cell_type_harmonised,
     approximate_posterior_inference = FALSE,
     cores = 20,

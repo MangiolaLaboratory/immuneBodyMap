@@ -24,8 +24,8 @@ res_absolute =
   unite("group", c(tissue_harmonised , file_id), remove = FALSE) |>
 
 	sccomp_estimate(
-  	formula_composition = ~ 0 + tissue_harmonised + sex + age_days + disease + ethnicity_simplified  + assay_simplified + (0 + tissue_harmonised | group),
-  	formula_variability = ~ 0 + tissue_harmonised + sex + age_days + disease,
+		formula_composition = ~ 0 + tissue_harmonised + disease + sex * age_days  + ethnicity_simplified  + assay_simplified + (0 + tissue_harmonised | group),
+		formula_variability = ~ 0 + tissue_harmonised + disease ,
     sample_, is_immune,
     check_outliers = T,
     approximate_posterior_inference = FALSE,

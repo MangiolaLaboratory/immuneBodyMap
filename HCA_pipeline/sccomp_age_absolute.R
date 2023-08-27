@@ -40,7 +40,7 @@ immune_non_immune_differential_composition_age =
 	
 	# Estimate
 	sccomp_estimate(
-		formula_composition = ~ age_days*sex + disease + ethnicity_simplified + assay_simplified + disease + group + (1 + age_days + sex + ethnicity_simplified | tissue_harmonised),
+		formula_composition = ~ age_days*sex + disease + ethnicity_simplified + assay_simplified + group + (1 + age_days*sex + ethnicity_simplified | tissue_harmonised),
 		formula_variability = ~ age_days*sex + disease,
 		sample_, is_immune,
 		check_outliers = T,

@@ -75,8 +75,8 @@ res_relative =
 
 		# Estimate
 	sccomp_estimate(
-			formula_composition = ~ age_days*sex + disease + ethnicity_simplified + assay_simplified + disease + group + (1 + age_days + sex + ethnicity_simplified | tissue_harmonised),
-			formula_variability = ~ age_days*sex + disease + assay_simplified,
+			formula_composition = ~ assay_simplified + disease + age_days*sex + ethnicity_simplified + group + (1 + age_days*sex + ethnicity_simplified | tissue_harmonised),
+			formula_variability = ~ assay_simplified + disease ,
 			sample_, cell_type_harmonised,
 			approximate_posterior_inference = FALSE,
 			cores = 10,
