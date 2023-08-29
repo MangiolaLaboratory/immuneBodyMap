@@ -1,11 +1,11 @@
-library(tidyverse)
+library(dplyr)
+library(tidyr)
 library(forcats)
-library(dittoSeq)
 library(sccomp)
 library(magrittr)
 library(patchwork)
 library(glue)
-source("https://gist.githubusercontent.com/stemangiola/fc67b08101df7d550683a5100106561c/raw/a0853a1a4e8a46baf33bad6268b09001d49faf51/ggplot_theme_multipanel")
+library(stringr)
 
 args = commandArgs(trailingOnly=TRUE)
 filter_blood = args[[1]]
