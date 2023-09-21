@@ -944,31 +944,40 @@ plot_heatmap_sex_relative_organ_cell_type |>
 
 
 # DE
-
+library(tidyverse)
+library(glue)
+library(targets)
+result_directory = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/pseudobulk_0.2.3.5_non_immune"
+store = glue("{result_directory}/_targets__pseudobulk_non_immune_split3")
 # Plot of importance of composition vs transcription
 
 
-# de_sex = 
-# 	tar_meta(store = glue("{result_directory}/_targets__sex"), starts_with("data_")) |> 
+# de_sex_cell_type =
+# 	tar_meta( store = store	) |> 
+# 	dplyr::filter(name |> str_detect("estimates_sex_cell_type_")) |> 	
 # 	filter(!is.na(data)) |>
 # 	mutate(se = map(
-# 		name, 
-# 		~ tar_read_raw(.x, store = glue("{result_directory}/_targets__sex")) |> 
-# 			pivot_transcript(), 
+# 		name,
+# 		~ .x |>
+# 			tar_read_raw(store=store ) |>
+# 			mutate(data = map(data, pivot_transcript)),
 # 		.progress=T
 # 	))
-# de_sex |> saveRDS("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex.rds")
+# de_sex_cell_type |> saveRDS("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_cell_type.rds")
 
 
 rank_de_cell_type = 
 	readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex.rds") |>
+	select(se) |> 
 	unnest(se) |>
-	count(name, P_sex_adjusted < 0.05) |> 
+	filter(!is.na(cell_type_harmonised)) |> 
+	unnest(data) |> 
+	count(cell_type_harmonised, P_sex_adjusted < 0.05) |> 
 	drop_na() |> 
 	spread(`P_sex_adjusted < 0.05`, n) |> 
 	mutate(proportion_significant = `TRUE` / (`FALSE` + `TRUE`)) |> 
 	arrange(desc(proportion_significant)) |>
-	rename(cell_type = name) |>
+	rename(cell_type = cell_type_harmonised) |>
 	
 	# Parse cell type
 	mutate(cell_type = 
@@ -980,8 +989,6 @@ rank_de_cell_type =
 	
 	filter(!cell_type %in% c("immune_unclassified", "dnt")) |>
 	rowid_to_column("rank_de") 
-
-
 
 plot_ranks_cell_type_barplot = 
 	rank_de_cell_type |>
@@ -1001,7 +1008,7 @@ plot_ranks_cell_type =
 	arrange(c_FDR) |>
 	filter(!cell_type_harmonised %in% c("immune_unclassified", "dnt")) |>
 	rowid_to_column("rank_composition") |>
-	select(cell_type = cell_type_harmonised, rank_composition) |>
+	dplyr::select(cell_type = cell_type_harmonised, rank_composition) |>
 	
 	full_join(
 		
@@ -1010,7 +1017,7 @@ plot_ranks_cell_type =
 		by = join_by(cell_type)
 		
 	) |>
-	select(cell_type, contains("rank")) |>
+	dplyr::select(cell_type, contains("rank")) |>
 	pivot_longer(contains("rank")) |>
 	mutate(name = name |> str_remove("rank")) |>
 	
@@ -1041,17 +1048,24 @@ plot_ranks_cell_type =
 	theme_multipanel +
 	theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) 
 
-
+library(furrr)
+library(tidybulk)
+plan(multisession, workers = 18)
+#options(future.globals.maxSize = 200000 * 1024^2)
 
 # de_sex_tissue =
-# 	tar_meta(store = glue("pseudobulk_0.2.3.4/_targets__sex_tissue"), starts_with("data_")) |>
+# 	tar_meta( store = store	) |>
+# 	dplyr::filter(name |> str_detect("estimates_sex_tissue_")) |>
 # 	filter(!is.na(data)) |>
-# 	mutate(se = map(
+# 	mutate(se = future_map(
 # 		name,
-# 		~ tar_read_raw(.x, store = glue("pseudobulk_0.2.3.4/_targets__sex_tissue")) |>
-# 			pivot_transcript(),
-# 		.progress=T
-# 	))
+# 		~ .x |>
+# 			tar_read_raw(store=store ) |>
+# 			mutate(data = map(data, pivot_transcript)),
+# 		.progress=T,
+# 		.env_globals = environment() 
+# 	))    |> select(-data) |> unnest(se) 
+# 
 # de_sex_tissue |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_tissue.rds")
 
 # de_sex_tissue_non_immune =
@@ -1070,12 +1084,12 @@ plot_ranks_cell_type =
 # 	))
 # de_sex_tissue_non_immune |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_tissue_non_immune.rds")
 
-de_sex_tissue_non_immune = 
-	readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_tissue_non_immune.rds") |>
-	mutate(tissue = map_chr(se, ~ .x |> pull(tissue_harmonised) |> unique())) |> 
-	filter(!is.na(tissue)) |>
-	filter(map_lgl(se, ~ "P_sex_adjusted" %in% colnames(.x), .progress = TRUE)) |>
-	mutate(se = map(se, ~ .x |> select(.feature, P_sex_adjusted)))
+# de_sex_tissue_non_immune = 
+# 	readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_tissue_non_immune.rds") |>
+# 	mutate(tissue = map_chr(se, ~ .x |> pull(tissue_harmonised) |> unique())) |> 
+# 	filter(!is.na(tissue)) |>
+# 	filter(map_lgl(se, ~ "P_sex_adjusted" %in% colnames(.x), .progress = TRUE)) |>
+# 	mutate(se = map(se, ~ .x |> select(.feature, P_sex_adjusted)))
 
 de_sex_tissue = 
 	readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_tissue.rds") |>

@@ -126,9 +126,21 @@ tar_script({
 	small_slurm_memory =
 		crew_controller_slurm(
 			name = "small_slurm_memory",
-			slurm_memory_gigabytes_per_cpu = 250,
+			slurm_memory_gigabytes_per_cpu = 350,
 			slurm_cpus_per_task = 1,
 			workers = 10,
+			verbose = T
+			#,
+			#script_lines = "module load R/4.2.1",
+			#host = "spartan.hpc.unimelb.edu.au"
+		)
+	
+	slurm_3 =
+		crew_controller_slurm(
+			name = "slurm_3",
+			slurm_memory_gigabytes_per_cpu = 10,
+			slurm_cpus_per_task = 3,
+			workers = 400,
 			verbose = T
 			#,
 			#script_lines = "module load R/4.2.1",
@@ -153,20 +165,21 @@ tar_script({
 	tar_option_set(
 		packages = c(
 			"CuratedAtlasQueryR", "stringr", "tibble", "tidySingleCellExperiment", "dplyr", "Matrix",
-			"Seurat", "glue", "qs",  "purrr", "tidybulk", "tidySummarizedExperiment", "edgeR", "jascap", "crew", "magrittr", "digest"
+			"Seurat", "glue", "qs",  "purrr", "tidybulk", "tidySummarizedExperiment", "edgeR", "jascap", "crew", "magrittr", "digest", "glmmSeq"
 		),
-		memory = "transient",
+
 		garbage_collection = TRUE,
 		#trust_object_timestamps = TRUE,
+		memory = "transient",
 		storage = "worker",
 		retrieval = "worker",
 		error = "continue",
 		format = "qs",
-		controller = crew_controller_group(small_slurm, small_slurm_memory, big_slurm),
-		resources = tar_resources(crew = tar_resources_crew("small_slurm")) 
-		#,
-		 # debug = "sce_df_split_by_gene_0be165fc", # Set the target you want to debug.
-		 # cue = tar_cue(mode = "never") # Force skip non-debugging outdated targets.
+		controller = crew_controller_group(small_slurm, small_slurm_memory, big_slurm, slurm_3),
+		resources = tar_resources(crew = tar_resources_crew("small_slurm")) 	
+		# ,
+		# debug = "estimates_sex_cell_type_a39a75b1", # Set the target you want to debug.
+		# cue = tar_cue(mode = "never") # Force skip non-debugging outdated targets.
 	)
 	
 	root_directory = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap"
@@ -443,6 +456,9 @@ tar_script({
 	
 	aggregate = function(se_df){
 		
+		print("Start aggregate")
+		gc()
+		
 		se_df |>
 			
 			# Add columns and filter
@@ -500,7 +516,74 @@ tar_script({
 		
 	}
 	
+	aggregate_cell_type = function(se_df){
+		
+		print("Start aggregate")
+		gc()
+		
+		se_df |>
+			
+			# Add columns and filter
+			mutate(data = pmap(
+				list(data, cell_type_harmonised, tissue_harmonised, file_id),
+				~ {
+					# Add columns
+					se = 
+						..1 |>
+						mutate(cell_type_harmonised = ..2, tissue_harmonised = ..3, file_id = ..4) |>
+						select(-any_of(c("file_id_db", ".cell", "original_cell_id")))
+					
+					
+					# Identify samples with many genes
+					sample_with_many_genes =
+						se |>
+						assay("counts") |>
+						apply(2, function(x) (x>0) |> which() |> length()) |>
+						enframe() |>
+						mutate(value = as.character(value), name = as.character(name)) |>
+						filter(value > 5000) |>
+						pull(name)
+					se = se[,sample_with_many_genes, drop=FALSE]
+					
+					# Filter samples with too few cells
+					se = se |> filter(.aggregated_cells > 10)
+					
+				}, 
+				.progress=TRUE
+			)) |>
+			
+			# nest for output
+			nest(data = -cell_type_harmonised) |> 
+			
+			# bind
+			mutate(data = map(
+				data,
+				~ {
+					
+					se = do.call(cbind,  .x |> pull(data))
+					
+					# Filter very rare gene-transcripts
+					all_zeros = assay(se, "counts") |> rowSums() |> equals(0) 
+					se = se[!all_zeros,]
+					lower_than_total_counts = assay(se, "counts") |> rowSums() < 15 
+					se = se[!lower_than_total_counts,]
+					
+					# Make it sparse
+					se@assays@data$counts = as(se@assays@data$counts, "sparseMatrix")
+					
+					se
+				}
+			))
+		
+		
+	}
+	
+	
 	map_quantile_scale_abundance = function(se_df){
+		
+		print("Start scale abundance")
+		gc()
+		
 		se_df |> 
 			
 			# Quantile tranformation
@@ -511,72 +594,149 @@ tar_script({
 				
 				.x@assays@data$counts_scaled = as(.x@assays@data$counts_scaled, "sparseMatrix")
 				
+				attr(.x, "internals")$tt_columns$.abundance_scaled |> attr(".Environment") = NULL # new_environment()
+				
 				.x
 			}))  
 		
 	}
 	
 	map_keep_abundant = function(se_df){
-		se_df |> 
+		
+		print("Start keep abundant")
+		gc()
+		
+		
+		se_df |>
 			mutate(data = map(
 				data,
 				~ {
 					
-					# Select abundant genes within tissues and unite
-					abundant_genes =
-						.x |>
-						nest(data = -cell_type_harmonised) |>
-						
-						# Filter if only one sex
-						mutate(abundant_genes = map(
-							data,
-							~ {
-								
-								se = .x
-								
-								# # Avoid indeterminability
-								# if(ncol(se) > 0) {
-								# 	
-								# 	ethnicity_to_keep = se |> pivot_sample() |> count(ethnicity_simplified) |> filter(n >1) |> pull(ethnicity_simplified)
-								# 	se = se |> filter(ethnicity_simplified %in% ethnicity_to_keep)
-								# 	
-								# 	sex_to_keep = se |> pivot_sample() |> count(sex) |> filter(n >1) |> pull(sex)
-								# 	se = se |> filter(sex %in% sex_to_keep)
-								# 	
-								# 	se = se |> drop_samples_complete_confounder(sex, ethnicity_simplified)
-								# 	
-								# }
-								# 
-								# factors =
-								# 	c( "sex", "ethnicity_simplified") |>
-								# 	enframe(value = "factor") |>
-								# 	mutate(n = map_int(
-								# 		factor, ~ se |> select(.x) |> distinct() |> nrow()
-								# 	)) |>
-								# 	filter(n>1) |>
-								# 	pull(factor) |>
-								# 	map(sym) |> 
-								# 	unlist() 
-								
-								se |>
-								keep_abundant(.abundance = counts_scaled, factor_of_interest = c(sex, ethnicity_simplified), minimum_counts = 50) |>
-								rownames()
-								
-								},
-							.progress = TRUE
-						)) |>
-						pull(abundant_genes) |>
-						unlist() |>
-						unique()
+					# For blood
+					if(ncol(.x) > 1000)
+					.x |>
+						keep_abundant(
+							.abundance = counts_scaled, 
+							factor_of_interest = c(sex, ethnicity_simplified), 
+							minimum_counts = 500,
+							minimum_proportion = 0.9
+						)
 					
-					.x |> filter(.feature %in% abundant_genes)
+					else {
+						# Select abundant genes within tissues and unite
+						abundant_genes =
+							.x |>
+							nest(data = -cell_type_harmonised) |>
+							
+							# Filter if only one sex
+							mutate(abundant_genes = map(
+								data,
+								~ {
+									
+									se = .x
+									
+									# # Avoid indeterminability
+									# if(ncol(se) > 0) {
+									#
+									# 	ethnicity_to_keep = se |> pivot_sample() |> count(ethnicity_simplified) |> filter(n >1) |> pull(ethnicity_simplified)
+									# 	se = se |> filter(ethnicity_simplified %in% ethnicity_to_keep)
+									#
+									# 	sex_to_keep = se |> pivot_sample() |> count(sex) |> filter(n >1) |> pull(sex)
+									# 	se = se |> filter(sex %in% sex_to_keep)
+									#
+									# 	se = se |> drop_samples_complete_confounder(sex, ethnicity_simplified)
+									#
+									# }
+									#
+									# factors =
+									# 	c( "sex", "ethnicity_simplified") |>
+									# 	enframe(value = "factor") |>
+									# 	mutate(n = map_int(
+									# 		factor, ~ se |> select(.x) |> distinct() |> nrow()
+									# 	)) |>
+									# 	filter(n>1) |>
+									# 	pull(factor) |>
+									# 	map(sym) |>
+									# 	unlist()
+									
+									se |>
+										keep_abundant(.abundance = counts_scaled, factor_of_interest = c(sex, ethnicity_simplified), minimum_counts = 50) |>
+										rownames()
+									
+								},
+								.progress = TRUE
+							)) |>
+							pull(abundant_genes) |>
+							unlist() |>
+							unique()
+						
+						.x |> filter(.feature %in% abundant_genes)
+					}
 					
 				} 
 			))
+		# se_df |> 
+		# 	mutate(data = map(
+		# 		data,
+		# 		~ {
+		# 			
+		# 			# Select abundant genes within tissues and unite
+		# 			abundant_genes =
+		# 				.x |>
+		# 				nest(data = -cell_type_harmonised) |>
+		# 				
+		# 				# Filter if only one sex
+		# 				mutate(abundant_genes = map(
+		# 					data,
+		# 					~ {
+		# 						
+		# 						se = .x
+		# 						
+		# 						# # Avoid indeterminability
+		# 						# if(ncol(se) > 0) {
+		# 						# 	
+		# 						# 	ethnicity_to_keep = se |> pivot_sample() |> count(ethnicity_simplified) |> filter(n >1) |> pull(ethnicity_simplified)
+		# 						# 	se = se |> filter(ethnicity_simplified %in% ethnicity_to_keep)
+		# 						# 	
+		# 						# 	sex_to_keep = se |> pivot_sample() |> count(sex) |> filter(n >1) |> pull(sex)
+		# 						# 	se = se |> filter(sex %in% sex_to_keep)
+		# 						# 	
+		# 						# 	se = se |> drop_samples_complete_confounder(sex, ethnicity_simplified)
+		# 						# 	
+		# 						# }
+		# 						# 
+		# 						# factors =
+		# 						# 	c( "sex", "ethnicity_simplified") |>
+		# 						# 	enframe(value = "factor") |>
+		# 						# 	mutate(n = map_int(
+		# 						# 		factor, ~ se |> select(.x) |> distinct() |> nrow()
+		# 						# 	)) |>
+		# 						# 	filter(n>1) |>
+		# 						# 	pull(factor) |>
+		# 						# 	map(sym) |> 
+		# 						# 	unlist() 
+		# 						
+		# 						se |>
+		# 						keep_abundant(.abundance = counts_scaled, factor_of_interest = c(sex, ethnicity_simplified), minimum_counts = 50) |>
+		# 						rownames()
+		# 						
+		# 						},
+		# 					.progress = TRUE
+		# 				)) |>
+		# 				pull(abundant_genes) |>
+		# 				unlist() |>
+		# 				unique()
+		# 			
+		# 			.x |> filter(.feature %in% abundant_genes)
+		# 			
+		# 		} 
+		# 	))
 	}
 	
 	se_add_dispersion = function(se_df){
 		
+		print("Start add dispersion")
+		gc()
 		
 		se_df |>
 			mutate(data = map(
@@ -586,7 +746,6 @@ tar_script({
 					# Because I have nested map
 					se = .x
 
-
 					# Avoid indeterminability
 					if(ncol(se) > 0) {
 						
@@ -595,15 +754,15 @@ tar_script({
 						
 						sex_to_keep = se |> pivot_sample() |> count(sex) |> filter(n >1) |> pull(sex)
 						se = se |> filter(sex %in% sex_to_keep)
-						
+					}
+					if(ncol(se) > 0) {
 						se = se |> drop_samples_complete_confounder(sex, ethnicity_simplified)
-						
 					}
 					
 					# If SE empty add dummy dispersion
 					if(ncol(se) == 0) rowData(se)$dispersion = rep(NA, nrow(se))
 					else if(ncol(se)<1000) {
-					browser()
+	
 						factors =
 							c( "sex", "ethnicity_simplified") |>
 							enframe(value = "factor") |>
@@ -620,23 +779,22 @@ tar_script({
 					else {
 
 						sampled_samples = sample(seq_len(ncol(se)), size = min(ncol(se), 2000))
-						se = se[,sampled_samples, drop=FALSE] 
 
 						factors =
 							c( "sex", "ethnicity_simplified") |>
 							enframe(value = "factor") |>
 							mutate(n = map_int(
-								factor, ~ se |> select(.x) |> distinct() |> nrow()
+								factor, ~ se[,sampled_samples, drop=FALSE]  |> select(.x) |> distinct() |> nrow()
 							)) |>
 							filter(n>1) |>
 							pull(factor) |>
 							str_c(collapse = " + ")
 
-						my_design = model.matrix(~ sex + ethnicity_simplified, data = colData(se) |> droplevels()) 
+						my_design = model.matrix(~ sex + ethnicity_simplified, data = se[,sampled_samples, drop=FALSE] |> colData() |> droplevels()) 
 						
 						rowData(se)$dispersion =  
-							assay(se, "counts_scaled") |> 
-							estimateTrendedDisp(design = my_design, subset=500)
+							assay(se[,sampled_samples, drop=FALSE] , "counts_scaled") |> 
+							estimateTrendedDisp(design = my_design, subset=1000, rowsum.filter=10)
 					}
 					
 					se
@@ -646,6 +804,10 @@ tar_script({
 	}
 	
 	add_number_of_gene_chunks =	function(se_df){
+		
+		print("Start add number of chunks")
+		gc()
+		
 			se_df |> 
 				mutate(number_of_chunks = map_int(
 					data, 
@@ -671,6 +833,7 @@ tar_script({
 			mutate(data = map(
 				data,
 				~ {
+				
 					# Filter
 					se = 
 						.x |> 
@@ -751,7 +914,7 @@ tar_script({
 					}
 					
 					# Add the interaction
-					my_formula = my_formula |> str_replace_all("age_days + sex", "age_days * sex")
+					my_formula = my_formula |> str_replace_all("age_days \\+ sex", "age_days * sex")
 	
 					# Vell types with enough samples
 					cell_type_to_keep =
@@ -760,8 +923,7 @@ tar_script({
 						count(  cell_type_harmonised) |>
 						filter(n > 3) |>
 						pull(cell_type_harmonised)
-					
-					if(length(cell_type_to_keep) == 0) return(se)
+
 					
 					se = 
 						se |>
@@ -769,23 +931,28 @@ tar_script({
 						# Scale continuous variables
 						mutate(age_days = scale(age_days) |> as.numeric()) |>
 						
-						# Filter abundant genes
-						filter(.feature %in% abundant_genes) |>
-						
 						# Filter cell types to keep
 						filter(cell_type_harmonised %in% cell_type_to_keep) |>
 						
 						# otherwise I get error for some reason
 						mutate(across(any_of(c("sex", "ethnicity_simplified", "assay_simplified", "file_id", "tissue_harmonised", "cell_type_harmonised")), as.character)) |>
-						mutate(ethnicity_simplified = ethnicity_simplified |> str_replace("European", "aaa_European")) |>
-						
-						# Drop random effect grouping with no enough data
-						nest(data = -c(sex, ethnicity_simplified, cell_type_harmonised)) |>
-						add_count(cell_type_harmonised) |>
-						filter(n>1) |>
-						unnest(data) 
+						mutate(ethnicity_simplified = ethnicity_simplified |> str_replace("European", "aaa_European")) 
 					
-					se |>
+					# Drop random effect grouping with no enough data
+					combinations_to_keep = 
+						se |>
+						distinct(sex, ethnicity_simplified, cell_type_harmonised) |>
+						add_count(cell_type_harmonised) |>
+						filter(n>1)
+					
+					se = 
+						se |>
+						right_join(combinations_to_keep) 
+					
+					# Use fast method but does not have dispersion
+					if(ncol(se) > 2000) method = "glmmseq_glmmTMB"
+
+					se = se |>
 						
 						# Test
 						test_differential_abundance(
@@ -797,11 +964,156 @@ tar_script({
 							.dispersion = dispersion
 						)
 					
+					attr(se, "internals")$glmmseq_glmmTMB = NULL
+					
+					se
 				}))
 		
 	}
 	
+	map_analyse_sex_cell_type = function(se_df, max_rows_for_matrix_multiplication = NULL, cores = 1){
+		
+		se_df |> 
+			mutate(data = map(
+				data,
+				~ {
+					
+		# Filter
+		se = 
+			.x |> 
+			filter(sex != "unknown") |>
+			
+			
+			# Eliminate complete confounders
+			samples_NOT_complete_confounders_for_ethnicity_assay() |>
+			samples_NOT_complete_confounders_for_ethnicity_disease()
+		
+		rm(.x)
+		gc()
+		
+		# Filter disease
+		se =
+			se |>
+			filter(disease %in% (
+				se |>
+					distinct(disease, sex) |>
+					count(disease) |>
+					filter(n>1) |>
+					pull(disease)
+			))
+		
+		# # Filter tissue that has two sexes
+		# if(ncol(se)>0)
+		# 	se =
+		# 	se |>
+		# 	filter(tissue_harmonised %in% (
+		# 		se |>
+		# 			distinct(tissue_harmonised, sex) |>
+		# 			count(tissue_harmonised) |>
+		# 			filter(n>1) |>
+		# 			pull(tissue_harmonised)
+		# 	))
+		#
+		
+		# Return prematurely
+		if(ncol(se) == 0) return(se)
+		if(se |> distinct(sex, ethnicity_simplified) |> count(ethnicity_simplified) |> pull(n) |> max() == 1) return(se)
+		
+		# Build the formula
+		factors = 
+			c("sex", "ethnicity_simplified", "assay_simplified", "age_days", ".aggregated_cells", "disease") |>
+			enframe(value = "factor") |>
+			mutate(n = map_int(
+				factor, ~ se |> select(.x) |> distinct() |> nrow()
+			)) |>
+			filter(n>1) |>
+			pull(factor) |>
+			str_c(collapse = " + ")
+		
+		random_effects =
+			c("age_days", "sex", "ethnicity_simplified") |>
+			enframe(value = "factor") |>
+			mutate(n = map_int(
+				factor, ~ se |> select(all_of(.x)) |> distinct() |> nrow()
+			))   |>
+			filter(n>1) |>
+			pull(factor) |>
+			str_c(collapse = " + ")
+		
 
+		
+		# The default
+		my_formula = glue("~ {factors}")
+		method = "edgeR_quasi_likelihood"
+		
+		if( 
+			se |> distinct(tissue_harmonised) |> nrow() > 1 &
+			length(random_effects) > 0
+		) {
+			my_formula = glue("{my_formula} + (1 + {random_effects} | tissue_harmonised)")
+			method = "glmmseq_lme4"
+		}
+		
+		if( 	se |> distinct(file_id) |> nrow() > 1	){
+			my_formula = glue("{my_formula} + (1 | file_id)")
+			method = "glmmseq_lme4"
+		}
+		
+		# Add the interaction
+		my_formula = my_formula |> str_replace_all("age_days \\+ sex", "age_days * sex")
+		
+		# Vell types with enough samples
+		tissues_to_keep =
+			se |>
+			distinct(sample_, tissue_harmonised) |>
+			count(  tissue_harmonised) |>
+			filter(n > 3) |>
+			pull(tissue_harmonised)
+		
+		se =
+			se |>
+			
+			# Scale contninuous variables
+			mutate(age_days = scale(age_days) |> as.numeric()) |>
+			
+			# Filter cell types to keep
+			filter(tissue_harmonised %in% tissues_to_keep) |>
+			
+			# otherwise I get error for some reason
+			mutate(across(any_of(c("sex", "ethnicity_simplified", "assay_simplified", "file_id", "tissue_harmonised")), as.character)) |>
+			mutate(ethnicity_simplified = ethnicity_simplified |> str_replace("European", "aaa_European")) 
+		
+		# Drop random effect grouping with no enough data
+		combinations_to_keep = 
+			se |>
+			distinct(sex, ethnicity_simplified, tissue_harmonised) |>
+			add_count(tissue_harmonised) |>
+			filter(n>1)
+		
+		se = 
+			se |>
+			right_join(combinations_to_keep) 
+		
+		# Use fast method but does not have dispersion
+		if(ncol(se) > 2000) method = "glmmseq_glmmTMB"
+		
+		se = se |>
+			
+			# Test
+			test_differential_abundance(
+				as.formula(my_formula),
+				.abundance = counts_scaled,
+				method = method,
+				cores = min(nrow(se), cores),
+				max_rows_for_matrix_multiplication = max_rows_for_matrix_multiplication,
+				.dispersion = dispersion
+			)
+		
+		attr(se, "internals")$glmmseq_glmmTMB = NULL
+		
+		se
+				}))
+	}
 	
 	#-----------------------#
 	# Pipeline
@@ -826,8 +1138,18 @@ tar_script({
 			#resources = small_slurm_resource
 		),
 		
+
+		#-----------------------#
+		# TISSUE ANALYSES
+		#-----------------------#
+		
 		# Group samples
-		tarchetypes::tar_group_by(pseudobulk_df_tissue, pseudobulk_df, tissue_harmonised, is_immune, deployment = "main"),
+		tarchetypes::tar_group_by(
+			pseudobulk_df_tissue, 
+			pseudobulk_df, 
+			tissue_harmonised, is_immune,
+			deployment = "main"
+		),
 		
 		
 		# Add dispersion
@@ -842,27 +1164,93 @@ tar_script({
 				map_split_se_by_gene(data, number_of_chunks),
 			pattern = map(pseudobulk_df_tissue),
 			iteration = "group",
-			resources = tar_resources(crew = tar_resources_crew("small_slurm_memory")) ,
-			deployment = "main"
+			resources = tar_resources(crew = tar_resources_crew("small_slurm_memory"))
+			# ,
+			#  deployment = "main"
 			#resources = small_slurm_resource
 		),
 		
-		# Parallelise rows
 		tarchetypes::tar_group_by(
 			sce_df_split_by_gene_grouped,
 			sce_df_split_by_gene,
 			se_md5, 
 			deployment = "main"
 		) ,
+
+		tar_target(
+			sce_df_split_by_gene_grouped_list,
+			sce_df_split_by_gene_grouped |> list(),
+			pattern = map(sce_df_split_by_gene_grouped),
+			iteration = "list",
+			deployment = "main",
+			memory = "persistent",
+			storage = "main",
+			retrieval = "main",
+		) ,
+		
 		# 
 		# Analyse
 		tar_target(
 			estimates_sex_tissue,
-			sce_df_split_by_gene_grouped |> map_analyse_sex_tissue(max_rows_for_matrix_multiplication = 10000, cores = 5),
-			pattern = map(sce_df_split_by_gene_grouped),
-			resources = tar_resources(crew = tar_resources_crew("big_slurm")),
-			iteration = "group"
+			sce_df_split_by_gene_grouped_list[[1]] |> map_analyse_sex_tissue(max_rows_for_matrix_multiplication = 10000, cores = 6),
+			pattern = map(sce_df_split_by_gene_grouped_list),
+			iteration = "list",
+			resources = tar_resources(crew = tar_resources_crew("slurm_3")), 
+			cue = tar_cue(mode = "never")
+		),
+		
+		
+		
+		#-----------------------#
+		# IMMUNE CELL TYPE ANALYSES
+		#-----------------------#
+		
+		# Group samples
+		tarchetypes::tar_group_by(
+			pseudobulk_df_cell_type, 
+			pseudobulk_df |> filter(is_immune == "TRUE"), 
+			cell_type_harmonised, is_immune,
+			deployment = "main"
+		),
+		
+		
+		# Add dispersion
+		tar_target(
+			sce_df_split_by_gene_cell_type,
+			pseudobulk_df_cell_type |> 
+				aggregate_cell_type() |> 
+				map_quantile_scale_abundance() |> 
+				map_keep_abundant() |> 
+				se_add_dispersion() |> 
+				add_number_of_gene_chunks() |> 
+				map_split_se_by_gene(data, number_of_chunks),
+			pattern = map(pseudobulk_df_cell_type),
+			iteration = "group",
+			resources = tar_resources(crew = tar_resources_crew("small_slurm_memory"))
+			# ,
+			#  deployment = "main"
+			#resources = small_slurm_resource
+		),
+		
+		tarchetypes::tar_group_by(
+			sce_df_split_by_gene_grouped_cell_type,
+			sce_df_split_by_gene_cell_type,
+			se_md5, 
+			deployment = "main"	
+		) ,
+		
+		# 
+		# Analyse
+		tar_target(
+			estimates_sex_cell_type,
+			sce_df_split_by_gene_grouped_cell_type |> map_analyse_sex_cell_type(max_rows_for_matrix_multiplication = 10000, cores = 6),
+			pattern = map(sce_df_split_by_gene_grouped_cell_type),
+			iteration = "group",
+			resources = tar_resources(crew = tar_resources_crew("slurm_3"))
+			# , 
+			# cue = tar_cue(mode = "never")
 		)
+		
 	)
 	
 	
@@ -873,7 +1261,7 @@ job::job({
 	
 	tar_make(
 		script = glue("{result_directory}/_targets__pseudobulk_non_immune_split3.R"),
-		store = glue("{result_directory}/_targets__pseudobulk_non_immune_split3") 
+		store = glue("{result_directory}/_targets__pseudobulk_non_immune_split3")	
 		# ,
 		# callr_function = NULL
 		#, 
@@ -881,6 +1269,26 @@ job::job({
 		#garbage_collection = TRUE
 	)
 })
+# 
+# tar_meta(store = glue("{result_directory}/_targets__pseudobulk_non_immune_split3")	)  |>
+# 	filter(name |> str_detect("sce_df_split_by_gene_")) |> 
+# 	filter(name |> str_detect("grouped", negate = TRUE)) |> 
+# 	mutate(saved = map_lgl(
+# 		name, 
+# 		~ {
+# 			.x |> 
+# 				tar_read_raw(name = _, store = glue("{result_directory}/_targets__pseudobulk_non_immune_split3")) |> 
+# 				mutate(file_name = glue("{se_md5}___{tissue_harmonised}.qs")) |> 
+# 				nest(data_to_save = -file_name) |> 
+# 				mutate(saved = map2(
+# 					data_to_save, file_name,
+# 					~ .x |> qs::qsave(glue("{result_directory}/sce_df_split_by_gene/{.y}"))
+# 				))
+# 			
+# 			return(TRUE)
+# 		},
+# 		.progress = TRUE
+# 	))
 
 # tar_make_future(
 # 	script = glue("{result_directory}/_targets__pseudobulk_non_immune_split3.R"),
