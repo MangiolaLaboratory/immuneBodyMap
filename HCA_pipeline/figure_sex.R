@@ -967,7 +967,7 @@ store = glue("{result_directory}/_targets__pseudobulk_non_immune_split3")
 
 
 rank_de_cell_type = 
-	readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex.rds") |>
+	readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_cell_type.rds") |>
 	select(se) |> 
 	unnest(se) |>
 	filter(!is.na(cell_type_harmonised)) |> 
@@ -994,11 +994,18 @@ plot_ranks_cell_type_barplot =
 	rank_de_cell_type |>
 	ggplot(aes(`TRUE`, cell_type |> fct_reorder(proportion_significant))) +
 	geom_bar(aes(fill = cell_type), stat = "identity") +
-	scale_fill_manual(values = cell_type_color) +
+	
+  # TEMPORARY FOR OFFLINE
+  #scale_fill_manual(values = cell_type_color) +
 	guides(fill="none") +
 	xlab("Number of significant genes") +
-	theme_multipanel +
+	
+  # TEMPORARY FOR OFFLINE
+  #theme_multipanel +
 	theme(axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank())
+
+# Temporary fix
+differential_composition_sex_relative = differential_composition_sex_relative |> tidyseurat:::add_attr(FALSE, "check_outliers")
 
 plot_ranks_cell_type = 
 	
@@ -1041,11 +1048,16 @@ plot_ranks_cell_type =
 	geom_line(aes(color = cell_type)) +
 	geom_point(aes(color = cell_type)) +
 	geom_text(size = 2.5) +
-	scale_color_manual(values = cell_type_color) +
+  
+  # TEMPORARY FOR OFFLINE
+	# scale_color_manual(values = cell_type_color) +
+  
 	scale_y_reverse() +
 	guides(color = "none") +
 	ylab("Rank of tissue with highest significance") + 
-	theme_multipanel +
+  
+  # TEMPORARY FOR OFFLINE
+  #theme_multipanel +
 	theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) 
 
 library(furrr)
@@ -1084,16 +1096,15 @@ plan(multisession, workers = 18)
 # 	))
 # de_sex_tissue_non_immune |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_tissue_non_immune.rds")
 
-# de_sex_tissue_non_immune = 
-# 	readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_tissue_non_immune.rds") |>
-# 	mutate(tissue = map_chr(se, ~ .x |> pull(tissue_harmonised) |> unique())) |> 
-# 	filter(!is.na(tissue)) |>
-# 	filter(map_lgl(se, ~ "P_sex_adjusted" %in% colnames(.x), .progress = TRUE)) |>
-# 	mutate(se = map(se, ~ .x |> select(.feature, P_sex_adjusted)))
+
+
+de_sex_tissue = readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_tissue.rds")
+de_sex_tissue_non_immune = de_sex_tissue |> filter(!is_immune)
+de_sex_tissue = de_sex_tissue |> filter(is_immune)
 
 de_sex_tissue = 
-	readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_tissue.rds") |>
-	rename(tissue = name) |>
+  de_sex_tissue |>
+	rename(tissue = tissue_harmonised) |>
 	mutate(tissue = tissue |> str_remove("data_")) |>
 	# Parse cell type
 	mutate(tissue = case_when(
@@ -1103,30 +1114,36 @@ de_sex_tissue =
 		tissue == "gland" ~ "adrenal gland",
 		TRUE ~ tissue
 	)) |>
-	filter(map_lgl(se, ~ "P_sex_adjusted" %in% colnames(.x))) |>
-	mutate(se = map(se, ~ .x |> select(.feature, P_sex_adjusted)))
+	filter(map_lgl(data, ~ "P_sex_adjusted" %in% colnames(.x))) |>
+	mutate(data = map(data, ~ .x |> select(.feature, P_sex_adjusted, P_age_days.sex_adjusted)))
+
+de_sex_tissue_non_immune =
+  de_sex_tissue_non_immune |>
+  mutate(tissue = tissue_harmonised) |>
+  filter(!is.na(tissue)) |>
+  filter(map_lgl(data, ~ "P_sex_adjusted" %in% colnames(.x), .progress = TRUE)) |>
+  mutate(data = map(data, ~ .x |> select(.feature, P_sex_adjusted, P_age_days.sex_adjusted)))
 
 rank_de_tissue = 
 	de_sex_tissue |>
-	
+  select(tissue, data) |> 
+	unnest(data) |> 
 	left_join(
 		de_sex_tissue_non_immune |>
-			select(tissue, se_non_immune = se) 
+		  select(tissue, data) |> 
+		  unnest(data) |> 
+			rename(P_sex_adjusted_non_immune = P_sex_adjusted, P_age_days.sex_adjusted_non_immune = P_age_days.sex_adjusted) 
 	) |>
-	
-	mutate(n = map2(
-		se,se_non_immune,
-		~ {
-			.x = .x |>
-				filter(!.feature %in% gene_chr$ID) 
-			
-			if(!is.null(.y)) 	.x = .x |>	filter(!.feature %in% (.y |> pull(.feature))) 
-			.x |>
-				count( P_sex_adjusted < 0.05)
-			
-		}
-	)) |>
-	unnest(n) |>
+  
+  # Filter out sex chromosomes
+  filter(!.feature %in% gene_chr$ID) |> 
+  
+  # Filter our significant in non immune
+  filter(P_sex_adjusted_non_immune > 0.05 | is.na(P_sex_adjusted_non_immune)) |> 
+  
+  # Summary statistics
+  count(tissue,  P_sex_adjusted < 0.05) |> 
+
 	filter(!is.na(`P_sex_adjusted < 0.05`)) |>
 	select(tissue,`P_sex_adjusted < 0.05`, n) |>
 	spread(`P_sex_adjusted < 0.05`, n) |> 
@@ -1140,10 +1157,14 @@ plot_ranks_tissue_barplot =
 	rank_de_tissue |>
 	ggplot(aes(`TRUE`, tissue |> fct_reorder(proportion_significant))) +
 	geom_bar(aes(fill = tissue), stat = "identity") +
-	scale_fill_manual(values = tissue_color) +
+	
+  
+  #scale_fill_manual(values = tissue_color) +
 	guides(fill="none") +
 	xlab("Number of significant genes") +
-	theme_multipanel +
+	
+  
+  #theme_multipanel +
 	theme(axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank())
 
 
@@ -1180,10 +1201,15 @@ plot_ranks_tissue =
 	geom_line(aes(color = tissue)) +
 	geom_point(aes(color = tissue)) +
 	geom_text(size = 2.5) +
-	scale_color_manual(values = tissue_color) +
-	scale_y_reverse() +
-	guides(color = "none") +
-	theme_multipanel 
+	
+  
+  #scale_color_manual(values = tissue_color) +
+	
+  scale_y_reverse() +
+	guides(color = "none") 
+
+  #+
+	#theme_multipanel 
 
 
 
