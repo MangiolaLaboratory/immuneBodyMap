@@ -951,10 +951,15 @@ result_directory = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/peo
 store = glue("{result_directory}/_targets__pseudobulk_non_immune_split3")
 # Plot of importance of composition vs transcription
 
+library(furrr)
+library(tidybulk)
+plan(multisession, workers = 36)
+options(future.globals.maxSize = 200000 * 1024^2)
+
 
 # de_sex_cell_type =
-# 	tar_meta( store = store	) |> 
-# 	dplyr::filter(name |> str_detect("estimates_sex_cell_type_")) |> 	
+# 	tar_meta( store = store	) |>
+# 	dplyr::filter(name |> str_detect("estimates_sex_cell_type_")) |>
 # 	filter(!is.na(data)) |>
 # 	mutate(se = map(
 # 		name,
@@ -967,7 +972,7 @@ store = glue("{result_directory}/_targets__pseudobulk_non_immune_split3")
 
 
 rank_de_cell_type = 
-	readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex.rds") |>
+	readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_cell_type.rds") |>
 	select(se) |> 
 	unnest(se) |>
 	filter(!is.na(cell_type_harmonised)) |> 
@@ -1048,11 +1053,10 @@ plot_ranks_cell_type =
 	theme_multipanel +
 	theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) 
 
-library(furrr)
-library(tidybulk)
-plan(multisession, workers = 18)
-#options(future.globals.maxSize = 200000 * 1024^2)
-
+# library(furrr)
+# library(tidybulk)
+# plan(multisession, workers = 18)
+# options(future.globals.maxSize = 200000 * 1024^2)
 # de_sex_tissue =
 # 	tar_meta( store = store	) |>
 # 	dplyr::filter(name |> str_detect("estimates_sex_tissue_")) |>
@@ -1061,35 +1065,21 @@ plan(multisession, workers = 18)
 # 		name,
 # 		~ .x |>
 # 			tar_read_raw(store=store ) |>
-# 			mutate(data = map(data, pivot_transcript)),
-# 		.progress=T,
-# 		.env_globals = environment() 
-# 	))    |> select(-data) |> unnest(se) 
-# 
-# de_sex_tissue |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_tissue.rds")
-
-# de_sex_tissue_non_immune =
-# 	tar_meta(store = glue("pseudobulk_0.2.3.5_non_immune/_targets__pseudobulk_non_immune"), starts_with("estimates_")) |>
-# 	filter(!is.na(data)) |>
-# 	mutate(se = map(
-# 		name,
-# 		~ {
-# 			se = tar_read_raw(.x, store = glue("pseudobulk_0.2.3.5_non_immune/_targets__pseudobulk_non_immune")) 
-# 			
-# 			se |> 
-# 				pivot_transcript() |>
-# 				mutate(tissue_harmonised = se |> pull(tissue_harmonised) |> unique())
-# 			},
+# 			mutate(is_immune = map_lgl(data, ~ .x |> tidySummarizedExperiment::pull(cell_type_harmonised) %in% c( 
+# 				"b memory",     "cd8 tcm"  ,    "cd8 tem",      "plasma" ,  
+# 				"b naive" ,     "cd14 mono" ,   "cd4 fh"   ,    "cd4 naive"  , 
+# 				"cd4 th1/th17", "cd4 th17",     "cd4 th2" ,     "cdc"  ,      
+# 				"ilc" ,         "macrophage",   "mait" ,        "nk" ,       
+# 				"tgd"  ,        "treg"
+# 			) |> any())) |> 
+# 			mutate(data = map(data, tidybulk::pivot_transcript)),
 # 		.progress=T
-# 	))
-# de_sex_tissue_non_immune |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_tissue_non_immune.rds")
-
-# de_sex_tissue_non_immune = 
-# 	readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_tissue_non_immune.rds") |>
-# 	mutate(tissue = map_chr(se, ~ .x |> pull(tissue_harmonised) |> unique())) |> 
-# 	filter(!is.na(tissue)) |>
-# 	filter(map_lgl(se, ~ "P_sex_adjusted" %in% colnames(.x), .progress = TRUE)) |>
-# 	mutate(se = map(se, ~ .x |> select(.feature, P_sex_adjusted)))
+# 		# ,
+# 		# .env_globals = environment()
+# 	)) |> 
+# 	select(-data) |> 
+# 	unnest(se)
+# de_sex_tissue |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_tissue.rds")
 
 de_sex_tissue = 
 	readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_tissue.rds") |>
