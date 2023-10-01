@@ -1,6 +1,6 @@
 library(tidyverse)
 library(forcats)
-library(HCAquery)
+library(CuratedAtlasQueryR)
 library(dittoSeq)
 library(sccomp)
 library(magrittr)
@@ -10,7 +10,7 @@ source("https://gist.githubusercontent.com/stemangiola/fc67b08101df7d550683a5100
 
 # Read arguments
 args = commandArgs(trailingOnly = TRUE)
-relative_assay = "~/PostDoc/HCAquery/dev/sccomp_on_HCA/assay_relative_FALSE.rds" # args[[1]]
+relative_assay = "~/PostDoc/immuneHealthyBodyMap/dev/sccomp_on_HCA/assay_relative_FALSE.rds" # args[[1]]
 file_for_annotation_workflow = args[[2]]
 output_path = args[[3]]
 
@@ -43,39 +43,53 @@ sql_lite_DB = "/vast/projects/RCP/human_cell_atlas/metadata_annotated_0.2.sqlite
 # General stats
 # General stats
 
-# set.seed(42)
-# library(ggupset)
-# upset_summary_plot =
-#   get_metadata() |>
-#   left_join(
-#     read_csv("~/PostDoc/HCAquery/dev/metadata_cell_type.csv"),
-#     by = "cell_type",
-#     copy=TRUE
-#   ) |>
-#   mutate(is_immune = if_else(lineage_1 == "immune" & !is.na(lineage_1), "Immune", "Non immune")) |>
-#   mutate(is_healthy = if_else(disease == "normal", "Healthy", "Disease")) |>
-#   mutate(is_primary = if_else(is_primary_data.x=="TRUE", "Primary", "Secondary")) |>
-#   select(.cell, file_id, is_primary, is_immune, is_healthy) |>
-#   as_tibble()  |>
-#   mutate(category = pmap(
-#     list(is_primary, is_immune, is_healthy),
-#     ~ c(..1, ..2, ..3)
-#   )) |>
-#   sample_n(2e5) |>
-#   ggplot(aes(x=category)) +
-#   geom_bar() +
-#   scale_x_upset(n_intersections = 20) +
-#   scale_y_continuous(labels = function(x) format(x * 144.8768, scientific = TRUE, digits=2)) +
-#   theme_multipanel +
-#   theme(axis.title.x = element_blank())
-#
-# upset_summary_plot |> saveRDS("~/PostDoc/HCAquery/dev/upset_summary_plot.rds")
+set.seed(42)
+library(ggupset)
+upset_summary_plot =
+  get_metadata() |>
+	
+	# Attach lineage
+	left_join(
+		read_csv("~/PostDoc/immuneHealthyBodyMap/metadata_cell_type.csv") |> 
+			replace_na(list(lineage_1 = "other_non_immune")),
+		by = "cell_type",
+		copy=TRUE
+	) |>
+	mutate(is_immune = if_else(lineage_1 == "immune", "Immune", "Non-immune")) |>
+  mutate(is_healthy = if_else(disease == "normal", "Healthy", "Disease")) |>
+  #mutate(is_primary = if_else(is_primary_data.x=="TRUE", "Primary", "Secondary")) |>
+  select(cell_, file_id, is_immune, is_healthy) |>
+  as_tibble()  |>
+  mutate(category = pmap(
+    list(is_immune, is_healthy),
+    ~ c(..1, ..2)
+  )) |>
+  sample_n(2e5) |>
+  ggplot(aes(x=category)) +
+  geom_bar() +
+  scale_x_upset(n_intersections = 20) +
+  scale_y_continuous(labels = function(x) format(x * 144.8768, scientific = TRUE, digits=2)) +
+	ylab("Cell count") +
+  theme_multipanel +
+  theme(axis.title.x = element_blank())
 
-upset_summary_plot = readRDS("~/PostDoc/HCAquery/dev/upset_summary_plot.rds")
+ggsave(
+	"~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.4/upset_plot_disease_immune_figure_1.pdf",
+	plot = upset_summary_plot,
+	units = c("mm"),
+	width = 36 ,
+	height = 43 ,
+	limitsize = FALSE
+)
+
+
+upset_summary_plot |> saveRDS("~/PostDoc/immuneHealthyBodyMap/dev/upset_summary_plot.rds")
+
+upset_summary_plot = readRDS("~/PostDoc/immuneHealthyBodyMap/dev/upset_summary_plot.rds")
 
 
 cell_metadata_with_harmonised_annotation =
-  readRDS("~/PostDoc/HCAquery/dev/cell_metadata_with_harmonised_annotation.rds")
+  readRDS("~/PostDoc/immuneHealthyBodyMap/dev/cell_metadata_with_harmonised_annotation.rds")
 
 data_for_plot_1 =
   cell_metadata_with_harmonised_annotation |>
@@ -382,9 +396,9 @@ library(tidybulk)
 #     transform = identity
 #   )
 #
-# data_for_assay_pca |> saveRDS("~/PostDoc/HCAquery/dev/data_for_assay_pca.rds")
+# data_for_assay_pca |> saveRDS("~/PostDoc/immuneHealthyBodyMap/dev/data_for_assay_pca.rds")
 
-data_for_assay_pca = readRDS("~/PostDoc/HCAquery/dev/data_for_assay_pca.rds")
+data_for_assay_pca = readRDS("~/PostDoc/immuneHealthyBodyMap/dev/data_for_assay_pca.rds")
 
 plot_assay_PCA =
   data_for_assay_pca |>

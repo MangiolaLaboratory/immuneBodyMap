@@ -176,9 +176,9 @@ tar_script({
 		error = "continue",
 		format = "qs",
 		controller = crew_controller_group(small_slurm, small_slurm_memory, big_slurm, slurm_3),
-		resources = tar_resources(crew = tar_resources_crew("small_slurm")) 	
+		resources = tar_resources(crew = tar_resources_crew("small_slurm")) 
 		# ,
-		# debug = "estimates_sex_cell_type_a39a75b1", # Set the target you want to debug.
+		# debug = "estimates_sex_tissue_50b3f786", # Set the target you want to debug.
 		# cue = tar_cue(mode = "never") # Force skip non-debugging outdated targets.
 	)
 	
@@ -578,7 +578,6 @@ tar_script({
 		
 	}
 	
-	
 	map_quantile_scale_abundance = function(se_df){
 		
 		print("Start scale abundance")
@@ -834,6 +833,8 @@ tar_script({
 				data,
 				~ {
 				
+					if(ncol(.x) == 0) return(.x)
+					
 					# Filter
 					se = 
 						.x |> 
@@ -914,7 +915,11 @@ tar_script({
 					}
 					
 					# Add the interaction
-					my_formula = my_formula |> str_replace_all("age_days \\+ sex", "age_days * sex")
+					if(se |> 
+						 nest_detect_complete_confounder(age_days, sex) |> 
+						 filter(n1 + n2 <= 2) |> 
+						 nrow() == 0
+					) my_formula = my_formula |> str_replace_all("age_days \\+ sex", "age_days * sex")
 	
 					# Vell types with enough samples
 					cell_type_to_keep =
@@ -977,6 +982,8 @@ tar_script({
 			mutate(data = map(
 				data,
 				~ {
+					
+					if(ncol(.x) == 0) return(.x)
 					
 		# Filter
 		se = 
@@ -1060,8 +1067,13 @@ tar_script({
 		}
 		
 		# Add the interaction
-		my_formula = my_formula |> str_replace_all("age_days \\+ sex", "age_days * sex")
+		if(se |> 
+			 nest_detect_complete_confounder(age_days, sex) |> 
+			 filter(n1 + n2 <= 2) |> 
+			 nrow() == 0
+		) my_formula = my_formula |> str_replace_all("age_days \\+ sex", "age_days * sex")
 		
+	
 		# Vell types with enough samples
 		tissues_to_keep =
 			se |>
@@ -1246,9 +1258,8 @@ tar_script({
 			sce_df_split_by_gene_grouped_cell_type |> map_analyse_sex_cell_type(max_rows_for_matrix_multiplication = 10000, cores = 6),
 			pattern = map(sce_df_split_by_gene_grouped_cell_type),
 			iteration = "group",
-			resources = tar_resources(crew = tar_resources_crew("slurm_3"))
-			# , 
-			# cue = tar_cue(mode = "never")
+			resources = tar_resources(crew = tar_resources_crew("slurm_3"))	,
+			cue = tar_cue(mode = "never")
 		)
 		
 	)

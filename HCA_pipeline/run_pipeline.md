@@ -11,5 +11,5 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 
-Rscript ~/Documents/immuneHealthyBodyMap/HCA_pipeline/create_pipeline.R /vast/projects/cellxgene_curated/metadata_annotated_0.2.3.rds ~/Documents/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.5
+Rscript /stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/HCA_pipeline/create_pipeline.R /vast/projects/cellxgene_curated/metadata_annotated_0.2.3.rds /stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.7_double_interaction_sex_age
 ```
