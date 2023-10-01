@@ -1923,30 +1923,22 @@ se_adjust |>
 random_effects_fold_changes
 
 # Export single cell
-metadata = 
+my_cells = 
+  # Filter interesting tissues for differentil ageing
   glue("{result_directory}/../sccomp_on_HCA_0.2.3.4/input_relative.rds") |> 
   readRDS() |> 
-  mutate(age_days = age_days_original)
-library(CuratedAtlasQuery)
-get_metadata() |>
-  filter(
-    sample_ %in% (
-      !!metadata |>
-        distinct(sample_) |>
-        tidyr::extract(sample_, "sample_", "([a-zA-Z0-9]+)_.+") |>
-        pull(sample_)
-    )) |>
+  filter(tissue_harmonised %in% c("thymus", "lymph node", "heart")) |> 
+  tidyr::extract(sample_, "sample_", "([a-zA-Z0-9]+)_.+") |>
+  mutate(cell_sample = paste(cell_, sample_) ) 
   
-  # Attach lineage
-  left_join(
-    read_csv("~/PostDoc/immuneHealthyBodyMap/metadata_cell_type.csv") |>
-      replace_na(list(lineage_1 = "other_non_immune")) |>
-      mutate(is_immune = as.character(lineage_1 == "immune")),
-    by = join_by(cell_type),
-    copy = TRUE
-  ) |>
-  #filter(is_immune == "FALSE" & !is.na(lineage_1)) |>
-  filter(!is.na(lineage_1)) |>
+
+library(CuratedAtlasQueryR)
+metadata = 
+  get_metadata() |>
+  mutate(cell_sample = paste(cell_, sample_) ) |> 
+  filter(cell_sample %in% !!my_cells$cell_sample) |>
+  
+
   filter(!cell_type_harmonised %in% c("platelet", "immune_unclassified")) |>
   as_tibble() |>
   
@@ -1993,10 +1985,21 @@ get_metadata() |>
   select(
     cell_, cell_type_harmonised, sample_,  file_id, file_id_db,
     age_days, development_stage, sex, tissue_harmonised, disease,
-    ethnicity_simplified, assay_simplified, is_immune
-  ) |>
+    ethnicity_simplified, assay_simplified
+  ) 
 
-
+sce = 
+  metadata |>
+  get_single_cell_experiment() |>
+  mutate(sample_se =
+           
+           # I need to fix Curated CellAtlas with disease sample, duplication for 
+           # file_id=="cc3ff54f-7587-49ea-b197-1515b6d98c4c", cell_type_harmonised=="stromal_cell"
+           # for lung
+           glue("{sample_}___{disease}___{..2}___{..3}") |>
+           str_replace_all(" ", "_") |>
+           str_replace_all("/", "__")
+  ) 
 
 
 
