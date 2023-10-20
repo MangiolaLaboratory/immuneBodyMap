@@ -303,7 +303,8 @@ prediction_df =
 
 line_sex_relative_mean_per_tisue |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/line_sex_relative_mean_per_tisue.rds")
 
-data_adjusted_absolutesex_interation_tissue |> 
+plot_differential_ageing = 
+  data_adjusted_absolutesex_interation_tissue |> 
 
 	filter(tissue_harmonised %in% c("heart", "kidney", "lung")) |> 
 	filter(is_immune == "TRUE") |> 
