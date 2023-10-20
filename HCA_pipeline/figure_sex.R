@@ -184,18 +184,20 @@ prediction_df =
   expand_grid(sex = c("male", "female"), age_days = seq(-3, 3, by = 0.1)) |> 
   mutate(sample_ = 1:n() |> as.character())
 
-line_sex_relative_mean =
-  
-  differential_composition_sex_absolute |>
-  sccomp_predict(
-    ~ age_days*sex, 
-    new_data = prediction_df, 
-    number_of_draws = 1
-  ) |> 
-  left_join(prediction_df) |> 
-  mutate(x_corrected = (age_days * 9610.807 / 0.6) + 12865.75) |>
-  filter(x_corrected |> between(30.0 , 30295.0)) |>
-  filter(is_immune == "TRUE") 
+# line_sex_relative_mean =
+#   
+#   differential_composition_sex_absolute |>
+#   sccomp_predict(
+#     ~ age_days*sex, 
+#     new_data = prediction_df, 
+#     number_of_draws = 1
+#   ) |> 
+#   left_join(prediction_df) |> 
+#   mutate(x_corrected = (age_days * 9610.807 / 0.6) + 12865.75) |>
+#   filter(x_corrected |> between(30.0 , 30295.0)) |>
+#   filter(is_immune == "TRUE") 
+
+line_sex_relative_mean |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/line_sex_relative_mean.rds")
 
 data_adjusted_absolutesex_interation |>
   filter(is_immune == "TRUE") |> 
@@ -286,18 +288,20 @@ prediction_df =
   mutate(sample_ = 1:n() |> as.character()) |> 
   expand_grid()
 
-line_sex_relative_mean_per_tisue =
-  
-  differential_composition_sex_absolute |>
-  sccomp_predict(
-    ~ age_days*sex + (age_days*sex | tissue_harmonised), 
-    new_data = prediction_df, 
-    number_of_draws = 1
-  ) |> 
-  left_join(prediction_df) |> 
-  mutate(x_corrected = (age_days * 9610.807 / 0.6) + 12865.75) |>
-  filter(x_corrected |> between(30.0 , 30295.0)) |>
-  filter(is_immune == "TRUE") 
+# line_sex_relative_mean_per_tisue =
+#   
+#   differential_composition_sex_absolute |>
+#   sccomp_predict(
+#     ~ age_days*sex + (age_days*sex | tissue_harmonised), 
+#     new_data = prediction_df, 
+#     number_of_draws = 1
+#   ) |> 
+#   left_join(prediction_df) |> 
+#   mutate(x_corrected = (age_days * 9610.807 / 0.6) + 12865.75) |>
+#   filter(x_corrected |> between(30.0 , 30295.0)) |>
+#   filter(is_immune == "TRUE") 
+
+line_sex_relative_mean_per_tisue |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/line_sex_relative_mean_per_tisue.rds")
 
 plot_differential_ageing = 
   data_adjusted_absolutesex_interation_tissue |> 
@@ -342,18 +346,20 @@ prediction_df =
   expand_grid(sex = c("male", "female"), age_days = seq(-3, 3, by = 0.1)) |> 
   mutate(sample_ = 1:n() |> as.character()) 
 
-line_sex_relative_mean_b_memory_per_tisue =
-  
-  differential_composition_sex_absolute |>
-  sccomp_predict(
-    ~ age_days*sex, 
-    new_data = prediction_df, 
-    number_of_draws = 1
-  ) |> 
-  left_join(prediction_df) |> 
-  mutate(x_corrected = (age_days * 9610.807 / 0.6) + 12865.75) |>
-  filter(x_corrected |> between(30.0 , 30295.0)) |>
-  filter(is_immune == "TRUE") 
+# line_sex_relative_mean_b_memory_per_tisue =
+#   
+#   differential_composition_sex_absolute |>
+#   sccomp_predict(
+#     ~ age_days*sex, 
+#     new_data = prediction_df, 
+#     number_of_draws = 1
+#   ) |> 
+#   left_join(prediction_df) |> 
+#   mutate(x_corrected = (age_days * 9610.807 / 0.6) + 12865.75) |>
+#   filter(x_corrected |> between(30.0 , 30295.0)) |>
+#   filter(is_immune == "TRUE") 
+
+line_sex_relative_mean_b_memory_per_tisue |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/line_sex_relative_mean_b_memory_per_tisue.rds")
 
 data_adjusted_absolutesex_interation |>
   filter(is_immune == "TRUE") |> 
