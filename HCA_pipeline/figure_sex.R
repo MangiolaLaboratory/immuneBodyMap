@@ -167,6 +167,46 @@ plot_sex_absolute_1D_interaction =
   theme(axis.text.x = element_text(angle=30, hjust = 0.5))
 
 
+# Create dataset to create the mannequin heatmap of the 
+# Tissues with differential immune cellularity
+sex_absolute_organ_tissue =
+  differential_composition_sex_absolute |> 
+  sccomp_test(
+    contrasts =
+      differential_composition_sex_absolute |>
+      filter(parameter |> str_detect("^sexmale___")) |>
+      distinct(parameter) |>
+      mutate(contrast = glue("sexmale + `{parameter}`") |> as.character()) |>
+      tidyr::extract(parameter, "tissue_harmonised", ".+___(.+)") |>
+      filter(contrast |> str_detect("_female", negate = TRUE)) |> 
+      deframe( ),
+    test_composition_above_logit_fold_change = FDR_threshold_1_percent_change_at_20_percent_baseline
+  ) |>
+  filter(is_immune == "TRUE") |> 
+  filter(parameter != "nose") |> 
+  arrange(desc(abs(c_effect)))
+
+
+# Create dataset to create the mannequin heatmap of the 
+# Tissues with differential immune cellularity
+sex_absolute_organ_tissue_interaction =
+	differential_composition_sex_absolute |> 
+	sccomp_test(
+		contrasts =
+			differential_composition_sex_absolute |>
+			filter(parameter |> str_detect("age_days:sexmale___")) |>
+			distinct(parameter) |>
+			mutate(contrast = glue("`age_days:sexmale` + `{parameter}`") |> as.character()) |>
+			tidyr::extract(parameter, "tissue_harmonised", ".+___(.+)") |>
+			filter(contrast |> str_detect("_female", negate = TRUE)) |> 
+			deframe( ),
+		test_composition_above_logit_fold_change = FDR_threshold_1_percent_change_at_20_percent_baseline
+	) |>
+	filter(is_immune == "TRUE") |> 
+	filter(parameter != "nose") |> 
+	arrange(desc(abs(c_effect)))
+
+
 # Plot for presentation B memory across tissues
 # data_adjusted_absolutesex_interation =
 # 	differential_composition_sex_absolute |>
@@ -196,78 +236,10 @@ prediction_df =
 #   mutate(x_corrected = (age_days * 9610.807 / 0.6) + 12865.75) |>
 #   filter(x_corrected |> between(30.0 , 30295.0)) |>
 #   filter(is_immune == "TRUE") 
+# 
+# line_sex_relative_mean |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/line_sex_relative_mean.rds")
 
-line_sex_relative_mean |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/line_sex_relative_mean.rds")
-
-data_adjusted_absolutesex_interation |>
-  filter(is_immune == "TRUE") |> 
-  ggplot(aes(age_days_original, adjusted_proportion)) +
-  geom_point(
-    aes(fill = sex),
-    shape = 21,
-    stroke = 0,
-    size = 0.6
-  ) +
-  geom_line(
-    aes(x_corrected, proportion_mean, color = sex, group=sex),
-    data = line_sex_relative_mean
-  ) +
-  geom_smooth(
-    aes(color = sex), 
-    method = "glm",
-    method.args = list(family = "binomial"),
-    se = FALSE, size=1) +
-  # scale_y_continuous(trans = S_sqrt_trans(), labels = dropLeadingZero) +
-  scale_x_continuous(
-    labels = function(x)
-      round(x / 356)
-  ) +
-  scale_fill_manual(values = c(female = "red", male = "blue")) +
-  scale_color_manual(values = c(female = "red", male = "blue")) +
-  xlab("Years") +
-  ylab("Adjusted proportions") +
-  guides(fill = "none", color = "none") +
-  theme_multipanel
-
-
-# Create dataset to create the mannequin heatmap of the 
-# Tissues with differential immune cellularity
-sex_absolute_organ_tissue =
-  differential_composition_sex_absolute |> 
-  test_contrasts(
-    contrasts =
-      differential_composition_sex_absolute |>
-      filter(parameter |> str_detect("^sexmale___")) |>
-      distinct(parameter) |>
-      mutate(contrast = glue("sexmale + `{parameter}`") |> as.character()) |>
-      tidyr::extract(parameter, "tissue_harmonised", ".+___(.+)") |>
-      filter(contrast |> str_detect("_female", negate = TRUE)) |> 
-      deframe( ),
-    test_composition_above_logit_fold_change = FDR_threshold_1_percent_change_at_20_percent_baseline
-  ) |>
-  filter(is_immune == "TRUE") |> 
-  filter(parameter != "nose") |> 
-  arrange(desc(abs(c_effect)))
-
-
-# Create dataset to create the mannequin heatmap of the 
-# Tissues with differential immune cellularity
-sex_absolute_organ_tissue_interaction =
-	differential_composition_sex_absolute |> 
-	sccomp_test(
-		contrasts =
-			differential_composition_sex_absolute |>
-			filter(parameter |> str_detect("age_days:sexmale___")) |>
-			distinct(parameter) |>
-			mutate(contrast = glue("age_days:sexmale + `{parameter}`") |> as.character()) |>
-			tidyr::extract(parameter, "tissue_harmonised", ".+___(.+)") |>
-			filter(contrast |> str_detect("_female", negate = TRUE)) |> 
-			deframe( ),
-		test_composition_above_logit_fold_change = FDR_threshold_1_percent_change_at_20_percent_baseline
-	) |>
-	filter(is_immune == "TRUE") |> 
-	filter(parameter != "nose") |> 
-	arrange(desc(abs(c_effect)))
+line_sex_relative_mean = readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/line_sex_relative_mean.rds")
 
 # # Plot for presentation B memory across tissues
 # data_adjusted_absolutesex_interation_tissue =
@@ -300,14 +272,17 @@ prediction_df =
 #   mutate(x_corrected = (age_days * 9610.807 / 0.6) + 12865.75) |>
 #   filter(x_corrected |> between(30.0 , 30295.0)) |>
 #   filter(is_immune == "TRUE") 
+# 
+# line_sex_relative_mean_per_tisue |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/line_sex_relative_mean_per_tisue.rds")
 
-line_sex_relative_mean_per_tisue |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/line_sex_relative_mean_per_tisue.rds")
+line_sex_relative_mean_per_tisue = readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/line_sex_relative_mean_per_tisue.rds")
 
 plot_differential_ageing = 
-  data_adjusted_absolutesex_interation_tissue |> 
-
-	filter(tissue_harmonised %in% c("heart", "kidney", "lung")) |> 
-	filter(is_immune == "TRUE") |> 
+  data_adjusted_absolutesex_interation |> 
+  filter(
+    tissue_harmonised %in% (sex_absolute_organ_tissue_interaction |> filter(c_FDR<0.05) |> pull(parameter))
+  ) |> 	
+  filter(is_immune == "TRUE") |> 
 	ggplot(aes(age_days_original, adjusted_proportion)) +
 	geom_point(
 		aes(fill = sex),
@@ -315,15 +290,21 @@ plot_differential_ageing =
 		stroke = 0,
 		size = 0.6
 	) +
-	geom_smooth(
-		aes(color=sex),
-		method = "glm",
-		method.args = list(family = "binomial"),
-		se = FALSE, size=0.2) +
-	# geom_line(
-	# 	aes(x_corrected, proportion_mean, color = sex, group=sex),
-	# 	data = line_sex_relative_mean_per_tisue
-	# ) +
+	# geom_smooth(
+	# 	aes(color=sex),
+	# 	method = "glm",
+	# 	method.args = list(family = "binomial"),
+	# 	se = FALSE, size=0.2) +
+	geom_line(
+		aes(x_corrected, proportion_mean, color = sex, group=sex),
+		data = 
+		  line_sex_relative_mean_per_tisue |> 
+		  left_join(data_adjusted_absolutesex_interation |> with_groups(tissue_harmonised, summarise, min(age_days_original))) |> 
+		  filter(x_corrected > `min(age_days_original)`) |> 
+		  filter(
+		    tissue_harmonised %in% (sex_absolute_organ_tissue_interaction |> filter(c_FDR<0.05) |> pull(parameter))
+		  )
+	) +
 	facet_wrap(~tissue_harmonised, scales = "free") +
 	
 	# scale_y_continuous(trans = S_sqrt_trans(), labels = dropLeadingZero) +
@@ -345,51 +326,6 @@ plot_differential_ageing =
 prediction_df = 
   expand_grid(sex = c("male", "female"), age_days = seq(-3, 3, by = 0.1)) |> 
   mutate(sample_ = 1:n() |> as.character()) 
-
-# line_sex_relative_mean_b_memory_per_tisue =
-#   
-#   differential_composition_sex_absolute |>
-#   sccomp_predict(
-#     ~ age_days*sex, 
-#     new_data = prediction_df, 
-#     number_of_draws = 1
-#   ) |> 
-#   left_join(prediction_df) |> 
-#   mutate(x_corrected = (age_days * 9610.807 / 0.6) + 12865.75) |>
-#   filter(x_corrected |> between(30.0 , 30295.0)) |>
-#   filter(is_immune == "TRUE") 
-
-line_sex_relative_mean_b_memory_per_tisue |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/line_sex_relative_mean_b_memory_per_tisue.rds")
-
-data_adjusted_absolutesex_interation |>
-  filter(is_immune == "TRUE") |> 
-  ggplot(aes(age_days_original, adjusted_proportion)) +
-  geom_point(
-    aes(fill = sex),
-    shape = 21,
-    stroke = 0,
-    size = 0.6
-  ) +
-  geom_line(
-    aes(x_corrected, proportion_mean, color = sex, group=sex),
-    data = line_sex_relative_mean_b_memory_per_tisue
-  ) +
-  # geom_smooth(
-  #   method = "glm",
-  #   method.args = list(family = "binomial"),
-  #   se = FALSE, size=1) +
-  # scale_y_continuous(trans = S_sqrt_trans(), labels = dropLeadingZero) +
-  scale_x_continuous(
-    labels = function(x)
-      round(x / 356)
-  ) +
-  scale_fill_manual(values = c(female = "red", male = "blue")) +
-  scale_color_manual(values = c(female = "red", male = "blue")) +
-  xlab("Years") +
-  ylab("Adjusted proportions") +
-  guides(fill = "none", color = "none") +
-  theme_multipanel
-
 
 
 # # save csv for SUPPLEMENTARY
