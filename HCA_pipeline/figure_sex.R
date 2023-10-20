@@ -443,18 +443,22 @@ gene_chr = read_csv("symbol_chr.csv")
 # 	xlab("Effect from baseline (female)") + 
 #   theme_multipanel
 
-tissue_baseline_plot_sex_relative = 
-  differential_composition_sex_relative |> 
-  sccomp_replicate(formula_composition = ~ 1 + age_days  + (1 + age_days  | tissue_harmonised)) |>
-  left_join(data_for_immune_proportion_relative |> distinct(sample_, tissue_harmonised)) |> 
-  with_groups(c(cell_type_harmonised, tissue_harmonised), ~ .x |> summarise(
-    lower = generated_proportions |> quantile(0.05),
-    mean = generated_proportions |> mean(),
-    upper = generated_proportions |> quantile(0.95),
-  )) |> 
-  nest(data = -cell_type_harmonised) |> 
-  filter(map_int(data, ~ .x |> filter(mean > 0.001) |> nrow()) > 3) |> 
-  unnest(data)
+# tissue_baseline_plot_sex_relative = 
+#   differential_composition_sex_relative |> 
+#   sccomp_replicate(formula_composition = ~ 1 + age_days  + (1 + age_days  | tissue_harmonised)) |>
+#   left_join(data_for_immune_proportion_relative |> distinct(sample_, tissue_harmonised)) |> 
+#   with_groups(c(cell_type_harmonised, tissue_harmonised), ~ .x |> summarise(
+#     lower = generated_proportions |> quantile(0.05),
+#     mean = generated_proportions |> mean(),
+#     upper = generated_proportions |> quantile(0.95),
+#   )) |> 
+#   nest(data = -cell_type_harmonised) |> 
+#   filter(map_int(data, ~ .x |> filter(mean > 0.001) |> nrow()) > 3) |> 
+#   unnest(data)
+# 
+# tissue_baseline_plot_sex_relative |> saveRDS(glue("{result_directory}/tissue_baseline_plot_sex_relative.rds"))
+
+tissue_baseline_plot_sex_relative = readRDS(glue("{result_directory}/tissue_baseline_plot_sex_relative.rds"))
 
 variability_abundance_plot = 
 
@@ -527,16 +531,21 @@ significant_cell_types_plot_sex_relative =
 	# otherwise a body level inference does not make much sense
 	inner_join(    tissue_baseline_plot_sex_relative |> distinct(cell_type_harmonised) ) 
 
-confidence_interval_plot_sex_relative = 
-  differential_composition_sex_relative |> 
-  sccomp_replicate(formula_composition = ~ sex) |>
-  left_join(data_for_immune_proportion_relative |> distinct(sample_, sex)) |> 
-  with_groups(c(sex, cell_type_harmonised), ~ .x |> summarise(
-    lower = generated_proportions |> quantile(0.05),
-    mean = generated_proportions |> mean(),
-    upper = generated_proportions |> quantile(0.95),
-  )) |> 
-  inner_join(significant_cell_types_plot_sex_relative) 
+# confidence_interval_plot_sex_relative = 
+#   differential_composition_sex_relative |> 
+#   sccomp_replicate(formula_composition = ~ sex) |>
+#   left_join(data_for_immune_proportion_relative |> distinct(sample_, sex)) |> 
+#   with_groups(c(sex, cell_type_harmonised), ~ .x |> summarise(
+#     lower = generated_proportions |> quantile(0.05),
+#     mean = generated_proportions |> mean(),
+#     upper = generated_proportions |> quantile(0.95),
+#   )) |> 
+#   inner_join(significant_cell_types_plot_sex_relative) 
+# 
+# confidence_interval_plot_sex_relative |> saveRDS(glue("{result_directory}/confidence_interval_plot_sex_relative.rds"))
+
+confidence_interval_plot_sex_relative = readRDS(glue("{result_directory}/confidence_interval_plot_sex_relative.rds"))
+
 
 significant_cell_types_plot_sex_relative_abundance = 
 	differential_composition_sex_relative |>
@@ -550,16 +559,20 @@ significant_cell_types_plot_sex_relative_abundance =
 	# otherwise a body level inference does not make much sense
 	inner_join(    tissue_baseline_plot_sex_relative |> distinct(cell_type_harmonised) ) 
 
-confidence_interval_plot_sex_relative_abundnce = 
-	differential_composition_sex_relative |> 
-	sccomp_replicate(formula_composition = ~ sex) |>
-	left_join(data_for_immune_proportion_relative |> distinct(sample_, sex)) |> 
-	with_groups(c(sex, cell_type_harmonised), ~ .x |> summarise(
-		lower = generated_proportions |> quantile(0.05),
-		mean = generated_proportions |> mean(),
-		upper = generated_proportions |> quantile(0.95),
-	)) |> 
-	inner_join(significant_cell_types_plot_sex_relative) 
+# confidence_interval_plot_sex_relative_abundnce = 
+# 	differential_composition_sex_relative |> 
+# 	sccomp_replicate(formula_composition = ~ sex) |>
+# 	left_join(data_for_immune_proportion_relative |> distinct(sample_, sex)) |> 
+# 	with_groups(c(sex, cell_type_harmonised), ~ .x |> summarise(
+# 		lower = generated_proportions |> quantile(0.05),
+# 		mean = generated_proportions |> mean(),
+# 		upper = generated_proportions |> quantile(0.95),
+# 	)) |> 
+# 	inner_join(significant_cell_types_plot_sex_relative) 
+# 
+# confidence_interval_plot_sex_relative_abundnce |> saveRDS(glue("{result_directory}/confidence_interval_plot_sex_relative_abundnce.rds"))
+
+confidence_interval_plot_sex_relative_abundnce = readRDS(glue("{result_directory}/confidence_interval_plot_sex_relative_abundnce.rds"))
 
 plot_sex_relative_abundance =
 	ggplot() +
@@ -632,16 +645,21 @@ significant_cell_types_plot_sex_relative_variability =
 	# otherwise a body level inference does not make much sense
 	inner_join(    tissue_baseline_plot_sex_relative |> distinct(cell_type_harmonised) ) 
 
-confidence_interval_plot_sex_relative_variability = 
-	differential_composition_sex_relative |> 
-	sccomp_replicate(formula_composition = ~ sex) |>
-	left_join(data_for_immune_proportion_relative |> distinct(sample_, sex)) |> 
-	with_groups(c(sex, cell_type_harmonised), ~ .x |> summarise(
-		lower = generated_proportions |> quantile(0.05),
-		mean = generated_proportions |> mean(),
-		upper = generated_proportions |> quantile(0.95),
-	)) |> 
-	inner_join(significant_cell_types_plot_sex_relative) 
+# confidence_interval_plot_sex_relative_variability = 
+# 	differential_composition_sex_relative |> 
+# 	sccomp_replicate(formula_composition = ~ sex) |>
+# 	left_join(data_for_immune_proportion_relative |> distinct(sample_, sex)) |> 
+# 	with_groups(c(sex, cell_type_harmonised), ~ .x |> summarise(
+# 		lower = generated_proportions |> quantile(0.05),
+# 		mean = generated_proportions |> mean(),
+# 		upper = generated_proportions |> quantile(0.95),
+# 	)) |> 
+# 	inner_join(significant_cell_types_plot_sex_relative) 
+# 
+# confidence_interval_plot_sex_relative_variability |> saveRDS(glue("{result_directory}/confidence_interval_plot_sex_relative_variability.rds"))
+
+confidence_interval_plot_sex_relative_variability = readRDS(glue("{result_directory}/confidence_interval_plot_sex_relative_variability.rds"))
+
 
 plot_sex_relative_variability =
 	ggplot() +
