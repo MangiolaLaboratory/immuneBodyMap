@@ -299,7 +299,8 @@ line_sex_relative_mean_per_tisue =
   filter(x_corrected |> between(30.0 , 30295.0)) |>
   filter(is_immune == "TRUE") 
 
-data_adjusted_absolutesex_interation_tissue |> 
+plot_differential_ageing = 
+  data_adjusted_absolutesex_interation_tissue |> 
 
 	filter(tissue_harmonised %in% c("heart", "kidney", "lung")) |> 
 	filter(is_immune == "TRUE") |> 
