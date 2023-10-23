@@ -493,13 +493,13 @@ variability_abundance_plot =
 	
 	ggplot(aes(c_effect, v_effect, label=cell_type_harmonised)) + 
 	
-	geom_vline(xintercept = c(-0.2, 0.2), color="grey", linetype="dashed") + 
-	geom_hline(yintercept = c(-0.2, 0.2), color="grey", linetype="dashed") + 
+	geom_vline(xintercept = c(-0.2, 0.2), color="grey", linetype="dashed", size  = 0.3) + 
+	geom_hline(yintercept = c(-0.2, 0.2), color="grey", linetype="dashed", size  = 0.3) + 
 	
-	geom_linerange(aes(ymin = v_lower, ymax = v_upper), color="#D12424", alpha = 0.8) +
-	geom_linerange(aes(xmin = c_lower, xmax = c_upper), color = "#4297C6", alpha=0.8) +
+	geom_linerange(aes(ymin = v_lower, ymax = v_upper), color="#D12424", alpha = 0.8, size  = 0.3) +
+	geom_linerange(aes(xmin = c_lower, xmax = c_upper), color = "#4297C6", alpha=0.8, size  = 0.3) +
 	
-	geom_point() + 
+	geom_point(size = 0.5) + 
 	ggrepel::geom_text_repel(size = 2.5) +
 	coord_cartesian(ylim=c(NA, 1.2)) +
 	theme_multipanel
@@ -615,23 +615,30 @@ plot_sex_relative_abundance =
 			unite("group", c(tissue_harmonised , file_id), remove = FALSE) 
 		
 	) +
+  facet_wrap( ~ fct_reorder(cell_type_harmonised, !is_compositionally_different), nrow=1, scale="free_y") +
+  
 	geom_point(aes(sex, mean),
-						 data = confidence_interval_plot_sex_relative,
+						 data = confidence_interval_plot_sex_relative_abundnce |> 
+						   inner_join(significant_cell_types_plot_sex_relative_abundance ) ,
 						 color = "red"
 	) +
 	geom_line(aes(sex, mean, group = cell_type_harmonised),
-						data = confidence_interval_plot_sex_relative,
+						data = confidence_interval_plot_sex_relative_abundnce |> 
+						  inner_join(significant_cell_types_plot_sex_relative_abundance ) ,
 						color = "red"
 	) +
-	geom_linerange(aes(x = sex,ymin = lower, ymax = upper), color = "grey29", size = 0.5, data = confidence_interval_plot_sex_relative) +
-	facet_wrap( ~ fct_reorder(cell_type_harmonised, !is_compositionally_different), nrow=2, scale="free_y") +
+	# geom_linerange(aes(x = sex,ymin = lower, ymax = upper), color = "grey29", size = 0.5, data = 
+	#                  confidence_interval_plot_sex_relative_abundnce |> 
+	#                  inner_join(significant_cell_types_plot_sex_relative_abundance ) 
+	#  ) +
 	scale_y_continuous(trans = S_sqrt_trans(), labels = dropLeadingZero) +
 	scale_fill_manual(values = tissue_color) +
 	scale_color_manual(values = c("TRUE" = "red", "FALSE" = "black")) +
 	xlab("Years") +
 	ylab("Cell proportion (sqrt scale)") +
 	guides(fill = "none", color = "none") +
-	theme_multipanel
+	theme_multipanel + 
+  theme(axis.title.x = element_blank())
 
 significant_cell_types_plot_sex_relative_variability = 
 	differential_composition_sex_relative |>
@@ -702,16 +709,19 @@ plot_sex_relative_variability =
 			unite("group", c(tissue_harmonised , file_id), remove = FALSE) 
 		
 	) +
-	geom_point(aes(sex, mean),
-						 data = confidence_interval_plot_sex_relative,
-						 color = "red"
+	# geom_point(aes(sex, mean),
+	# 					 data = confidence_interval_plot_sex_relative_variability |> inner_join(significant_cell_types_plot_sex_relative_variability |> distinct(cell_type_harmonised)) ,
+	# 					 color = "red"
+	# ) +
+	# geom_line(aes(sex, mean, group = cell_type_harmonised),
+	# 					data = confidence_interval_plot_sex_relative_variability |> inner_join(significant_cell_types_plot_sex_relative_variability |> distinct(cell_type_harmonised))  ,
+	# 					color = "red"
+	# ) +
+	geom_linerange(aes(x = sex,ymin = lower, ymax = upper), size = 0.5, 
+	               data = confidence_interval_plot_sex_relative_variability |> inner_join(significant_cell_types_plot_sex_relative_variability |> distinct(cell_type_harmonised)),
+	               color = "red"
 	) +
-	geom_line(aes(sex, mean, group = cell_type_harmonised),
-						data = confidence_interval_plot_sex_relative,
-						color = "red"
-	) +
-	geom_linerange(aes(x = sex,ymin = lower, ymax = upper), color = "grey29", size = 0.5, data = confidence_interval_plot_sex_relative) +
-	facet_wrap( ~ fct_reorder(cell_type_harmonised, !is_compositionally_different), nrow=2, scale="free_y") +
+	facet_wrap( ~ fct_reorder(cell_type_harmonised, !is_compositionally_different), nrow=1, scale="free_y") +
 	scale_y_continuous(trans = S_sqrt_trans(), labels = dropLeadingZero) +
 	scale_fill_manual(values = tissue_color) +
 	scale_color_manual(values = c("TRUE" = "red", "FALSE" = "black")) +
@@ -866,8 +876,8 @@ df_heatmap_sex_relative_organ_cell_type =
 	add_count(cell_type_harmonised) |>
 	arrange(parameter, desc(n)) |>
 	
-	rename(tissue = parameter) |>
-	rename(cell_type = cell_type_harmonised) |>
+	dplyr::rename(tissue = parameter) |>
+	dplyr::rename(cell_type = cell_type_harmonised) |>
 	
 	# To be fixed in the model
 	mutate(is_treg = cell_type =="treg") |> 
@@ -897,7 +907,7 @@ df_heatmap_sex_relative_organ_cell_type =
 	# mutate(c_effect = c_effect |> pmax(-5) |> pmin(5)) |>
 	mutate(Difference = c_effect) |>
 	
-	rename(`Mean diff` = cell_type_mean_change) |>
+	dplyr::rename(`Mean diff` = cell_type_mean_change) |>
 	mutate(`Mean diff tissue` = -tissue_mean_change) |>
 	mutate(cell_type = cell_type |> str_replace("macrophage", "macro")) |>
 	mutate(tissue = tissue |> str_replace_all("_", " ")) |>
@@ -909,8 +919,8 @@ df_heatmap_sex_relative_organ_cell_type =
 	# Counts
 	left_join(
 		data_for_immune_proportion_relative |>
-			count(tissue_harmonised, name = "count_tissue") |>
-			rename(tissue = tissue_harmonised) |>
+			dplyr::count(tissue_harmonised, name = "count_tissue") |>
+			dplyr::rename(tissue = tissue_harmonised) |>
 			mutate(count_tissue = log(count_tissue))
 	) |>
 	
@@ -926,7 +936,7 @@ df_heatmap_sex_relative_organ_cell_type =
 			with_groups(c(tissue_harmonised, cell_type_harmonised), ~ .x |> summarise(mean_proportion = mean(proportion))) |> 
 			mutate(mean_proportion = pmax(mean_proportion, 1e-7)) |> 
 			mutate(mean_proportion_logit = boot::logit(mean_proportion)) |>
-			rename(tissue = tissue_harmonised, cell_type = cell_type_harmonised) |> 
+			dplyr::rename(tissue = tissue_harmonised, cell_type = cell_type_harmonised) |> 
 			mutate(mean_proportion_logit = (mean_proportion_logit - min(mean_proportion_logit))/4)
 		
 	) |> 
@@ -966,7 +976,7 @@ plot_heatmap_sex_relative_organ_cell_type =
   
   # Heatmap
   heatmap(
-    tissue, cell_type, Difference,
+    cell_type,tissue, Difference,
     palette_value = circlize::colorRamp2(
       seq(3, -3, length.out = 11),
       RColorBrewer::brewer.pal(11, "RdBu")
@@ -1019,8 +1029,8 @@ plot_heatmap_sex_relative_organ_cell_type |>
 library(tidyverse)
 library(glue)
 library(targets)
-result_directory = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/pseudobulk_0.2.3.5_non_immune"
-store = glue("{result_directory}/_targets__pseudobulk_non_immune_split3")
+result_directory_pseudobulk = "pseudobulk_0.2.3.5_non_immune"
+store = glue("{dplyr::countresult_directory_pseudobulk}/_targets__pseudobulk_non_immune_split3")
 # Plot of importance of composition vs transcription
 
 library(furrr)
@@ -1057,16 +1067,16 @@ de_sex_cell_type = readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_
 
 
 rank_de_cell_type = 
-	readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_cell_type.rds") |>
+  de_sex_cell_type |>
 	filter(!is.na(cell_type_harmonised)) |> 
 	unnest(data) |> 
-	count(cell_type_harmonised, P_sex_adjusted < 0.05) |> 
+	dplyr::count(cell_type_harmonised, P_sex_adjusted < 0.05) |> 
 	drop_na() |> 
 	spread(`P_sex_adjusted < 0.05`, n) |> 
 	replace_na(list(`TRUE` = 0)) |> 
 	mutate(proportion_significant = `TRUE` / (`FALSE` + `TRUE`)) |> 
 	arrange(desc(proportion_significant)) |>
-	rename(cell_type = cell_type_harmonised) |>
+	dplyr::rename(cell_type = cell_type_harmonised) |>
 	
 	# Parse cell type
 	mutate(cell_type = 
@@ -1287,7 +1297,7 @@ plot_ranks_tissue =
 	geom_text(size = 2.5) +
 	
 	
-	#scale_color_manual(values = tissue_color) +
+	scale_color_manual(values = tissue_color) +
 	
 	scale_y_reverse() +
 	guides(color = "none") +
@@ -1298,54 +1308,11 @@ plot_ranks_tissue_barplot =
   rank_de_tissue |>
   ggplot(aes(`TRUE`, tissue |> fct_reorder(proportion_significant))) +
   geom_bar(aes(fill = tissue), stat = "identity") +
-  #scale_fill_manual(values = tissue_color) +
+  scale_fill_manual(values = tissue_color) +
   guides(fill="none") +
   xlab("Number of significant genes") +
-  #theme_multipanel +
+  theme_multipanel +
   theme(axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank())
-
-plot_ranks_tissue_sex_age = 
-  
-  differential_composition_sex_relative |> 
-  sccomp_test() |>
-  filter(parameter |> str_detect("sexmale___")) |>
-  with_groups(parameter, ~ .x |> summarise(median_FDR= median(c_FDR))) |>
-  arrange(median_FDR) |>
-  
-  # Drop random effects
-  filter(parameter |> str_detect("age_days\\:sexmale")) |> 
-  
-  rowid_to_column("rank_composition") |>
-  mutate(tissue = parameter |> str_remove("age_days\\:sexmale___")) |>
-  select(tissue , rank_composition) |>
-  
-  # DE
-  full_join( rank_de_tissue,	by = join_by(tissue)	) |>
-  select(tissue, contains("rank")) |>
-  pivot_longer(contains("rank")) |>
-  mutate(name = name |> str_remove("rank")) |>
-  
-  # Parse cell types
-  mutate(
-    tissue =
-      tissue |>
-      str_replace_all("_", " ") |>
-      str_replace("gland", "gld") |>
-      str_replace("skeletal", "sk")
-  ) |>
-  
-  # Plot
-  ggplot(aes(name, value, group=tissue,  label=tissue)) +
-  geom_line(aes(color = tissue)) +
-  geom_point(aes(color = tissue)) +
-  geom_text(size = 2.5) +
-  
-  
-  #scale_color_manual(values = tissue_color) +
-  
-  scale_y_reverse() +
-  guides(color = "none") +
-  theme_multipanel
 
 
 de_sex_tissue_for_venn = 
@@ -1436,7 +1403,7 @@ venn =
 			filter(!.feature %in% gene_chr$ID) |> 
 			pull(.feature)
 	) |>
-	euler(fshape = "ellipse") |>
+  eulerr::euler(fshape = "ellipse") |>
 	plot(quantities = TRUE)
 
 
@@ -1477,10 +1444,10 @@ plot_ranks_tissue_sex_age_barplot =
 	rank_de_tissue_age_sex |>
 	ggplot(aes(`TRUE`, tissue |> fct_reorder(proportion_significant))) +
 	geom_bar(aes(fill = tissue), stat = "identity") +
-	#scale_fill_manual(values = tissue_color) +
+	scale_fill_manual(values = tissue_color) +
 	guides(fill="none") +
 	xlab("Number of significant genes") +
-	#theme_multipanel +
+	theme_multipanel +
 	theme(axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank())
 
 plot_ranks_tissue_sex_age = 
@@ -1520,12 +1487,140 @@ plot_ranks_tissue_sex_age =
 	geom_text(size = 2.5) +
 	
 	
-	#scale_color_manual(values = tissue_color) +
+	scale_color_manual(values = tissue_color) +
 	
 	scale_y_reverse() +
 	guides(color = "none") +
 	theme_multipanel
 
+# DIFFERENTIAL AGEING PATHWAY ANALYSES
+# de_sex_age_tissue_pathways_analyses = 
+#   de_sex_tissue |>
+#   
+#   # Drop random effects
+#   filter(tissue |> str_detect("\\:", negate = TRUE)) |> 
+#   
+#   select(tissue, data) |> 
+#   unnest(data) |> 
+#   left_join(
+#     de_sex_tissue_non_immune |>
+#       select(tissue, data) |> 
+#       unnest(data) |> 
+#       dplyr::rename(P_sex_adjusted_non_immune = P_sex_adjusted, P_age_days.sex_adjusted_non_immune = P_age_days.sex_adjusted) 
+#   ) |>
+#   
+#   # Filter out sex chromosomes
+#   filter(!.feature %in% gene_chr$ID) |> 
+#   
+#   # Arrange
+#   filter(age_days.sexmale |> is.na() |> not()) |> 
+#   arrange(tissue, age_days.sexmale) |> 
+#   nest(data = -tissue) |> 
+#   
+#   # Pathway analyses
+#   mutate(enriched_pathways_interaction = map(
+#     data,
+#     ~ .x |>
+#       mutate(entrez = AnnotationDbi::mapIds(org.Hs.eg.db::org.Hs.eg.db,
+#                                             keys = .feature,
+#                                             keytype = "SYMBOL",
+#                                             column = "ENTREZID",
+#                                             multiVals = "first"
+#       )) |>
+#       test_gene_rank(.arrange_desc = age_days.sexmale,
+#         species = "Homo sapiens", .entrez = entrez) ,
+#     .progress=TRUE
+#   )) |> 
+#   
+#   # Pathway analyses
+#   mutate(enriched_pathways_sex = map(
+#     data,
+#     ~ .x |>
+#       mutate(entrez = AnnotationDbi::mapIds(org.Hs.eg.db::org.Hs.eg.db,
+#                                             keys = .feature,
+#                                             keytype = "SYMBOL",
+#                                             column = "ENTREZID",
+#                                             multiVals = "first"
+#       )) |>
+#       test_gene_rank(.arrange_desc = sexmale,
+#                      species = "Homo sapiens", .entrez = entrez) ,
+#     .progress=TRUE
+#   ))
+# 
+# de_sex_age_tissue_pathways_analyses |> saveRDS(glue("{result_directory}/de_sex_age_tissue_pathways_analyses.rds"))
+
+# Top pathays per tissue
+de_sex_age_tissue_pathways_analyses |> 
+  
+  # subset info
+  mutate(across(
+    c(enriched_pathways, enriched_pathways_sex), 
+    ~ .x |> 
+      map(~ .x |> 
+            select(-fit) |> 
+            unnest(test) |> 
+            filter(p.adjust < 0.05)
+      )
+  )) |> 
+  mutate(enriched_pathways = map2(
+    enriched_pathways, enriched_pathways_sex,
+    ~ .x |> 
+      filter(!ID %in% .y$ID)
+  )) |> 
+  select(-data, -enriched_pathways_sex) |> 
+  unnest(enriched_pathways) |> 
+  mutate(up = enrichmentScore > 0) |> 
+  with_groups(c(tissue, up), ~ .x |> arrange(qvalue) |> slice_head(n=3)) |> 
+  filter(gs_cat %in% c("C2", "H")) |> 
+  arrange(tissue, gs_cat, up) |> 
+  select(tissue, gs_cat, up, ID) |> 
+  mutate(ID = ID |> str_replace("DEPRIVATION_DN", "UP")) |> 
+  mutate(pathway_up = ID |> str_detect("_DN$", negate = TRUE) ) |> 
+  mutate(enriched_in_male = !xor(up, pathway_up))
+
+# Top shared pathways
+plot_differential_ageing_shared_pathways = 
+  de_sex_age_tissue_pathways_analyses |> 
+  
+  # subset info
+  mutate(across(
+    c(enriched_pathways, enriched_pathways_sex), 
+    ~ .x |> 
+      map(~ .x |> 
+            select(-fit) |> 
+            unnest(test) |> 
+            filter(p.adjust < 0.05)
+      )
+  )) |> 
+  mutate(enriched_pathways = map2(
+    enriched_pathways, enriched_pathways_sex,
+    ~ .x |> 
+      filter(!ID %in% .y$ID)
+  )) |> 
+  select(-data, -enriched_pathways_sex) |> 
+  unnest(enriched_pathways) |> 
+  
+  mutate(up = enrichmentScore > 0) |> 
+  mutate(ID = ID |> str_replace("DEPRIVATION_DN", "UP")) |> 
+  mutate(pathway_up = ID |> str_detect("_DN$", negate = TRUE) ) |> 
+  mutate(enriched_in_male = !xor(up, pathway_up)) |> 
+  mutate(ID = ID |> str_remove("_DN") |> str_remove("_UP")) |> 
+  
+  add_count(ID) |> 
+  filter(n>2) |> 
+  
+  with_groups(ID, ~ .x |> mutate(NES_mean = mean(NES))) |> 
+  with_groups(enriched_in_male, ~ .x |> arrange(NES_mean |> abs() |> desc()) |> dplyr::slice_head(n=50)) |> 
+  
+  # return long strings
+  mutate(ID = ID |> str_replace_all("_"," ") |>  stringr::str_wrap(width = 40, whitespace_only = TRUE)) |>
+  ggplot(aes(fct_reorder(ID, NES_mean), NES, color = tissue)) +
+  geom_point() +
+  scale_color_manual(values = tissue_color) +
+  ylab("Normalized enrichment score") +
+  xlab("Gene sets") +
+  theme_multipanel +
+  theme(axis.text.x = element_text(angle=90, hjust = 1, vjust=0.5))
 
 
 # # Which genes are shared across tissue programs
@@ -1952,33 +2047,36 @@ plot_genes_most_altered =
 plot = 
 	
 	# Row 1
-	((
+(
+  ((
 		((
-			plot_sex_absolute_1D | plot_sex_absolute_1D_interaction |
-				variability_abundance_plot |
-				plot_sex_relative
+			plot_sex_absolute_1D  |
+				(variability_abundance_plot + coord_cartesian( xlim= c(NA, 1.2))) |
+				( plot_sex_relative_abundance  / 
+			  plot_sex_relative_variability ) 
 		) + 
-			plot_layout(width = c(0.8, 0.8, 3, 4))
+			plot_layout(width = c(0.4, 1.5, 1.5))
 		) /
 			
 			# Row 2
 			((
-				wrap_heatmap(
-					plot_heatmap_sex_relative_organ_cell_type,
-					padding = grid::unit(c(-50, -20, -0, -5), "points" ),
-					clip = FALSE
-				) | 
 					plot_ranks_cell_type | 
 					plot_ranks_cell_type_barplot |
 					plot_ranks_tissue | # Add bar plot
 					plot_ranks_tissue_barplot |
 					plot_genes_most_altered
-			) + plot_layout(width = c(1, 0.9, 0.2, 1.1, 0.2, 0.5))
+			) + plot_layout(width = c(0.9, 0.2, 1.1, 0.2, 1))
 			) 
 
 	) + plot_layout( height = c(55, 60))
-	) + 
-	plot_layout(width = c(84, 97)) &
+	) |
+  wrap_heatmap(
+    plot_heatmap_sex_relative_organ_cell_type,
+    padding = grid::unit(c(-30, -0, -10, -30), "points" ),
+    clip = FALSE
+  )
+) +
+	plot_layout(width = c(2, 1)) &
 	theme(
 		plot.margin = margin(0, 0, 0, 0, "pt"),
 		legend.key.size = unit(0.2, 'cm'),
@@ -1991,12 +2089,97 @@ ggsave(
   plot = plot,
   units = c("mm"),
   width = 183 ,
-  height = 200 ,
+  height = 130 ,
   limitsize = FALSE
 )
 
 
-wrap_plots(venn )
+# Plots single cell ALEX
+#Read the rds Seurat objects
+merged_seurat_ln = readRDS(glue("{result_directory}/alex_differential_ageing_UMAP/merged_seurat_ln.rds"))
+merged_seurat_heart = readRDS(glue("{result_directory}/alex_differential_ageing_UMAP/merged_seurat_heart.rds"))
+
+#Scale and Normalize the RNA
+merged_seurat_ln <- merged_seurat_ln |> 
+  mutate(age = age_days/365) |>
+  NormalizeData(assay = "RNA", verbose = T) |> 
+  ScaleData(assay = "RNA", 
+            features = rownames(merged_seurat_ln), 
+            verbose = T) |> 
+  mutate(age_range = case_when(
+    age <= 65 ~ "60<",
+    age > 65 ~ "65+"
+  ))
+
+merged_seurat_heart <- merged_seurat_heart |> 
+  mutate(age = age_days/365) |>
+  NormalizeData(assay = "RNA", verbose = T) |> 
+  ScaleData(assay = "RNA", 
+            features = rownames(merged_seurat_heart), 
+            verbose = T) |>
+  mutate(age_range = case_when(
+    age <= 30 ~ "30<",
+    age > 30 & age < 55 ~ "30-55",
+    age > 55 ~ ">55"
+  )) |>
+  mutate(age_range = fct_relevel(age_range, c("30<", "30-55", ">55")))
+
+# Create function for plotting the sex-age grid plot
+grid.plot <- function(seurat_obj, reduction, assay = "RNA", slot = "scale.data", gene){
+  
+  gene_name <- sym(gene)
+  
+  reduc.key_1 <- paste0(seurat_obj[[reduction]]@key, "1")
+  reduc.key_2 <- paste0(seurat_obj[[reduction]]@key, "2")
+  
+  seurat_obj |> 
+    join_features(gene_name, slot = slot, shape = "wide", assay = assay) |>
+    select(gene_name, reduc.key_1, reduc.key_2, sex, age_range) |>
+    arrange(!!gene_name) |> 
+    ggplot(aes(x = !!rlang::sym(reduc.key_1), y = !!rlang::sym(reduc.key_2))) +
+    geom_point(aes(color = !!gene_name), size = 0.2) +
+    scale_color_gradient(low = "azure3", high = "darkblue", na.value = "azure3", guide = "none") +
+    facet_grid(sex ~ age_range) +  # Add facet_grid to split by sex and age_group
+    xlab("UMAP 1") +
+    ylab("UMAP 2") +
+    ggtitle(gene) +
+    guides(color = "none") +
+    theme_multipanel +
+    theme(axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank())
+}
+
+# Create the plots for Lymph node
+rab21_ln <- grid.plot(merged_seurat_ln, "umap_sct.harmony.sample", assay = "RNA", slot = "scale.data", gene = "RAB21")
+
+rasgef1b_ln <- grid.plot(merged_seurat_ln, "umap_sct.harmony.sample", assay = "RNA", slot = "scale.data", gene = "RASGEF1B")
+
+irs2_ln <- grid.plot(merged_seurat_ln, "umap_sct.harmony.sample", assay = "RNA", slot = "scale.data", gene = "IRS2")
+
+lmna_ln <- grid.plot(merged_seurat_ln, "umap_sct.harmony.sample", assay = "RNA", slot = "scale.data", gene = "LMNA")
+
+tlr4_ln <- grid.plot(merged_seurat_ln, "umap_sct.harmony.sample", assay = "RNA", slot = "scale.data", gene = "TLR4")
+
+
+# PLOT INTERACTIONS
+
+(
+  ((
+  venn |
+  plot_spacer() |
+  plot_sex_absolute_1D_interaction |
+  plot_differential_ageing |
+  plot_ranks_tissue_sex_age | 
+  plot_ranks_tissue_sex_age_barplot 
+  ) + plot_layout(width = c(1, 0.5,0.2, 1, 0.8, 0.2))
+) /
+  plot_differential_ageing_shared_pathways /
+  wrap_plots(rab21_ln, rasgef1b_ln, irs2_ln, lmna_ln)
+) + plot_layout(height = c(1, 0.5, 1))
+
+
+
+
+
 
 # Pathway analyses of consistent vs diverse genes across cell type
 genes_consistent = xx|> head(100) |> pull(.feature)
@@ -2054,7 +2237,7 @@ my_cells =
 	# Filter interesting tissues for differentil ageing
 	glue("{result_directory}/../sccomp_on_HCA_0.2.3.4/input_relative.rds") |> 
 	readRDS() |> 
-	filter(tissue_harmonised %in% c("thymus", "lymph node", "heart")) |> 
+	filter(tissue_harmonised %in% c("blood", "lymph node", "bone", "kidney")) |> 
 	tidyr::extract(sample_, "sample_", "([a-zA-Z0-9]+)_.+") |>
 	mutate(cell_sample = paste(cell_, sample_) ) 
 
