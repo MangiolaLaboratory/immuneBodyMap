@@ -2354,10 +2354,11 @@ de_sex_tissue |>
 		(P_age_days.sex_adjusted_non_immune > 0.05 | is.na(P_age_days.sex_adjusted_non_immune)) &
 			(P_sex_adjusted_non_immune > 0.05 | is.na(P_sex_adjusted_non_immune))
 	) |> 
-	filter(tissue %in% c("thymus", "lymph node", "heart")) |> 
+	filter(tissue %in%  c("blood", "lymph node", "bone", "kidney")) |> 
 	filter(age_days.sexmale |> abs() > 1) |> 
 	arrange(tissue, P_age_days.sex_adjusted) |> 
-	with_groups(tissue, slice, 1:30) 
+	with_groups(tissue, slice, 1:30) |> 
+	write_csv(glue("seurat_for_alex/de_genes_for_alex.csv"))
 
 
 
