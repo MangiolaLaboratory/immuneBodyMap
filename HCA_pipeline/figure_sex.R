@@ -137,34 +137,6 @@ plot_sex_absolute_1D =
   theme_multipanel +
   theme(axis.text.x = element_text(angle=30, hjust = 0.5))
 
-draws_abundance_sex = 
-  differential_composition_sex_absolute   |> 
-  sccomp:::get_abundance_contrast_draws(contrasts = c(sexmale_ = "`age_days:sexmale`")) |> 
-  filter(is_immune=="TRUE") |> 
-  filter(parameter=="sexmale_")
-
-# Get parameter draws for variability 
-# to manually plot the uncertainty
-draws_variability_sex = 
-  differential_composition_sex_absolute   |> 
-  sccomp:::get_variability_contrast_draws( contrasts = c(sexmale_ = "`age_days:sexmale`")) |> 
-  filter(is_immune=="TRUE") |> 
-  filter(parameter=="sexmale_")
-
-# Plot effect of composition and variability
-# For immune cellularity (proportion of immune cells)
-# Wtih uncertainty
-plot_sex_absolute_1D_interaction =
-  tibble(
-    Variability = draws_variability_sex |> pull(.value),
-    Abundance = draws_abundance_sex |> pull(.value)
-  ) |>
-  tidybulk::as_matrix() |>
-  bayesplot::mcmc_intervals(point_size = 1, inner_size = 0.5, outer_size = 0.25) +
-  coord_flip() +
-  xlab("Effect male immune cellularity") +
-  theme_multipanel +
-  theme(axis.text.x = element_text(angle=30, hjust = 0.5))
 
 
 # Create dataset to create the mannequin heatmap of the 
@@ -187,70 +159,6 @@ sex_absolute_organ_tissue =
   arrange(desc(abs(c_effect)))
 
 
-# Create dataset to create the mannequin heatmap of the 
-# Tissues with differential immune cellularity
-sex_absolute_organ_tissue_interaction =
-	differential_composition_sex_absolute |> 
-	sccomp_test(
-		contrasts =
-			differential_composition_sex_absolute |>
-			filter(parameter |> str_detect("age_days:sexmale___")) |>
-			distinct(parameter) |>
-			mutate(contrast = glue("`age_days:sexmale` + `{parameter}`") |> as.character()) |>
-			tidyr::extract(parameter, "tissue_harmonised", ".+___(.+)") |>
-			filter(contrast |> str_detect("_female", negate = TRUE)) |> 
-			deframe( ),
-		test_composition_above_logit_fold_change = FDR_threshold_1_percent_change_at_20_percent_baseline
-	) |>
-	filter(is_immune == "TRUE") |> 
-	filter(parameter != "nose") |> 
-	arrange(desc(abs(c_effect)))
-
-
-# Plot for presentation B memory across tissues
-# data_adjusted_absolutesex_interation =
-# 	differential_composition_sex_absolute |>
-# 	remove_unwanted_variation(~ age_days*sex , ~ 1)  |>
-# 	inner_join(data_for_immune_proportion |> tidybulk::pivot_sample(sample_) )
-# 
-# data_adjusted_absolutesex_interation |> saveRDS(glue("{result_directory}/data_adjusted_absolutesex_interation.rds"))
-
-data_adjusted_absolutesex_interation = readRDS(glue("{result_directory}/data_adjusted_absolutesex_interation.rds"))
-
-#res_relative_proportions_sex_tissue |> saveRDS("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/res_relative_proportions_sex_tissue.rds")
-
-# Get trend line to be used in the scatter plot of global compositional changes, plot_sex_relative
-prediction_df = 
-  expand_grid(sex = c("male", "female"), age_days = seq(-3, 3, by = 0.1)) |> 
-  mutate(sample_ = 1:n() |> as.character())
-
-# line_sex_relative_mean =
-#   
-#   differential_composition_sex_absolute |>
-#   sccomp_predict(
-#     ~ age_days*sex, 
-#     new_data = prediction_df, 
-#     number_of_draws = 1
-#   ) |> 
-#   left_join(prediction_df) |> 
-#   mutate(x_corrected = (age_days * 9610.807 / 0.6) + 12865.75) |>
-#   filter(x_corrected |> between(30.0 , 30295.0)) |>
-#   filter(is_immune == "TRUE") 
-# 
-# line_sex_relative_mean |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/line_sex_relative_mean.rds")
-
-line_sex_relative_mean = readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/line_sex_relative_mean.rds")
-
-# # Plot for presentation B memory across tissues
-# data_adjusted_absolutesex_interation_tissue =
-# 	differential_composition_sex_absolute |>
-# 	remove_unwanted_variation(~ age_days*sex + (age_days*sex | tissue_harmonised) , ~ 1)  |>
-# 	inner_join(data_for_immune_proportion |> tidybulk::pivot_sample(sample_) )
-# 
-# data_adjusted_absolutesex_interation_tissue |> saveRDS(glue("{result_directory}/data_adjusted_absolutesex_interation_tissue.rds"))
-
-data_adjusted_absolutesex_interation_tissue = readRDS(glue("{result_directory}/data_adjusted_absolutesex_interation_tissue.rds"))
-
 prediction_df = 
   expand_grid(
     sex = c("male", "female"), 
@@ -259,66 +167,6 @@ prediction_df =
   ) |> 
   mutate(sample_ = 1:n() |> as.character()) |> 
   expand_grid()
-
-# line_sex_relative_mean_per_tisue =
-#   
-#   differential_composition_sex_absolute |>
-#   sccomp_predict(
-#     ~ age_days*sex + (age_days*sex | tissue_harmonised), 
-#     new_data = prediction_df, 
-#     number_of_draws = 1
-#   ) |> 
-#   left_join(prediction_df) |> 
-#   mutate(x_corrected = (age_days * 9610.807 / 0.6) + 12865.75) |>
-#   filter(x_corrected |> between(30.0 , 30295.0)) |>
-#   filter(is_immune == "TRUE") 
-# 
-# line_sex_relative_mean_per_tisue |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/line_sex_relative_mean_per_tisue.rds")
-
-line_sex_relative_mean_per_tisue = readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/line_sex_relative_mean_per_tisue.rds")
-
-plot_differential_ageing = 
-  data_adjusted_absolutesex_interation |> 
-  filter(
-    tissue_harmonised %in% (sex_absolute_organ_tissue_interaction |> filter(c_FDR<0.05) |> pull(parameter))
-  ) |> 	
-  filter(is_immune == "TRUE") |> 
-	ggplot(aes(age_days_original, adjusted_proportion)) +
-	geom_point(
-		aes(fill = sex),
-		shape = 21,
-		stroke = 0,
-		size = 0.6
-	) +
-	# geom_smooth(
-	# 	aes(color=sex),
-	# 	method = "glm",
-	# 	method.args = list(family = "binomial"),
-	# 	se = FALSE, size=0.2) +
-	geom_line(
-		aes(x_corrected, proportion_mean, color = sex, group=sex),
-		data = 
-		  line_sex_relative_mean_per_tisue |> 
-		  left_join(data_adjusted_absolutesex_interation |> with_groups(tissue_harmonised, summarise, min(age_days_original))) |> 
-		  filter(x_corrected > `min(age_days_original)`) |> 
-		  filter(
-		    tissue_harmonised %in% (sex_absolute_organ_tissue_interaction |> filter(c_FDR<0.05) |> pull(parameter))
-		  )
-	) +
-	facet_wrap(~tissue_harmonised, scales = "free") +
-	
-	# scale_y_continuous(trans = S_sqrt_trans(), labels = dropLeadingZero) +
-	scale_x_continuous(
-		labels = function(x)
-			round(x / 356)
-	) +
-	scale_fill_manual(values = c(female = "red", male = "blue")) +
-	scale_color_manual(values = c(female = "red", male = "blue")) +
-	xlab("Years") +
-	ylab("Adjusted proportions") +
-	guides(fill = "none", color = "none") +
-	theme_multipanel
-
 
 #res_relative_proportions_sex_tissue |> saveRDS("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/res_relative_proportions_sex_tissue.rds")
 
@@ -1155,7 +1003,10 @@ plot_ranks_cell_type =
 	ylab("Rank of tissue with highest significance") + 
 	
 	theme_multipanel +
-	theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) 
+  theme(
+    axis.title.y = element_blank(), axis.text.y = element_blank(), 
+    axis.ticks.y = element_blank(), axis.line.y = element_blank()
+  )
 
 
 # library(furrr)
@@ -1301,7 +1152,11 @@ plot_ranks_tissue =
 	
 	scale_y_reverse() +
 	guides(color = "none") +
-	theme_multipanel
+	theme_multipanel +
+  theme(
+    axis.title.y = element_blank(), axis.text.y = element_blank(), 
+    axis.ticks.y = element_blank(), axis.line.y = element_blank()
+  )
 
 
 plot_ranks_tissue_barplot = 
@@ -1336,291 +1191,6 @@ de_sex_tissue_for_venn =
 # 		(P_sex_adjusted_non_immune > 0.05 | is.na(P_sex_adjusted_non_immune)) &
 # 			(P_age_days.sex_adjusted_non_immune > 0.05 | is.na(P_age_days.sex_adjusted_non_immune))
 # 	)
-
-venn = 
-	list(
-		tissue_non_immune_sex = 
-			de_sex_tissue_non_immune |> 
-			filter(map_lgl(data, ~ "P_sex_adjusted" %in% colnames(.x))) |>
-			mutate(data = map(data, ~ .x |> select(P_sex_adjusted, .feature))) |>
-			select(data, tissue) |>
-			
-			unnest(data) |>
-			add_count(.feature, name = "n_tissue") |>
-			filter(n_tissue >= 5) |>
-			dplyr::count(P_sex_adjusted<0.05, .feature, n_tissue) |>
-			filter(`P_sex_adjusted < 0.05`) |>
-			mutate(proportion = n/n_tissue) |>
-			#filter(n > 1) |>
-			filter(!.feature %in% gene_chr$ID) |> 
-			pull(.feature),
-		
-		tissue_sex = 
-			de_sex_tissue |> 
-			filter(map_lgl(data, ~ "P_sex_adjusted" %in% colnames(.x))) |>
-			mutate(data = map(data, ~ .x |> select(P_sex_adjusted, .feature))) |>
-			select(data, tissue) |>
-			
-			unnest(data) |>
-			add_count(.feature, name = "n_tissue") |>
-			filter(n_tissue >= 5) |>
-			dplyr::count(P_sex_adjusted<0.05, .feature, n_tissue) |>
-			filter(`P_sex_adjusted < 0.05`) |>
-			mutate(proportion = n/n_tissue) |>
-			filter(n > 2) |>
-			filter(!.feature %in% gene_chr$ID) |> 
-			pull(.feature),
-		
-		tissue_non_immune_sex_age = 
-			de_sex_tissue_non_immune |> 
-			filter(map_lgl(data, ~ "P_age_days.sex_adjusted" %in% colnames(.x))) |>
-			mutate(data = map(data, ~ .x |> select(P_age_days.sex_adjusted, .feature))) |>
-			select(data, tissue) |>
-			
-			unnest(data) |>
-			add_count(.feature, name = "n_tissue") |>
-			filter(n_tissue >= 5) |>
-			dplyr::count(P_age_days.sex_adjusted<0.05, .feature, n_tissue) |>
-			filter(`P_age_days.sex_adjusted < 0.05`) |>
-			mutate(proportion = n/n_tissue) |>
-			#filter(n > 1) |>
-			filter(!.feature %in% gene_chr$ID) |> 
-			pull(.feature),
-		
-		tissue_sex_age = 
-			de_sex_tissue |> 
-			filter(map_lgl(data, ~ "P_age_days.sex_adjusted" %in% colnames(.x))) |>
-			mutate(data = map(data, ~ .x |> select(P_age_days.sex_adjusted, .feature))) |>
-			select(data, tissue) |>
-			
-			unnest(data) |>
-			add_count(.feature, name = "n_tissue") |>
-			filter(n_tissue >= 5) |>
-			dplyr::count(P_age_days.sex_adjusted<0.05, .feature, n_tissue) |>
-			filter(`P_age_days.sex_adjusted < 0.05`) |>
-			mutate(proportion = n/n_tissue) |>
-			filter(n > 2) |>
-			filter(!.feature %in% gene_chr$ID) |> 
-			pull(.feature)
-	) |>
-  eulerr::euler(fshape = "ellipse") |>
-	plot(quantities = TRUE)
-
-
-# Rank AGE * SEX
-rank_de_tissue_age_sex = 
-	de_sex_tissue |>
-	
-	# Drop random effects
-	filter(tissue |> str_detect("\\:", negate = TRUE)) |> 
-	
-	select(tissue, data) |> 
-	unnest(data) |> 
-	left_join(
-		de_sex_tissue_non_immune |>
-			select(tissue, data) |> 
-			unnest(data) |> 
-			dplyr::rename(P_sex_adjusted_non_immune = P_sex_adjusted, P_age_days.sex_adjusted_non_immune = P_age_days.sex_adjusted) 
-	) |>
-	
-	# Filter out sex chromosomes
-	filter(!.feature %in% gene_chr$ID) |> 
-	
-	# Filter our significant in non immune
-	filter(P_age_days.sex_adjusted_non_immune > 0.05 | is.na(P_age_days.sex_adjusted_non_immune)) |> 
-	
-	# Summary statistics
-	dplyr::count(tissue, significant = P_age_days.sex_adjusted < 0.05 & P_sex_adjusted > 0.05) |> 
-	
-	filter(!is.na(significant)) |>
-	select(tissue,significant, n) |>
-	spread(significant, n) |> 
-	replace_na(list(`TRUE` = 0)) |> 
-	mutate(proportion_significant = `TRUE` / (`FALSE` + `TRUE`)) |> 
-	arrange(desc(proportion_significant)) |>
-	rowid_to_column("rank_de") 
-
-plot_ranks_tissue_sex_age_barplot = 
-	rank_de_tissue_age_sex |>
-	ggplot(aes(`TRUE`, tissue |> fct_reorder(proportion_significant))) +
-	geom_bar(aes(fill = tissue), stat = "identity") +
-	scale_fill_manual(values = tissue_color) +
-	guides(fill="none") +
-	xlab("Number of significant genes") +
-	theme_multipanel +
-	theme(axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank())
-
-plot_ranks_tissue_sex_age = 
-	
-	differential_composition_sex_relative |> 
-	sccomp_test() |>
-	filter(parameter |> str_detect("sexmale___")) |>
-	with_groups(parameter, ~ .x |> summarise(median_FDR= median(c_FDR))) |>
-	arrange(median_FDR) |>
-	
-	# Drop random effects
-	filter(parameter |> str_detect("age_days\\:sexmale")) |> 
-	
-	rowid_to_column("rank_composition") |>
-	mutate(tissue = parameter |> str_remove("age_days\\:sexmale___")) |>
-	select(tissue , rank_composition) |>
-	
-	# DE
-	full_join( rank_de_tissue,	by = join_by(tissue)	) |>
-	select(tissue, contains("rank")) |>
-	pivot_longer(contains("rank")) |>
-	mutate(name = name |> str_remove("rank")) |>
-	
-	# Parse cell types
-	mutate(
-		tissue =
-			tissue |>
-			str_replace_all("_", " ") |>
-			str_replace("gland", "gld") |>
-			str_replace("skeletal", "sk")
-	) |>
-	
-	# Plot
-	ggplot(aes(name, value, group=tissue,  label=tissue)) +
-	geom_line(aes(color = tissue)) +
-	geom_point(aes(color = tissue)) +
-	geom_text(size = 2.5) +
-	
-	
-	scale_color_manual(values = tissue_color) +
-	
-	scale_y_reverse() +
-	guides(color = "none") +
-	theme_multipanel
-
-# DIFFERENTIAL AGEING PATHWAY ANALYSES
-# de_sex_age_tissue_pathways_analyses = 
-#   de_sex_tissue |>
-#   
-#   # Drop random effects
-#   filter(tissue |> str_detect("\\:", negate = TRUE)) |> 
-#   
-#   select(tissue, data) |> 
-#   unnest(data) |> 
-#   left_join(
-#     de_sex_tissue_non_immune |>
-#       select(tissue, data) |> 
-#       unnest(data) |> 
-#       dplyr::rename(P_sex_adjusted_non_immune = P_sex_adjusted, P_age_days.sex_adjusted_non_immune = P_age_days.sex_adjusted) 
-#   ) |>
-#   
-#   # Filter out sex chromosomes
-#   filter(!.feature %in% gene_chr$ID) |> 
-#   
-#   # Arrange
-#   filter(age_days.sexmale |> is.na() |> not()) |> 
-#   arrange(tissue, age_days.sexmale) |> 
-#   nest(data = -tissue) |> 
-#   
-#   # Pathway analyses
-#   mutate(enriched_pathways_interaction = map(
-#     data,
-#     ~ .x |>
-#       mutate(entrez = AnnotationDbi::mapIds(org.Hs.eg.db::org.Hs.eg.db,
-#                                             keys = .feature,
-#                                             keytype = "SYMBOL",
-#                                             column = "ENTREZID",
-#                                             multiVals = "first"
-#       )) |>
-#       test_gene_rank(.arrange_desc = age_days.sexmale,
-#         species = "Homo sapiens", .entrez = entrez) ,
-#     .progress=TRUE
-#   )) |> 
-#   
-#   # Pathway analyses
-#   mutate(enriched_pathways_sex = map(
-#     data,
-#     ~ .x |>
-#       mutate(entrez = AnnotationDbi::mapIds(org.Hs.eg.db::org.Hs.eg.db,
-#                                             keys = .feature,
-#                                             keytype = "SYMBOL",
-#                                             column = "ENTREZID",
-#                                             multiVals = "first"
-#       )) |>
-#       test_gene_rank(.arrange_desc = sexmale,
-#                      species = "Homo sapiens", .entrez = entrez) ,
-#     .progress=TRUE
-#   ))
-# 
-# de_sex_age_tissue_pathways_analyses |> saveRDS(glue("{result_directory}/de_sex_age_tissue_pathways_analyses.rds"))
-
-# Top pathays per tissue
-de_sex_age_tissue_pathways_analyses |> 
-  
-  # subset info
-  mutate(across(
-    c(enriched_pathways, enriched_pathways_sex), 
-    ~ .x |> 
-      map(~ .x |> 
-            select(-fit) |> 
-            unnest(test) |> 
-            filter(p.adjust < 0.05)
-      )
-  )) |> 
-  mutate(enriched_pathways = map2(
-    enriched_pathways, enriched_pathways_sex,
-    ~ .x |> 
-      filter(!ID %in% .y$ID)
-  )) |> 
-  select(-data, -enriched_pathways_sex) |> 
-  unnest(enriched_pathways) |> 
-  mutate(up = enrichmentScore > 0) |> 
-  with_groups(c(tissue, up), ~ .x |> arrange(qvalue) |> slice_head(n=3)) |> 
-  filter(gs_cat %in% c("C2", "H")) |> 
-  arrange(tissue, gs_cat, up) |> 
-  select(tissue, gs_cat, up, ID) |> 
-  mutate(ID = ID |> str_replace("DEPRIVATION_DN", "UP")) |> 
-  mutate(pathway_up = ID |> str_detect("_DN$", negate = TRUE) ) |> 
-  mutate(enriched_in_male = !xor(up, pathway_up))
-
-# Top shared pathways
-plot_differential_ageing_shared_pathways = 
-  de_sex_age_tissue_pathways_analyses |> 
-  
-  # subset info
-  mutate(across(
-    c(enriched_pathways, enriched_pathways_sex), 
-    ~ .x |> 
-      map(~ .x |> 
-            select(-fit) |> 
-            unnest(test) |> 
-            filter(p.adjust < 0.05)
-      )
-  )) |> 
-  mutate(enriched_pathways = map2(
-    enriched_pathways, enriched_pathways_sex,
-    ~ .x |> 
-      filter(!ID %in% .y$ID)
-  )) |> 
-  select(-data, -enriched_pathways_sex) |> 
-  unnest(enriched_pathways) |> 
-  
-  mutate(up = enrichmentScore > 0) |> 
-  mutate(ID = ID |> str_replace("DEPRIVATION_DN", "UP")) |> 
-  mutate(pathway_up = ID |> str_detect("_DN$", negate = TRUE) ) |> 
-  mutate(enriched_in_male = !xor(up, pathway_up)) |> 
-  mutate(ID = ID |> str_remove("_DN") |> str_remove("_UP")) |> 
-  
-  add_count(ID) |> 
-  filter(n>2) |> 
-  
-  with_groups(ID, ~ .x |> mutate(NES_mean = mean(NES))) |> 
-  with_groups(enriched_in_male, ~ .x |> arrange(NES_mean |> abs() |> desc()) |> dplyr::slice_head(n=50)) |> 
-  
-  # return long strings
-  mutate(ID = ID |> str_replace_all("_"," ") |>  stringr::str_wrap(width = 40, whitespace_only = TRUE)) |>
-  ggplot(aes(fct_reorder(ID, NES_mean), NES, color = tissue)) +
-  geom_point() +
-  scale_color_manual(values = tissue_color) +
-  ylab("Normalized enrichment score") +
-  xlab("Gene sets") +
-  theme_multipanel +
-  theme(axis.text.x = element_text(angle=90, hjust = 1, vjust=0.5))
 
 
 # # Which genes are shared across tissue programs
@@ -2093,8 +1663,463 @@ ggsave(
   limitsize = FALSE
 )
 
+#-------------------
+# Interaction
+#-------------------
 
+venn = 
+  list(
+    tissue_non_immune_sex = 
+      de_sex_tissue_non_immune |> 
+      filter(map_lgl(data, ~ "P_sex_adjusted" %in% colnames(.x))) |>
+      mutate(data = map(data, ~ .x |> select(P_sex_adjusted, .feature))) |>
+      select(data, tissue) |>
+      
+      unnest(data) |>
+      add_count(.feature, name = "n_tissue") |>
+      filter(n_tissue >= 5) |>
+      dplyr::count(P_sex_adjusted<0.05, .feature, n_tissue) |>
+      filter(`P_sex_adjusted < 0.05`) |>
+      mutate(proportion = n/n_tissue) |>
+      #filter(n > 1) |>
+      filter(!.feature %in% gene_chr$ID) |> 
+      pull(.feature),
+    
+    tissue_sex = 
+      de_sex_tissue |> 
+      filter(map_lgl(data, ~ "P_sex_adjusted" %in% colnames(.x))) |>
+      mutate(data = map(data, ~ .x |> select(P_sex_adjusted, .feature))) |>
+      select(data, tissue) |>
+      
+      unnest(data) |>
+      add_count(.feature, name = "n_tissue") |>
+      filter(n_tissue >= 5) |>
+      dplyr::count(P_sex_adjusted<0.05, .feature, n_tissue) |>
+      filter(`P_sex_adjusted < 0.05`) |>
+      mutate(proportion = n/n_tissue) |>
+      filter(n > 2) |>
+      filter(!.feature %in% gene_chr$ID) |> 
+      pull(.feature),
+    
+    tissue_non_immune_sex_age = 
+      de_sex_tissue_non_immune |> 
+      filter(map_lgl(data, ~ "P_age_days.sex_adjusted" %in% colnames(.x))) |>
+      mutate(data = map(data, ~ .x |> select(P_age_days.sex_adjusted, .feature))) |>
+      select(data, tissue) |>
+      
+      unnest(data) |>
+      add_count(.feature, name = "n_tissue") |>
+      filter(n_tissue >= 5) |>
+      dplyr::count(P_age_days.sex_adjusted<0.05, .feature, n_tissue) |>
+      filter(`P_age_days.sex_adjusted < 0.05`) |>
+      mutate(proportion = n/n_tissue) |>
+      #filter(n > 1) |>
+      filter(!.feature %in% gene_chr$ID) |> 
+      pull(.feature),
+    
+    tissue_sex_age = 
+      de_sex_tissue |> 
+      filter(map_lgl(data, ~ "P_age_days.sex_adjusted" %in% colnames(.x))) |>
+      mutate(data = map(data, ~ .x |> select(P_age_days.sex_adjusted, .feature))) |>
+      select(data, tissue) |>
+      
+      unnest(data) |>
+      add_count(.feature, name = "n_tissue") |>
+      filter(n_tissue >= 5) |>
+      dplyr::count(P_age_days.sex_adjusted<0.05, .feature, n_tissue) |>
+      filter(`P_age_days.sex_adjusted < 0.05`) |>
+      mutate(proportion = n/n_tissue) |>
+      filter(n > 2) |>
+      filter(!.feature %in% gene_chr$ID) |> 
+      pull(.feature)
+  ) |>
+  eulerr::euler(fshape = "ellipse") |>
+  plot(quantities = list(cex = .5), labels = list(cex = .5))
+
+
+# Rank AGE * SEX
+rank_de_tissue_age_sex = 
+  de_sex_tissue |>
+  
+  # Drop random effects
+  filter(tissue |> str_detect("\\:", negate = TRUE)) |> 
+  
+  select(tissue, data) |> 
+  unnest(data) |> 
+  left_join(
+    de_sex_tissue_non_immune |>
+      select(tissue, data) |> 
+      unnest(data) |> 
+      dplyr::rename(P_sex_adjusted_non_immune = P_sex_adjusted, P_age_days.sex_adjusted_non_immune = P_age_days.sex_adjusted) 
+  ) |>
+  
+  # Filter out sex chromosomes
+  filter(!.feature %in% gene_chr$ID) |> 
+  
+  # Filter our significant in non immune
+  filter(P_age_days.sex_adjusted_non_immune > 0.05 | is.na(P_age_days.sex_adjusted_non_immune)) |> 
+  
+  # Summary statistics
+  dplyr::count(tissue, significant = P_age_days.sex_adjusted < 0.05 & P_sex_adjusted > 0.05) |> 
+  
+  filter(!is.na(significant)) |>
+  select(tissue,significant, n) |>
+  spread(significant, n) |> 
+  replace_na(list(`TRUE` = 0)) |> 
+  mutate(proportion_significant = `TRUE` / (`FALSE` + `TRUE`)) |> 
+  arrange(desc(proportion_significant)) |>
+  rowid_to_column("rank_de") 
+
+plot_ranks_tissue_sex_age_barplot = 
+  rank_de_tissue_age_sex |>
+  ggplot(aes(`TRUE`, tissue |> fct_reorder(proportion_significant))) +
+  geom_bar(aes(fill = tissue), stat = "identity") +
+  scale_fill_manual(values = tissue_color) +
+  guides(fill="none") +
+  xlab("Number of significant genes") +
+  theme_multipanel +
+  theme(axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank())
+
+plot_ranks_tissue_sex_age = 
+  
+  differential_composition_sex_relative |> 
+  sccomp_test() |>
+  filter(parameter |> str_detect("sexmale___")) |>
+  with_groups(parameter, ~ .x |> summarise(median_FDR= median(c_FDR))) |>
+  arrange(median_FDR) |>
+  
+  # Drop random effects
+  filter(parameter |> str_detect("age_days\\:sexmale")) |> 
+  
+  rowid_to_column("rank_composition") |>
+  mutate(tissue = parameter |> str_remove("age_days\\:sexmale___")) |>
+  select(tissue , rank_composition) |>
+  
+  # DE
+  full_join( rank_de_tissue_age_sex,	by = join_by(tissue)	) |>
+  select(tissue, contains("rank")) |>
+  pivot_longer(contains("rank")) |>
+  mutate(name = name |> str_remove("rank")) |>
+  
+  # Parse cell types
+  mutate(
+    tissue =
+      tissue |>
+      str_replace_all("_", " ") |>
+      str_replace("gland", "gld") |>
+      str_replace("skeletal", "sk")
+  ) |>
+  
+  # Plot
+  ggplot(aes(name, value, group=tissue,  label=tissue)) +
+  geom_line(aes(color = tissue)) +
+  geom_point(aes(color = tissue)) +
+  geom_text(size = 2.5) +
+  
+  
+  scale_color_manual(values = tissue_color) +
+  
+  scale_y_reverse() +
+  guides(color = "none") +
+  theme_multipanel +
+  theme(
+    axis.title.y = element_blank(), axis.text.y = element_blank(), 
+    axis.ticks.y = element_blank(), axis.line.y = element_blank()
+  )
+
+# DIFFERENTIAL AGEING PATHWAY ANALYSES
+# de_sex_age_tissue_pathways_analyses = 
+#   de_sex_tissue |>
+#   
+#   # Drop random effects
+#   filter(tissue |> str_detect("\\:", negate = TRUE)) |> 
+#   
+#   select(tissue, data) |> 
+#   unnest(data) |> 
+#   left_join(
+#     de_sex_tissue_non_immune |>
+#       select(tissue, data) |> 
+#       unnest(data) |> 
+#       dplyr::rename(P_sex_adjusted_non_immune = P_sex_adjusted, P_age_days.sex_adjusted_non_immune = P_age_days.sex_adjusted) 
+#   ) |>
+#   
+#   # Filter out sex chromosomes
+#   filter(!.feature %in% gene_chr$ID) |> 
+#   
+#   # Arrange
+#   filter(age_days.sexmale |> is.na() |> not()) |> 
+#   arrange(tissue, age_days.sexmale) |> 
+#   nest(data = -tissue) |> 
+#   
+#   # Pathway analyses
+#   mutate(enriched_pathways_interaction = map(
+#     data,
+#     ~ .x |>
+#       mutate(entrez = AnnotationDbi::mapIds(org.Hs.eg.db::org.Hs.eg.db,
+#                                             keys = .feature,
+#                                             keytype = "SYMBOL",
+#                                             column = "ENTREZID",
+#                                             multiVals = "first"
+#       )) |>
+#       test_gene_rank(.arrange_desc = age_days.sexmale,
+#         species = "Homo sapiens", .entrez = entrez) ,
+#     .progress=TRUE
+#   )) |> 
+#   
+#   # Pathway analyses
+#   mutate(enriched_pathways_sex = map(
+#     data,
+#     ~ .x |>
+#       mutate(entrez = AnnotationDbi::mapIds(org.Hs.eg.db::org.Hs.eg.db,
+#                                             keys = .feature,
+#                                             keytype = "SYMBOL",
+#                                             column = "ENTREZID",
+#                                             multiVals = "first"
+#       )) |>
+#       test_gene_rank(.arrange_desc = sexmale,
+#                      species = "Homo sapiens", .entrez = entrez) ,
+#     .progress=TRUE
+#   ))
+# 
+# de_sex_age_tissue_pathways_analyses |> saveRDS(glue("{result_directory}/de_sex_age_tissue_pathways_analyses.rds"))
+
+de_sex_age_tissue_pathways_analyses = readRDS(glue("{result_directory}/de_sex_age_tissue_pathways_analyses.rds"))
+
+# Top pathays per tissue
+de_sex_age_tissue_pathways_analyses |> 
+  
+  # subset info
+  mutate(across(
+    c(enriched_pathways, enriched_pathways_sex), 
+    ~ .x |> 
+      map(~ .x |> 
+            select(-fit) |> 
+            unnest(test) |> 
+            filter(p.adjust < 0.05)
+      )
+  )) |> 
+  mutate(enriched_pathways = map2(
+    enriched_pathways, enriched_pathways_sex,
+    ~ .x |> 
+      filter(!ID %in% .y$ID)
+  )) |> 
+  select(-data, -enriched_pathways_sex) |> 
+  unnest(enriched_pathways) |> 
+  mutate(up = enrichmentScore > 0) |> 
+  with_groups(c(tissue, up), ~ .x |> arrange(qvalue) |> slice_head(n=3)) |> 
+  filter(gs_cat %in% c("C2", "H")) |> 
+  arrange(tissue, gs_cat, up) |> 
+  select(tissue, gs_cat, up, ID) |> 
+  mutate(ID = ID |> str_replace("DEPRIVATION_DN", "UP")) |> 
+  mutate(pathway_up = ID |> str_detect("_DN$", negate = TRUE) ) |> 
+  mutate(enriched_in_male = !xor(up, pathway_up))
+
+# Top shared pathways
+plot_differential_ageing_shared_pathways = 
+  de_sex_age_tissue_pathways_analyses |> 
+  
+  # subset info
+  mutate(across(
+    c(enriched_pathways, enriched_pathways_sex), 
+    ~ .x |> 
+      map(~ .x |> 
+            select(-fit) |> 
+            unnest(test) |> 
+            filter(p.adjust < 0.05)
+      )
+  )) |> 
+  mutate(enriched_pathways = map2(
+    enriched_pathways, enriched_pathways_sex,
+    ~ .x |> 
+      filter(!ID %in% .y$ID)
+  )) |> 
+  select(-data, -enriched_pathways_sex) |> 
+  unnest(enriched_pathways) |> 
+  
+  mutate(up = enrichmentScore > 0) |> 
+  mutate(ID = ID |> str_replace("DEPRIVATION_DN", "UP")) |> 
+  mutate(pathway_up = ID |> str_detect("_DN$", negate = TRUE) ) |> 
+  mutate(enriched_in_male = !xor(up, pathway_up)) |> 
+  mutate(ID = ID |> str_remove("_DN") |> str_remove("_UP")) |> 
+  
+  add_count(ID) |> 
+  filter(n>2) |> 
+  
+  with_groups(ID, ~ .x |> mutate(NES_mean = mean(NES))) |> 
+  with_groups(enriched_in_male, ~ .x |> arrange(NES_mean |> abs() |> desc()) |> dplyr::slice_head(n=50)) |> 
+  
+  # return long strings
+  mutate(ID = ID |> str_replace_all("_"," ") |>  stringr::str_wrap(width = 30, whitespace_only = TRUE)) |>
+  ggplot(aes(fct_reorder(ID, NES_mean), NES, color = tissue)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.3) +
+  geom_point(size = 0.4) +
+  scale_color_manual(values = tissue_color) +
+  ylab("Normalized enrichment score") +
+  xlab("Gene sets") +
+  theme_multipanel +
+  theme(axis.text.x = element_text(angle=90, hjust = 1, vjust=0.5, size = 4))
+
+
+# Plot effect of composition and variability
+# For immune cellularity (proportion of immune cells)
+# Wtih uncertainty
+draws_abundance_sex = 
+  differential_composition_sex_absolute   |> 
+  sccomp:::get_abundance_contrast_draws(contrasts = c(sexmale_ = "`age_days:sexmale`")) |> 
+  filter(is_immune=="TRUE") |> 
+  filter(parameter=="sexmale_")
+
+# Get parameter draws for variability 
+# to manually plot the uncertainty
+draws_variability_sex = 
+  differential_composition_sex_absolute   |> 
+  sccomp:::get_variability_contrast_draws( contrasts = c(sexmale_ = "`age_days:sexmale`")) |> 
+  filter(is_immune=="TRUE") |> 
+  filter(parameter=="sexmale_")
+
+plot_sex_absolute_1D_interaction =
+  tibble(
+    Variability = draws_variability_sex |> pull(.value),
+    Abundance = draws_abundance_sex |> pull(.value)
+  ) |>
+  tidybulk::as_matrix() |>
+  bayesplot::mcmc_intervals(point_size = 1, inner_size = 0.5, outer_size = 0.25) +
+  coord_flip() +
+  xlab("Effect male immune cellularity") +
+  theme_multipanel +
+  theme(axis.text.x = element_text(angle=30, hjust = 0.5))
+
+
+# line_sex_relative_mean_per_tisue =
+#   
+#   differential_composition_sex_absolute |>
+#   sccomp_predict(
+#     ~ age_days*sex + (age_days*sex | tissue_harmonised), 
+#     new_data = prediction_df, 
+#     number_of_draws = 1
+#   ) |> 
+#   left_join(prediction_df) |> 
+#   mutate(x_corrected = (age_days * 9610.807 / 0.6) + 12865.75) |>
+#   filter(x_corrected |> between(30.0 , 30295.0)) |>
+#   filter(is_immune == "TRUE") 
+# 
+# line_sex_relative_mean_per_tisue |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/line_sex_relative_mean_per_tisue.rds")
+
+line_sex_relative_mean_per_tisue = readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/line_sex_relative_mean_per_tisue.rds")
+
+
+# Create dataset to create the mannequin heatmap of the 
+# Tissues with differential immune cellularity
+sex_absolute_organ_tissue_interaction =
+  differential_composition_sex_absolute |> 
+  sccomp_test(
+    contrasts =
+      differential_composition_sex_absolute |>
+      filter(parameter |> str_detect("age_days:sexmale___")) |>
+      distinct(parameter) |>
+      mutate(contrast = glue("`age_days:sexmale` + `{parameter}`") |> as.character()) |>
+      tidyr::extract(parameter, "tissue_harmonised", ".+___(.+)") |>
+      filter(contrast |> str_detect("_female", negate = TRUE)) |> 
+      deframe( ),
+    test_composition_above_logit_fold_change = FDR_threshold_1_percent_change_at_20_percent_baseline
+  ) |>
+  filter(is_immune == "TRUE") |> 
+  filter(parameter != "nose") |> 
+  arrange(desc(abs(c_effect)))
+
+
+# Plot for presentation B memory across tissues
+# data_adjusted_absolutesex_interation =
+# 	differential_composition_sex_absolute |>
+# 	remove_unwanted_variation(~ age_days*sex , ~ 1)  |>
+# 	inner_join(data_for_immune_proportion |> tidybulk::pivot_sample(sample_) )
+# 
+# data_adjusted_absolutesex_interation |> saveRDS(glue("{result_directory}/data_adjusted_absolutesex_interation.rds"))
+
+data_adjusted_absolutesex_interation = readRDS(glue("{result_directory}/data_adjusted_absolutesex_interation.rds"))
+
+#res_relative_proportions_sex_tissue |> saveRDS("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/res_relative_proportions_sex_tissue.rds")
+
+# Get trend line to be used in the scatter plot of global compositional changes, plot_sex_relative
+prediction_df = 
+  expand_grid(sex = c("male", "female"), age_days = seq(-3, 3, by = 0.1)) |> 
+  mutate(sample_ = 1:n() |> as.character())
+
+# line_sex_relative_mean =
+#   
+#   differential_composition_sex_absolute |>
+#   sccomp_predict(
+#     ~ age_days*sex, 
+#     new_data = prediction_df, 
+#     number_of_draws = 1
+#   ) |> 
+#   left_join(prediction_df) |> 
+#   mutate(x_corrected = (age_days * 9610.807 / 0.6) + 12865.75) |>
+#   filter(x_corrected |> between(30.0 , 30295.0)) |>
+#   filter(is_immune == "TRUE") 
+# 
+# line_sex_relative_mean |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/line_sex_relative_mean.rds")
+
+line_sex_relative_mean = readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/line_sex_relative_mean.rds")
+
+# # Plot for presentation B memory across tissues
+# data_adjusted_absolutesex_interation_tissue =
+# 	differential_composition_sex_absolute |>
+# 	remove_unwanted_variation(~ age_days*sex + (age_days*sex | tissue_harmonised) , ~ 1)  |>
+# 	inner_join(data_for_immune_proportion |> tidybulk::pivot_sample(sample_) )
+# 
+# data_adjusted_absolutesex_interation_tissue |> saveRDS(glue("{result_directory}/data_adjusted_absolutesex_interation_tissue.rds"))
+
+data_adjusted_absolutesex_interation_tissue = readRDS(glue("{result_directory}/data_adjusted_absolutesex_interation_tissue.rds"))
+
+
+plot_differential_ageing = 
+  data_adjusted_absolutesex_interation |> 
+  filter(
+    tissue_harmonised %in% (sex_absolute_organ_tissue_interaction |> filter(c_FDR<0.05) |> pull(parameter))
+  ) |> 	
+  filter(is_immune == "TRUE") |> 
+  ggplot(aes(age_days_original, adjusted_proportion)) +
+  geom_point(
+    aes(fill = sex),
+    shape = 21,
+    stroke = 0,
+    size = 0.6
+  ) +
+  # geom_smooth(
+  # 	aes(color=sex),
+  # 	method = "glm",
+  # 	method.args = list(family = "binomial"),
+  # 	se = FALSE, size=0.2) +
+  geom_line(
+    aes(x_corrected, proportion_mean, color = sex, group=sex),
+    data = 
+      line_sex_relative_mean_per_tisue |> 
+      left_join(data_adjusted_absolutesex_interation |> with_groups(tissue_harmonised, summarise, min(age_days_original))) |> 
+      filter(x_corrected > `min(age_days_original)`) |> 
+      filter(
+        tissue_harmonised %in% (sex_absolute_organ_tissue_interaction |> filter(c_FDR<0.05) |> pull(parameter))
+      )
+  ) +
+  facet_wrap(~tissue_harmonised, scales = "free") +
+  
+  # scale_y_continuous(trans = S_sqrt_trans(), labels = dropLeadingZero) +
+  scale_x_continuous(
+    labels = function(x)
+      round(x / 356)
+  ) +
+  scale_fill_brewer(palette = "Set1") +
+  scale_color_brewer(palette = "Set1") +
+  xlab("Years") +
+  ylab("Adjusted proportions") +
+  guides(fill = "none", color = "none") +
+  theme_multipanel
+
+
+#------------------------------
 # Plots single cell ALEX
+#------------------------------
+
 #Read the rds Seurat objects
 merged_seurat_ln = readRDS(glue("{result_directory}/alex_differential_ageing_UMAP/merged_seurat_ln.rds"))
 merged_seurat_heart = readRDS(glue("{result_directory}/alex_differential_ageing_UMAP/merged_seurat_heart.rds"))
@@ -2137,7 +2162,7 @@ grid.plot <- function(seurat_obj, reduction, assay = "RNA", slot = "scale.data",
     select(gene_name, reduc.key_1, reduc.key_2, sex, age_range) |>
     arrange(!!gene_name) |> 
     ggplot(aes(x = !!rlang::sym(reduc.key_1), y = !!rlang::sym(reduc.key_2))) +
-    geom_point(aes(color = !!gene_name), size = 0.2) +
+    ggrastr::rasterise(geom_point(aes(color = !!gene_name), shape="."), dpi = 300) +
     scale_color_gradient(low = "azure3", high = "darkblue", na.value = "azure3", guide = "none") +
     facet_grid(sex ~ age_range) +  # Add facet_grid to split by sex and age_group
     xlab("UMAP 1") +
@@ -2145,7 +2170,14 @@ grid.plot <- function(seurat_obj, reduction, assay = "RNA", slot = "scale.data",
     ggtitle(gene) +
     guides(color = "none") +
     theme_multipanel +
-    theme(axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank())
+    theme(
+      axis.title.y = element_blank(), 
+      axis.text.y = element_blank(), 
+      axis.ticks.y = element_blank(),
+      axis.title.x = element_blank(), 
+      axis.text.x = element_blank(), 
+      axis.ticks.x = element_blank()
+    )
 }
 
 # Create the plots for Lymph node
@@ -2162,19 +2194,54 @@ tlr4_ln <- grid.plot(merged_seurat_ln, "umap_sct.harmony.sample", assay = "RNA",
 
 # PLOT INTERACTIONS
 
-(
+plot_interaction = 
+  (
   ((
-  venn |
+  wrap_plots(venn) |
   plot_spacer() |
   plot_sex_absolute_1D_interaction |
   plot_differential_ageing |
   plot_ranks_tissue_sex_age | 
   plot_ranks_tissue_sex_age_barplot 
-  ) + plot_layout(width = c(1, 0.5,0.2, 1, 0.8, 0.2))
-) /
+  ) + plot_layout(width = c(1, 0.5,0.2, 1, 0.8, 0.2))) /
+    
   plot_differential_ageing_shared_pathways /
-  wrap_plots(rab21_ln, rasgef1b_ln, irs2_ln, lmna_ln)
-) + plot_layout(height = c(1, 0.5, 1))
+  (
+    wrap_plots(rab21_ln, rasgef1b_ln, irs2_ln, lmna_ln) |
+      wrap_plots(plot_spacer())
+  )
+) + 
+  plot_layout(height = c(0.5, 0.3, 1), guides = 'collect') &
+  theme(
+    plot.margin = margin(0, 0, 0, 0, "pt"),
+    legend.key.size = unit(0.2, 'cm'),
+    legend.position = "bottom"
+  )
+
+
+ggsave(
+  glue("{result_directory}/figure_sex_interaction.pdf"),
+  plot = plot_interaction,
+  units = c("mm"),
+  width = 183 ,
+  height = 183 ,
+  limitsize = FALSE
+)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
