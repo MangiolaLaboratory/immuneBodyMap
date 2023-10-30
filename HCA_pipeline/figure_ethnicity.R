@@ -16,7 +16,7 @@ library(tidybulk)
 library(tidySummarizedExperiment)
 
 home = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s"
-result_directory = glue("{home}/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.5")
+result_directory = glue("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age")
 
 
 # Calculate softmax from an array of reals
@@ -94,82 +94,56 @@ FDR_threshold_1_percent_change_at_20_percent_baseline = 0.017
 #------------------------------#
 
 # Read results
-differential_composition_ethnicity_absolute_file = glue("{result_directory}/ethnicity_absolute_FALSE_no_outlier.rds")
+differential_composition_ethnicity_absolute_file = glue("{result_directory}/ethnicity_absolute_FALSE.rds")
 proportions_ethnicity_absolute_file = glue("{result_directory}/ethnicity_absolute_FALSE_proportion_adjusted.rds")
 differential_composition_ethnicity_absolute = readRDS(differential_composition_ethnicity_absolute_file)
 proportions_ethnicity_absolute_adjusted = readRDS(proportions_ethnicity_absolute_file)
 
 # # save csv for SUPPLEMENTARY
 # differential_composition_ethnicity_absolute |>
-# 	test_contrasts(test_composition_above_logit_fold_change = 0.1) |> 
+# 	sccomp_test(test_composition_above_logit_fold_change = 0.1) |> 
 # 	select(-count_data) |>
 # 	write_csv("sccomp_on_HCA_0.2.3.4/SUPPLEMENTARY_ethnicity_cellularity_estimates.csv")
 
 
-# Get parameter draws for relative abundance 
-# to manually plot the uncertainty
-draws_abundance_ethnicity = 
-	differential_composition_ethnicity_absolute   |> 
-	sccomp:::get_abundance_contrast_draws(contrasts = c(
-		european = "`(Intercept)`",
-		asian = "`(Intercept)` + ethnicity_simplifiedChinese", 
-		african = "`(Intercept)` + ethnicity_simplifiedAfrican",
-		hispanic = "`(Intercept)` + `ethnicity_simplifiedHispanic or Latin American`",
-		other = "`(Intercept)` + ethnicity_simplifiedOther"
-	)) |> 
-	filter(is_immune=="TRUE") |>
-	filter(parameter %in% c("european", "asian", "african", "hispanic", "other"))
-
-# Get parameter draws for variability 
-# to manually plot the uncertainty
-draws_variability_ethnicity = 
-	differential_composition_ethnicity_absolute  |> 
-	sccomp:::get_variability_contrast_draws(contrasts = c(
-		european = "`(Intercept)`",
-		asian = "`(Intercept)` + ethnicity_simplifiedChinese", 
-		african = "`(Intercept)` + ethnicity_simplifiedAfrican",
-		hispanic = "`(Intercept)` + `ethnicity_simplifiedHispanic or Latin American`",
-		other = "`(Intercept)` + ethnicity_simplifiedOther"
-	)) |> 
-	filter(is_immune=="TRUE")  |>
-	filter(parameter %in% c("european", "asian", "african", "hispanic", "other"))
-
 # Plot effect of composition and variability
 # For immune cellularity (proportion of immune cells)
 # Wtih uncertainty
-plot_ethnicity_absolute_1D =
-	draws_variability_ethnicity |>
-	select(parameter, variability = .value, .draw) |>
-	left_join(
-		draws_abundance_ethnicity |>
-			select(parameter, abundance = .value, .draw)
-	) |>
-	pivot_longer(c(abundance, variability), names_to = "stat") |>
-	nest(data = -stat) |>
-
-	mutate(plot = map2(
-		data, stat,
-		~ .x |>
-			pivot_wider(names_from = parameter, values_from = value) |>
-			select(-.draw) |>
-			tidybulk::as_matrix() |>
-			bayesplot::mcmc_intervals(point_size = 1, inner_size = 0.5, outer_size = 0.25) +
-			coord_flip() +
-			xlab("Effect male immune cellularity") +
-			theme_multipanel +
-			theme(axis.text.x = element_text(angle=30, hjust = 0.5)) +
-			ggtitle(.y)
-	)) |>
-	pull(plot) |>
-	wrap_plots()
-
+plot_ethnicity_absolute_1D = 
+	differential_composition_ethnicity_absolute   |> 
+	  sccomp_remove_unwanted_variation(~ ethnicity_simplified) |> 
+	  left_join(
+	    data_for_immune_proportion_relative |> distinct(sample_, ethnicity_simplified)
+	  ) |> 
+	  filter(!is.na(ethnicity_simplified)) |> 
+	  filter(is_immune == "TRUE") |> 
+	  with_groups(ethnicity_simplified, ~ .x |> mutate(median_proportion = median(adjusted_proportion))) |>
+	  mutate(ethnicity_simplified = ethnicity_simplified |> fct_reorder(median_proportion, .desc = TRUE)) |>
+	  with_groups(ethnicity_simplified, ~ .x |> mutate(sample_dummy = 1:n())) |> 
+	  select(ethnicity_simplified, adjusted_proportion, sample_dummy) |> 
+	  
+	  # I dont have many samples
+	  filter(ethnicity_simplified != "Chinese") |> 
+	  pivot_wider(names_from = ethnicity_simplified, values_from = adjusted_proportion) |>
+	  
+	  drop_na() |> 
+	  
+	  select(sample_dummy,    Other,`Hispanic or Latin American`, African, European,) |> 
+	  tidybulk::as_matrix(rownames = sample_dummy) |>
+	  bayesplot::mcmc_intervals(point_size = 1, inner_size = 0.5, outer_size = 0.25) +
+	  coord_flip() +
+	  xlab("Immune cellularity adjusted") +
+	  theme_multipanel +
+	  theme(axis.text.x = element_text(angle=30, hjust = 1, vjust = 1)) 
+	  
 	
+
 
 # Create dataset to create the mannequin heatmap of the 
 # Tissues with differential immune cellularity
 ethnicity_absolute_organ_tissue =
 	differential_composition_ethnicity_absolute |> 
-	test_contrasts(
+	sccomp_test(
 		contrasts =
 			differential_composition_ethnicity_absolute |>
 			filter(parameter |> str_detect("ethnicity") ) |>
@@ -187,7 +161,7 @@ ethnicity_absolute_organ_tissue =
 
 # # save csv for SUPPLEMENTARY
 # differential_composition_ethnicity_absolute |> 
-# 	test_contrasts(
+# 	sccomp_test(
 # 		contrasts =
 # 			differential_composition_ethnicity_absolute |>
 # 			filter(parameter |> str_detect("sexmale___")) |>
@@ -266,7 +240,7 @@ gene_chr = read_csv("symbol_chr.csv")
 
 # # save csv for SUPPLEMENTARY
 # differential_composition_ethnicity_relative |>
-# 	test_contrasts(test_composition_above_logit_fold_change = 0.1) |> 
+# 	sccomp_test(test_composition_above_logit_fold_change = 0.1) |> 
 # 	select(-count_data) |>
 # 	write_csv("sccomp_on_HCA_0.2.3.4/SUPPLEMENTARY_ethnicity_composition_estimates.csv")
 
@@ -274,7 +248,7 @@ gene_chr = read_csv("symbol_chr.csv")
 # # Comparing each ethnicity with the average of the others
 # data_for_ethinicity_relative_plot =
 # 	differential_composition_ethnicity_relative |>
-# 	test_contrasts(
+# 	sccomp_test(
 # 		c(
 # 			european = "`(Intercept)`",
 # 			asian = "`(Intercept)` + ethnicity_simplifiedChinese", 
@@ -337,10 +311,10 @@ gene_chr = read_csv("symbol_chr.csv")
 # # Plot for presentation B memory across tissues
 # res_relative_proportions_ethnicity_tissue =
 #   differential_composition_ethnicity_relative |>
-#   remove_unwanted_variation(~ 1 + ethnicity_simplified + ( 1 + ethnicity_simplified | tissue_harmonised ), ~ ethnicity_simplified)  |>
+#   sccomp_remove_unwanted_variation(~ 1 + ethnicity_simplified + ( 1 + ethnicity_simplified | tissue_harmonised ), ~ ethnicity_simplified)  |>
 #   inner_join(data_for_immune_proportion_relative |> tidybulk::pivot_sample(sample_) )
 # 
-# res_relative_proportions_ethnicity_tissue |> saveRDS("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.5/res_relative_proportions_ethnicity_tissue.rds")
+# res_relative_proportions_ethnicity_tissue |> saveRDS(glue("{result_directory}/res_relative_proportions_ethnicity_tissue.rds"))
 
 res_relative_proportions_ethnicity_tissue = readRDS(glue("{result_directory}/res_relative_proportions_ethnicity_tissue.rds"))
 
@@ -463,11 +437,11 @@ res_relative_proportions_ethnicity_tissue = readRDS(glue("{result_directory}/res
 ethnicity_tissue_sample_size = 
 	readRDS(glue("{result_directory}/input_relative.rds")) |> 
 	distinct(ethnicity, ethnicity_simplified, tissue_harmonised, sample_) |>
-	count(ethnicity_simplified, tissue_harmonised) 
+	dplyr::count(ethnicity_simplified, tissue_harmonised) 
 
 FDR_non_european =
 	differential_composition_ethnicity_relative |>
-	test_contrasts(
+	sccomp_test(
 		contrasts =
 			differential_composition_ethnicity_relative |>
 			filter(parameter |> str_detect("ethnicity") ) |>
@@ -495,7 +469,7 @@ contrasts_df_non_european =
 	distinct(parameter) |>
 	tidyr::extract( parameter, "ethnicity", "ethnicity_simplified(.+)___", remove = FALSE) |>
 	filter(!is.na(ethnicity)) |>
-	extract(parameter, "tissue", ".+___(.+)", remove = FALSE) |>
+	tidyr::extract(parameter, "tissue", ".+___(.+)", remove = FALSE) |>
 	mutate(contrast = glue("`(Intercept)` + `ethnicity_simplified{ethnicity}`  + `(Intercept)___{tissue}` + `{parameter}`") |> as.character()) |> 
 	tidyr::extract(parameter, "tissue", ".+___(.+)", remove = FALSE) |>
 	filter(ethnicity != "Other") |>
@@ -520,7 +494,7 @@ df_heatmap_ethnicity_relative_organ_cell_type =
 	differential_composition_ethnicity_relative |>
 	
 	# Find stats of random effect with groups
-	test_contrasts(
+	sccomp_test(
 		contrasts =
 			contrasts_df_non_european |>
 			select(name, contrast) |>
@@ -532,8 +506,8 @@ df_heatmap_ethnicity_relative_organ_cell_type =
 	add_count(cell_type_harmonised) |>
 	arrange(parameter, desc(n)) |>
 	
-	rename(tissue = parameter) |>
-	rename(cell_type = cell_type_harmonised) |>
+	dplyr::rename(tissue = parameter) |>
+	dplyr::rename(cell_type = cell_type_harmonised) |>
 	
 	filter(!cell_type %in% c("non_immune")) |>
 	
@@ -558,7 +532,7 @@ df_heatmap_ethnicity_relative_organ_cell_type =
 	# First rank
 	with_groups(cell_type, ~ .x |> arrange(desc(c_effect)) |>  mutate(rank = 1:n())) |>
 	
-	rename(`Mean diff` = cell_type_mean_change) |>
+	dplyr::rename(`Mean diff` = cell_type_mean_change) |>
 	mutate(`Mean diff tissue` = -tissue_mean_change) |>
 
 	# Color
@@ -568,7 +542,7 @@ df_heatmap_ethnicity_relative_organ_cell_type =
 	# Counts
 	left_join(
 		data_for_immune_proportion_relative |>
-			count(tissue_harmonised, ethnicity_simplified, name = "count_tissue") |>
+			dplyr::count(tissue_harmonised, ethnicity_simplified, name = "count_tissue") |>
 			unite("tissue", ethnicity_simplified, tissue_harmonised, sep="___") |>
 			mutate(count_tissue = log(count_tissue))
 	) |>
@@ -585,19 +559,19 @@ df_heatmap_ethnicity_relative_organ_cell_type =
 			with_groups(c(tissue_harmonised, cell_type_harmonised), ~ .x |> summarise(mean_proportion = mean(proportion))) |> 
 			mutate(mean_proportion = pmax(mean_proportion, 1e-7)) |> 
 			mutate(mean_proportion_logit = boot::logit(mean_proportion)) |>
-			rename(tissue = tissue_harmonised, cell_type = cell_type_harmonised) |> 
+			dplyr::rename(tissue = tissue_harmonised, cell_type = cell_type_harmonised) |> 
 			mutate(mean_proportion_logit = (mean_proportion_logit - min(mean_proportion_logit))/4)
 		
 	) |> 
 	
 	# Format
-	rename(tissue_ethnicity = tissue) |>
+	dplyr::rename(tissue_ethnicity = tissue) |>
 	mutate(tissue_ethnicity = tissue_ethnicity |> str_remove(" or Latin American")) |>
 	separate(tissue_ethnicity, c("ethnicity", "tissue"), sep="___", remove = FALSE) |>
 	
 	# Add stats
 	select(-c_FDR) |>
-	left_join(FDR_non_european |> rename(difference = c_effect)) |>
+	left_join(FDR_non_european |> dplyr::rename(difference = c_effect)) |>
 	replace_na(list(c_FDR = 1)) |>
 	
 	# Shorten names
@@ -741,12 +715,12 @@ result_directory_de = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/
 rank_de_cell_type = 
 	readRDS("sccomp_on_HCA_0.2.3.5/de_ethnicity.rds") |>
 	unnest(se) |>
-	count(name, P_ethnicity_simplified_adjusted < 0.05) |> 
+	dplyr::count(name, P_ethnicity_simplified_adjusted < 0.05) |> 
 	drop_na() |> 
 	spread(`P_ethnicity_simplified_adjusted < 0.05`, n) |> 
 	mutate(proportion_significant = `TRUE` / (`FALSE` + `TRUE`)) |> 
 	arrange(desc(proportion_significant)) |>
-	rename(cell_type = name) |>
+	dplyr::rename(cell_type = name) |>
 	
 	# Parse cell type
 	mutate(cell_type = 
@@ -774,7 +748,7 @@ plot_ranks_cell_type_barplot =
 plot_ranks_cell_type = 
 	
 		differential_composition_ethnicity_relative |> 
-			test_contrasts(contrasts = c("non_european" = "1/3*(ethnicity_simplifiedChinese + ethnicity_simplifiedAfrican + `ethnicity_simplifiedHispanic or Latin American`)")) |>
+			sccomp_test(contrasts = c("non_european" = "1/3*(ethnicity_simplifiedChinese + ethnicity_simplifiedAfrican + `ethnicity_simplifiedHispanic or Latin American`)")) |>
 			filter(parameter=="non_european") |>
 			arrange(c_FDR) |>
 			filter(!cell_type_harmonised %in% c("immune_unclassified", "dnt")) |>
@@ -857,7 +831,7 @@ de_ethnicity_tissue_non_immune =
 
 de_ethnicity_tissue = 
 	readRDS("sccomp_on_HCA_0.2.3.5/de_ethnicity_tissue.rds") |>
-	rename(tissue = name) |>
+	dplyr::rename(tissue = name) |>
 	mutate(tissue = tissue |> str_remove("data_")) |>
 	# Parse cell type
 	mutate(tissue = case_when(
@@ -886,7 +860,7 @@ rank_de_tissue =
 			
 			if(!is.null(.y)) 	.x = .x |>	filter(!.feature %in% (.y |> pull(.feature))) 
 			.x |>
-				count( P_ethnicity_simplified_adjusted < 0.05)
+				dplyr::count( P_ethnicity_simplified_adjusted < 0.05)
 
 		}
 	)) |>
@@ -915,7 +889,7 @@ plot_ranks_tissue_barplot =
 plot_ranks_tissue = 
 
 		differential_composition_ethnicity_relative |> 
-			test_contrasts() |>
+			sccomp_test() |>
 			filter(parameter |> str_detect("sexmale___")) |>
 			with_groups(parameter, ~ .x |> summarise(median_FDR= median(c_FDR))) |>
 			arrange(median_FDR) |>
@@ -949,124 +923,114 @@ plot_ranks_tissue =
 			guides(color = "none") +
 			theme_multipanel 
 			
-			
 
+# UMAP
+adjusted_ethnicity_fixed = 
+  differential_composition_ethnicity_relative |> 
+  sccomp_remove_unwanted_variation(~ ethnicity_simplified + group)
 
+replicate_ethnicity_fixed = 
+  differential_composition_ethnicity_relative |> 
+  select(cell_type_harmonised, count_data) |> 
+  unnest(count_data) |> 
+  distinct() |> 
+  with_groups(sample_, ~ .x |> mutate(adjusted_proportion = count/sum(count)))
 
-# tar_read_raw("data_bone", store = glue("pseudobulk_0.2.3.4/_targets__ethnicity_tissue")) |>
-# 	filter(.feature=="PSPH") |>
-# 	ggplot(aes(sex, counts_scaled + 1)) +
-# 	geom_boxplot(fill ="white", outlier.shape = NA) +
-# 	geom_jitter(aes(color = cell_type_harmonised), size = 0.2, height =0) +
-# 	facet_wrap(~ cell_type_harmonised, scales = "free_y") +
-# 	scale_y_log10() +
-# 	theme_bw()
+y = 
+  replicate_ethnicity_fixed |> 
+  tidybulk::as_SummarizedExperiment(
+    sample_, 
+    cell_type_harmonised, 
+    c(adjusted_proportion)
+  ) |> 
+  reduce_dimensions(method = "UMAP", scale=FALSE)
 
+# UMAP by dataset and ethnicity
+# This did not produce any good result
+plot_PCA_ethnicity = 
+  adjusted_ethnicity_fixed |>
+  tidybulk::as_SummarizedExperiment(
+    sample_,
+    cell_type_harmonised,
+    c(adjusted_proportion)
+  ) |>
+  left_join(
+    data_for_immune_proportion_relative |>
+      distinct(sample_, ethnicity_simplified, tissue_harmonised, file_id)
+  ) |>
 
+  filter(
+    tissue_harmonised=="blood"
+  ) |>
 
+  nest(data = -file_id) |>
 
-library(ggVennDiagram)
-library(eulerr)
+  filter(map_int(data, ~ .x |> distinct(ethnicity_simplified) |> nrow()) > 1) |>
+  arrange(map_int(data, ncol) |> desc()) |>
+  slice_head(n=50) |>
 
-venn_0_3 = 
-	list(
-		tissue_non_immune = 
-			de_ethnicity_tissue_non_immune |> 
-			filter(map_lgl(se, ~ "P_ethnicity_simplified_adjusted" %in% colnames(.x))) |>
-			mutate(se = map(se, ~ .x |> select(P_ethnicity_simplified_adjusted, .feature))) |>
-			select(se, tissue) |>
-			
-			unnest(se) |>
-			add_count(.feature, name = "n_tissue") |>
-			filter(n_tissue >= 5) |>
-			count(P_ethnicity_simplified_adjusted<0.05, .feature, n_tissue) |>
-			filter(`P_ethnicity_simplified_adjusted < 0.05`) |>
-			mutate(proportion = n/n_tissue) |>
-			filter(proportion > 0.30) |>
-			filter(!.feature %in% gene_chr$ID) |> 
-			pull(.feature),
-		tissue = 
-			de_ethnicity_tissue |> 
-			filter(map_lgl(se, ~ "P_ethnicity_simplified_adjusted" %in% colnames(.x))) |>
-			mutate(se = map(se, ~ .x |> select(P_ethnicity_simplified_adjusted, .feature))) |>
-			select(se, tissue) |>
-			
-			unnest(se) |>
-			add_count(.feature, name = "n_tissue") |>
-			filter(n_tissue >= 5) |>
-			count(P_ethnicity_simplified_adjusted<0.05, .feature, n_tissue) |>
-			filter(`P_ethnicity_simplified_adjusted < 0.05`) |>
-			mutate(proportion = n/n_tissue) |>
-			filter(proportion > 0.30) |>
-			filter(!.feature %in% gene_chr$ID) |> 
-			pull(.feature),
-		cell_type = 
-			readRDS("sccomp_on_HCA_0.2.3.5/de_ethnicity.rds") |> 
-			filter(map_lgl(se, ~ "P_ethnicity_simplified_adjusted" %in% colnames(.x))) |>
-			mutate(se = map(se, ~ .x |> select(P_ethnicity_simplified_adjusted, .feature))) |>
-			select(se, name) |>
-			unnest(se) |>
-			add_count(.feature, name = "n_cell_type") |>
-			filter(n_cell_type >= 5) |>
-			count(P_ethnicity_simplified_adjusted<0.05, .feature, n_cell_type) |>
-			filter(`P_ethnicity_simplified_adjusted < 0.05`) |>
-			mutate(proportion = n/n_cell_type) |>
-			filter(proportion > 0.30) |>
-			filter(!.feature %in% gene_chr$ID) |> 
-			pull(.feature)
-	) |>
-	euler(fshape = "ellipse") |>
-	plot(quantities = TRUE)
+  # Filter
+  mutate(data = map(
+    data,
+    ~ .x |>
+      # Parse cell types
+      mutate(cell_type_harmonised = cell_type_harmonised |>
+               str_replace("megakaryocytes", "mega") |>
+               str_remove("phage") |>
+               str_replace("th1 th17", "th1/17") |>
+               str_replace("mono", "mn") |>
+               str_replace("tcm", "cm") |>
+               str_replace("cd4 th", "Th") |>
+               str_replace("memory", "mem") |>
+               str_replace("naive", "nv") |>
+               str_replace("terminal effector cd4 t", "cd4 eff") |>
+               str_remove("cyte")
+      )   |>
+      inner_join(
+        df_heatmap_ethnicity_relative_organ_cell_type |>
+          filter(c_FDR < 0.05 & n > 5 ) |>
+          select(tissue, cell_type) |>
+          filter(!cell_type %in% c("thymo", "immune_unclassified")) |>
+          distinct(tissue, cell_type),
+        by =  c("tissue_harmonised" = "tissue", "cell_type_harmonised" = "cell_type")
+      )
+  )) |>
+  slice_head(n = 7) |>
+  dplyr::slice(c(1, 2, 5, 7)) |> 
+  mutate(data = map(data, reduce_dimensions, method = "PCA", scale = TRUE))  |>
+  mutate(plot = map(
+    data,
+    ~ {
+      
+      # Do PCA
+      PCA <- .x |> assay("adjusted_proportion") |> t() |>   prcomp(scale. = TRUE)
+      
+      # Extract PC axes for plotting
+      PCAvalues <- data.frame(cell_type = colnames(.x), PCA$x, Ethnicity = .x |> pivot_sample() |> pull(ethnicity_simplified))
+      
+      # Extract loadings of the variables
+      PCAloadings <- data.frame(Variables = rownames(PCA$rotation), PCA$rotation)
+      
+      # Plot
+      gg = 
+        ggplot(PCAvalues, aes(x = PC1, y = PC2, colour = Ethnicity)) +
+        geom_segment(data = PCAloadings, aes(x = 0, y = 0, xend = (PC1*5),
+                                             yend = (PC2*5)), arrow = arrow(length = unit(1/2, "picas")),
+                     color = "black") +
+        geom_point(size = 0.5) +
+        annotate("text", x = (PCAloadings$PC1*5), y = (PCAloadings$PC2*5),
+                 label = PCAloadings$Variables) +
+        scale_color_manual(values = c("European" = "#E41A1C", "Chinese" = "#377EB8", "African" = "#4DAF4A", "Other" = "#984EA3")) +
+        guides(color="none") +
+        theme_multipanel
+      
+      ggExtra::ggMarginal(gg, groupColour = TRUE, groupFill = TRUE)
+      },
+    .progress = TRUE
+  )) |> 
+  pull(plot) |>
+  wrap_plots() 
 
-
-venn_0_5 = 
-	list(
-		tissue_non_immune = 
-			de_ethnicity_tissue_non_immune |> 
-			filter(map_lgl(se, ~ "P_ethnicity_simplified_adjusted" %in% colnames(.x))) |>
-			mutate(se = map(se, ~ .x |> select(P_ethnicity_simplified_adjusted, .feature))) |>
-			select(se, tissue) |>
-			
-			unnest(se) |>
-			add_count(.feature, name = "n_tissue") |>
-			filter(n_tissue >= 5) |>
-			count(P_ethnicity_simplified_adjusted<0.05, .feature, n_tissue) |>
-			filter(`P_ethnicity_simplified_adjusted < 0.05`) |>
-			mutate(proportion = n/n_tissue) |>
-			filter(proportion > 0.50) |>
-			filter(!.feature %in% gene_chr$ID) |> 
-			pull(.feature),
-		`tissue\nC1QA C1QB\nCEP170 OXNAD1` = 
-			readRDS("sccomp_on_HCA_0.2.3.5/de_ethnicity_tissue.rds") |> 
-			filter(map_lgl(se, ~ "P_ethnicity_simplified_adjusted" %in% colnames(.x))) |>
-			mutate(se = map(se, ~ .x |> select(P_ethnicity_simplified_adjusted, .feature))) |>
-			select(se, name) |>
-			unnest(se) |>
-			add_count(.feature, name = "n_tissue") |>
-			filter(n_tissue >= 5) |>
-			count(P_ethnicity_simplified_adjusted<0.05, .feature, n_tissue) |>
-			filter(`P_ethnicity_simplified_adjusted < 0.05`) |>
-			mutate(proportion = n/n_tissue) |>
-			filter(proportion > 0.50) |>
-			filter(!.feature %in% gene_chr$ID) |> 
-			pull(.feature),
-		`cell_type\nLOC105377224` = 
-			readRDS("sccomp_on_HCA_0.2.3.5/de_ethnicity.rds") |> 
-			filter(map_lgl(se, ~ "P_ethnicity_simplified_adjusted" %in% colnames(.x))) |>
-			mutate(se = map(se, ~ .x |> select(P_ethnicity_simplified_adjusted, .feature))) |>
-			select(se, name) |>
-			unnest(se) |>
-			add_count(.feature, name = "n_cell_type") |>
-			filter(n_cell_type >= 5) |>
-			count(P_ethnicity_simplified_adjusted<0.05, .feature, n_cell_type) |>
-			filter(`P_ethnicity_simplified_adjusted < 0.05`) |>
-			mutate(proportion = n/n_cell_type) |>
-			filter(proportion > 0.50) |>
-			filter(!.feature %in% gene_chr$ID) |> 
-			pull(.feature)
-	) |>
-	euler(fshape = "ellipse") |>
-	plot(quantities = TRUE)
 
 # # Which genes are shared across tissue programs
 # 
@@ -1091,53 +1055,53 @@ venn_0_5 =
 # 	arrange(desc(proportion)) |>
 # 	filter(!.feature %in% gene_chr$ID) 
 
-
+de_ethnicity_cell_type = readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_ethnicity_cell_type.rds")
 
 plot_genes_most_altered = 
-	readRDS("sccomp_on_HCA_0.2.3.5/de_ethnicity.rds") |> 
-	filter(map_lgl(se, ~ "P_ethnicity_simplified_adjusted" %in% colnames(.x))) |>
-	mutate(se = map(se, ~ .x |> select(P_ethnicity_simplified_adjusted, .feature))) |>
-	select(se, name) |>
-	unnest(se) |>
-	filter(name |> str_detect("immune_unclassified", negate = TRUE)) |>
-	nest(cell_types = -.feature) |>
-	
-	mutate(cell_types_significant = map(
-		cell_types,
-		~ .x |> filter(P_ethnicity_simplified_adjusted<0.05) 
-	)) |>
-	
-	mutate(
-		n_cell_type = map_int(cell_types, nrow),
-		n = map_int(cell_types_significant, nrow)
-	) |>
-	filter(n_cell_type >= 5) |>
-	mutate(proportion = n/n_cell_type) |>
-	#filter(proportion > 0.30) |>
-	arrange(desc(n)) |>
-	filter(!.feature %in% gene_chr$ID) |>
-	mutate(cell_type_names = map_chr(cell_types_significant, ~ .x |> pull(name) |> str_c(collapse = ", ") |> str_remove_all("data_"))) |>
-	
-	# Plot
-	mutate(class = case_when(
-		row_number() <= 10 ~ "shared",
-		row_number() == 11 ~ "CD4",
-		row_number() %in% c(21, 23, 34) ~ "naive",
-		row_number() == 41 ~ "Monocyte"
-	)) |>
-	
-	mutate(label = if_else(!is.na(class), .feature, NA)) |>
-	mutate(n = as.character(n)) |>
-	ggplot(aes(proportion, n, label = label)) +
-	geom_point(aes(size = n_cell_type, color = class, alpha = !is.na(class))) +
-	ggrepel::geom_text_repel(min.segment.length = 0, size=2.5, max.overlaps = 100) +
-	scale_color_brewer(palette = "Set1", na.value="grey") +
-	scale_size_continuous(range = c(0.2, 2)) +
-	#scale_alpha_manual(values = c(`FALSE` = 0.3, `TRUE` = 1)) +
-	ylab("Number of cell type with significant changes") +
-	xlab("Proportion of significant cell types on all tested cell types") +
-	xlim(c(NA, 0.4)) +
-	theme_multipanel
+  
+  de_ethnicity_cell_type |>
+  filter(map_lgl(data, ~ "P_ethnicity_simplified_adjusted" %in% colnames(.x))) |>
+  mutate(data = map(data, ~ .x |> select(P_ethnicity_simplified_adjusted, .feature))) |>
+  select(data, name) |>
+  unnest(data) |>
+  filter(name |> str_detect("immune_unclassified", negate = TRUE)) |>
+  nest(cell_types = -.feature) |>
+  
+  mutate(cell_types_significant = map(
+    cell_types,
+    ~ .x |> filter(P_ethnicity_simplified_adjusted<0.05) 
+  )) |>
+  
+  mutate(
+    n_cell_type = map_int(cell_types, nrow),
+    n = map_int(cell_types_significant, nrow)
+  ) |>
+  filter(n_cell_type >= 5) |>
+  mutate(proportion = n/n_cell_type) |>
+  #filter(proportion > 0.30) |>
+  arrange(desc(n)) |>
+  mutate(cell_type_names = map_chr(cell_types_significant, ~ .x |> pull(name) |> str_c(collapse = ", ") |> str_remove_all("data_"))) |>
+  
+  # Plot
+  mutate(class = case_when(
+    row_number() <= 10 ~ "shared",
+    row_number() == 11 ~ "CD4",
+    row_number() %in% c(21, 23, 34) ~ "naive",
+    row_number() == 41 ~ "Monocyte"
+  )) |>
+  
+  mutate(label = if_else(!is.na(class), .feature, NA)) |>
+  #mutate(n = as.character(n)) |>
+  ggplot(aes(proportion, n, label = label)) +
+  geom_point(aes(size = n_cell_type, color = class, alpha = !is.na(class))) +
+  ggrepel::geom_text_repel(min.segment.length = 0, size=2.5, max.overlaps = 100) +
+  scale_color_brewer(palette = "Set1", na.value="grey") +
+  scale_size_continuous(range = c(0.2, 2)) +
+  #scale_alpha_manual(values = c(`FALSE` = 0.3, `TRUE` = 1)) +
+  ylab("Number of cell type with significant changes") +
+  xlab("Proportion of significant cell types on all tested cell types") +
+  xlim(c(NA, 0.4)) +
+  theme_multipanel
 
 # # Tissue DE
 # job::job({
@@ -1496,10 +1460,10 @@ plot =
 	((
 		((
 			plot_ethnicity_absolute_1D |
-				variability_abundance_plot |
-				plot_ethnicity_relative
+			  plot_spacer() |
+			  plot_PCA_ethnicity
 		) + 
-			plot_layout(width = c(1, 3, 4))
+			plot_layout(width = c(0.5, 2, 1))
 		) /
 		
 		# Row 2
@@ -1604,7 +1568,7 @@ random_effects_fold_changes
 bone_pseudobulk_samples =
 	tar_read_raw("data_bone", store = glue("pseudobulk_0.2.3.4/_targets__ethnicity_tissue")) |>
 	distinct(sample_) |> 
-	extract(col = sample_, into = "sample_", regex = "([a-zA-Z0-9]+)_*") |>
+	tidyr::extract(col = sample_, into = "sample_", regex = "([a-zA-Z0-9]+)_*") |>
 	pull(sample_)
 
 
@@ -1627,7 +1591,7 @@ get_metadata() |>
 kidney_pseudobulk_samples =
 	tar_read_raw("data_kidney", store = glue("pseudobulk_0.2.3.4/_targets__ethnicity_tissue")) |>
 	distinct(sample_) |> 
-	extract(col = sample_, into = "sample_", regex = "([a-zA-Z0-9]+)_*") |>
+	tidyr::extract(col = sample_, into = "sample_", regex = "([a-zA-Z0-9]+)_*") |>
 	pull(sample_)
 
 get_metadata() |> 
@@ -1646,7 +1610,7 @@ get_metadata() |>
 adipose_pseudobulk_samples =
 	tar_read_raw("data_adipose", store = glue("pseudobulk_0.2.3.4/_targets__ethnicity_tissue")) |>
 	distinct(sample_) |> 
-	extract(col = sample_, into = "sample_", regex = "([a-zA-Z0-9]+)_*") |>
+	tidyr::extract(col = sample_, into = "sample_", regex = "([a-zA-Z0-9]+)_*") |>
 	pull(sample_)
 
 
@@ -1774,16 +1738,16 @@ de_table =
 #   annotation_tile(tissue_harmonised) 
 
 de_table |> 
-	with_groups(tissue_harmonised, ~ .x |> count(cell_type) |> summarise(mean_de = median(n)))
-count(cell_type, tissue_harmonised) 
+	with_groups(tissue_harmonised, ~ .x |> dplyr::count(cell_type) |> summarise(mean_de = median(n)))
+dplyr::count(cell_type, tissue_harmonised) 
 
 de_table |> 
-	count(cell_type, tissue_harmonised) |> 
+	dplyr::count(cell_type, tissue_harmonised) |> 
 	arrange(desc(n)) |> 
 	pull(n) |> hist()
 
 de_table |> 
-	count(symbol) |> 
+	dplyr::count(symbol) |> 
 	arrange(desc(n)) |> 
 	pull(n) |> hist()
 
@@ -1794,7 +1758,7 @@ de_table_tissue =
 	mutate(shared_genes = map2(
 		data, n_celltype_in_tissue,
 		~ .x |> 
-			count(symbol) |> 
+			dplyr::count(symbol) |> 
 			filter(n/.y>=0.75) |> 
 			pull(symbol)
 	))
@@ -1807,7 +1771,7 @@ de_table_celltype =
 	mutate(shared_genes = map2(
 		data, n_tissue_in_celltype,
 		~ .x |> 
-			count(symbol) |> 
+			dplyr::count(symbol) |> 
 			filter(n/.y>=0.75) |> 
 			pull(symbol)
 	)) 
@@ -1875,7 +1839,7 @@ plot_count_de =
 	de_table |> 
 	unnest(de) |> 
 	filter(adj.P.Val<0.05) |> 
-	count(cell_type, tissue_harmonised) |> 
+	dplyr::count(cell_type, tissue_harmonised) |> 
 	
 	with_groups(cell_type, ~ .x |> mutate(median_n = median(n))) |> 
 	
