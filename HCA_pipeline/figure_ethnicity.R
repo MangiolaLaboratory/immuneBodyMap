@@ -16,7 +16,7 @@ library(tidybulk)
 library(tidySummarizedExperiment)
 
 home = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s"
-result_directory = glue("{home}/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.5")
+result_directory = glue("{home}/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.7_double_interaction_sex_age")
 
 
 # Calculate softmax from an array of reals
@@ -722,9 +722,37 @@ plot_heatmap_ethnicity_relative_organ_cell_type |>
 
 
 # DE
-
+library(targets)
+result_directory_pseudobulk = "pseudobulk_0.2.3.5_non_immune"
+store = glue("{result_directory_pseudobulk}/_targets__pseudobulk_non_immune_split3")
 # Plot of importance of composition vs transcription
-result_directory_de = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/pseudobulk_0.2.3.4/"
+
+
+# de_ethnicity_cell_type =
+# 	tar_meta( store = store	) |>
+# 	dplyr::filter(name |> str_detect("estimates_ethnicity_cell_type_")) |>
+# 	filter(!is.na(data)) |>
+# 	mutate(se = map(
+# 		name,
+# 		~ .x |>
+# 			tar_read_raw(store=store ) |>
+# 			mutate(is_immune = map_lgl(data, ~ .x |> tidySummarizedExperiment::pull(cell_type_harmonised) %in% c(
+# 				"b memory",     "cd8 tcm"  ,    "cd8 tem",      "plasma" ,
+# 				"b naive" ,     "cd14 mono" ,   "cd4 fh"   ,    "cd4 naive"  ,
+# 				"cd4 th1/th17", "cd4 th17",     "cd4 th2" ,     "cdc"  ,
+# 				"ilc" ,         "macrophage",   "mait" ,        "nk" ,
+# 				"tgd"  ,        "treg"
+# 			) |> any())) |>
+# 			mutate(data = map(data, tidybulk::pivot_transcript)),
+# 		.progress=T
+# 		# ,
+# 		# .env_globals = environment()
+# 	)) |>
+# 	select(-data) |>
+# 	unnest(se)
+# de_ethnicity_cell_type |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_ethnicity_cell_type.rds")
+
+de_ethnicity_cell_type = readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_ethnicity_cell_type.rds")
 
 # de_ethnicity =
 # 	tar_meta(store = glue("{result_directory_de}/_targets__ethnicity"), starts_with("data_")) |>
@@ -735,11 +763,11 @@ result_directory_de = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/
 # 			pivot_transcript(),
 # 		.progress=T
 # 	))
-# de_ethnicity |> saveRDS("~/PostDoc/immuneHealthyBodyMap/sccomp_on_HCA_0.2.3.5/de_ethnicity.rds")
+# de_ethnicity |> saveRDS(glue("{result_directory}/de_ethnicity.rds"))
 
 
 rank_de_cell_type = 
-	readRDS("sccomp_on_HCA_0.2.3.5/de_ethnicity.rds") |>
+	readRDS(glue("{result_directory}/de_ethnicity.rds")) |>
 	unnest(se) |>
 	count(name, P_ethnicity_simplified_adjusted < 0.05) |> 
 	drop_na() |> 
@@ -821,16 +849,29 @@ plot_ranks_cell_type =
 
 
 
-# de_ethnicity_tissue =
-# 	tar_meta(store = glue("pseudobulk_0.2.3.4/_targets__ethnicity_tissue"), starts_with("data_")) |>
-# 	filter(!is.na(data)) |>
-# 	mutate(se = map(
-# 		name,
-# 		~ tar_read_raw(.x, store = glue("pseudobulk_0.2.3.4/_targets__ethnicity_tissue")) |>
-# 			pivot_transcript(),
-# 		.progress=T
-# 	))
-# de_ethnicity_tissue |> saveRDS("sccomp_on_HCA_0.2.3.5/de_ethnicity_tissue.rds")
+de_ethnicity_tissue =
+	tar_meta( store = store	) |>
+	dplyr::filter(name |> str_detect("estimates_ethnicity_tissue_")) |>
+	filter(!is.na(data)) |>
+	mutate(se = future_map(
+		name,
+		~ .x |>
+			tar_read_raw(store=store ) |>
+			mutate(is_immune = map_lgl(data, ~ .x |> tidySummarizedExperiment::pull(cell_type_harmonised) %in% c(
+				"b memory",     "cd8 tcm"  ,    "cd8 tem",      "plasma" ,
+				"b naive" ,     "cd14 mono" ,   "cd4 fh"   ,    "cd4 naive"  ,
+				"cd4 th1/th17", "cd4 th17",     "cd4 th2" ,     "cdc"  ,
+				"ilc" ,         "macrophage",   "mait" ,        "nk" ,
+				"tgd"  ,        "treg"
+			) |> any())) |>
+			mutate(data = map(data, tidybulk::pivot_transcript)),
+		.progress=T
+		# ,
+		# .env_globals = environment()
+	)) |>
+	select(-data) |>
+	unnest(se)
+de_ethnicity_tissue |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_ethnicity_tissue.rds")
 
 # de_ethnicity_tissue_non_immune =
 # 	tar_meta(store = glue("pseudobulk_0.2.3.5_non_immune/_targets__pseudobulk_non_immune"), starts_with("estimates_")) |>
@@ -1142,20 +1183,20 @@ plot_genes_most_altered =
 # # Tissue DE
 # job::job({
 # 	
-# 	library(future)
-# 	library(furrr)
-# 	library("future.batchtools")
-# 	
-# 	slurm <-
-# 		`batchtools_slurm` |>
-# 		future::tweak( template = glue("{home}/third_party_sofware/slurm_batchtools.tmpl"),
-# 									 resources=list(
-# 									 	ncpus = 2,
-# 									 	memory = 40000,
-# 									 	walltime = 72800
-# 									 )
-# 		)
-# 	plan(slurm)
+	# library(future)
+	# library(furrr)
+	# library("future.batchtools")
+	# 
+	# slurm <-
+	# 	`batchtools_slurm` |>
+	# 	future::tweak( template = glue("{home}/third_party_sofware/slurm_batchtools.tmpl"),
+	# 								 resources=list(
+	# 								 	ncpus = 2,
+	# 								 	memory = 4000,
+	# 								 	walltime = 72800
+	# 								 )
+	# 	)
+	# plan(slurm)
 # 	
 # 
 # 	
