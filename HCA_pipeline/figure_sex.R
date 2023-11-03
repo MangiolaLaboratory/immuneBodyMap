@@ -878,7 +878,7 @@ library(tidyverse)
 library(glue)
 library(targets)
 result_directory_pseudobulk = "pseudobulk_0.2.3.5_non_immune"
-store = glue("{dplyr::countresult_directory_pseudobulk}/_targets__pseudobulk_non_immune_split3")
+store = glue("{result_directory_pseudobulk}/_targets__pseudobulk_non_immune_split3")
 # Plot of importance of composition vs transcription
 
 library(furrr)
@@ -887,29 +887,29 @@ plan(multisession, workers = 36)
 options(future.globals.maxSize = 200000 * 1024^2)
 
 
-# de_sex_cell_type =
-# 	tar_meta( store = store	) |>
-# 	dplyr::filter(name |> str_detect("estimates_sex_cell_type_")) |>
-# 	filter(!is.na(data)) |>
-# 	mutate(se = future_map(
-# 		name,
-# 		~ .x |>
-# 			tar_read_raw(store=store ) |>
-# 			mutate(is_immune = map_lgl(data, ~ .x |> tidySummarizedExperiment::pull(cell_type_harmonised) %in% c(
-# 				"b memory",     "cd8 tcm"  ,    "cd8 tem",      "plasma" ,
-# 				"b naive" ,     "cd14 mono" ,   "cd4 fh"   ,    "cd4 naive"  ,
-# 				"cd4 th1/th17", "cd4 th17",     "cd4 th2" ,     "cdc"  ,
-# 				"ilc" ,         "macrophage",   "mait" ,        "nk" ,
-# 				"tgd"  ,        "treg"
-# 			) |> any())) |>
-# 			mutate(data = map(data, tidybulk::pivot_transcript)),
-# 		.progress=T
-# 		# ,
-# 		# .env_globals = environment()
-# 	)) |>
-# 	select(-data) |>
-# 	unnest(se)
-# de_sex_cell_type |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_cell_type.rds")
+de_sex_cell_type =
+	tar_meta( store = store	) |>
+	dplyr::filter(name |> str_detect("estimates_sex_cell_type_")) |>
+	filter(!is.na(data)) |>
+	mutate(se = future_map(
+		name,
+		~ .x |>
+			tar_read_raw(store=store ) |>
+			mutate(is_immune = map_lgl(data, ~ .x |> tidySummarizedExperiment::pull(cell_type_harmonised) %in% c(
+				"b memory",     "cd8 tcm"  ,    "cd8 tem",      "plasma" ,
+				"b naive" ,     "cd14 mono" ,   "cd4 fh"   ,    "cd4 naive"  ,
+				"cd4 th1/th17", "cd4 th17",     "cd4 th2" ,     "cdc"  ,
+				"ilc" ,         "macrophage",   "mait" ,        "nk" ,
+				"tgd"  ,        "treg"
+			) |> any())) |>
+			mutate(data = map(data, tidybulk::pivot_transcript)),
+		.progress=T
+		# ,
+		# .env_globals = environment()
+	)) |>
+	select(-data) |>
+	unnest(se)
+de_sex_cell_type |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_cell_type.rds")
 
 de_sex_cell_type = readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_cell_type.rds")
 
@@ -1241,26 +1241,30 @@ plot_genes_most_altered =
 	arrange(desc(n)) |>
 	filter(!.feature %in% gene_chr$ID) |>
 	mutate(cell_type_names = map_chr(cell_types_significant, ~ .x |> pull(name) |> str_c(collapse = ", ") |> str_remove_all("data_"))) |>
-	
-	# Plot
-	mutate(class = case_when(
-		row_number() <= 10 ~ "shared",
-		row_number() == 11 ~ "CD4",
-		row_number() %in% c(21, 23, 34) ~ "naive",
-		row_number() == 41 ~ "Monocyte"
-	)) |>
+
+  mutate(class = case_when(
+    .feature %in% c("IL2", "NOTCH3", "DDX43", "GNLY", "TNFSF4") ~ "Used in diagnosis",
+    n > 3 ~ "Other top DE"
+  )) |> 
+  mutate(label = if_else(
+    class == "Used in diagnosis" | class == "Other top DE", 
+    .feature,
+    NA
+  )) |>
 	
 	mutate(label = if_else(!is.na(class), .feature, NA)) |>
 	mutate(n = as.character(n)) |>
+  
+  # Plot
 	ggplot(aes(proportion, n, label = label)) +
 	geom_point(aes(size = n_cell_type, color = class, alpha = !is.na(class))) +
 	ggrepel::geom_text_repel(min.segment.length = 0, size=2.5, max.overlaps = 100) +
 	scale_color_brewer(palette = "Set1", na.value="grey") +
-	scale_size_continuous(range = c(0.2, 2)) +
+	#scale_size_continuous(range = c(0.2, 2)) +
 	#scale_alpha_manual(values = c(`FALSE` = 0.3, `TRUE` = 1)) +
 	ylab("Number of cell type with significant changes") +
 	xlab("Proportion of significant cell types on all tested cell types") +
-	xlim(c(NA, 0.4)) +
+	#xlim(c(NA, 0.4)) +
 	theme_multipanel
 
 
@@ -1735,6 +1739,58 @@ venn =
   ) |>
   eulerr::euler(fshape = "ellipse") |>
   plot(quantities = list(cex = .5), labels = list(cex = .5))
+
+# Common genes age * sex
+plot_genes_most_altered = 
+  
+  de_sex_cell_type |>
+  filter(map_lgl(data, ~ "P_age_days.sex_adjusted" %in% colnames(.x))) |>
+  mutate(data = map(data, ~ .x |> select(P_age_days.sex_adjusted, .feature))) |>
+  select(data, name) |>
+  unnest(data) |>
+  filter(name |> str_detect("immune_unclassified", negate = TRUE)) |>
+  nest(cell_types = -.feature) |>
+  
+  mutate(cell_types_significant = map(
+    cell_types,
+    ~ .x |> filter(P_age_days.sex_adjusted<0.05) 
+  )) |>
+  
+  mutate(
+    n_cell_type = map_int(cell_types, nrow),
+    n = map_int(cell_types_significant, nrow)
+  ) |>
+  filter(n_cell_type >= 5) |>
+  mutate(proportion = n/n_cell_type) |>
+  #filter(proportion > 0.30) |>
+  arrange(desc(n)) |>
+  filter(!.feature %in% gene_chr$ID) |>
+  mutate(cell_type_names = map_chr(cell_types_significant, ~ .x |> pull(name) |> str_c(collapse = ", ") |> str_remove_all("data_"))) |>
+  
+  mutate(class = case_when(
+    .feature %in% c("IL2", "NOTCH3", "DDX43", "GNLY", "TNFSF4") ~ "Used in diagnosis",
+    n > 3 ~ "Other top DE"
+  )) |> 
+  mutate(label = if_else(
+    class == "Used in diagnosis" | class == "Other top DE", 
+    .feature,
+    NA
+  )) |>
+  
+  mutate(label = if_else(!is.na(class), .feature, NA)) |>
+  mutate(n = as.character(n)) |>
+  
+  # Plot
+  ggplot(aes(proportion, n, label = label)) +
+  geom_point(aes(size = n_cell_type, color = class, alpha = !is.na(class))) +
+  ggrepel::geom_text_repel(min.segment.length = 0, size=2.5, max.overlaps = 100) +
+  scale_color_brewer(palette = "Set1", na.value="grey") +
+  #scale_size_continuous(range = c(0.2, 2)) +
+  #scale_alpha_manual(values = c(`FALSE` = 0.3, `TRUE` = 1)) +
+  ylab("Number of cell type with significant changes") +
+  xlab("Proportion of significant cell types on all tested cell types") +
+  #xlim(c(NA, 0.4)) +
+  theme_multipanel
 
 
 # Rank AGE * SEX
