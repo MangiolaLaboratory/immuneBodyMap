@@ -401,7 +401,7 @@ significant_cell_types_plot_sex_relative_abundance =
 	filter(parameter == "sexmale") |>
 	filter(c_FDR<0.05) |>
 	mutate(is_compositionally_different = c_FDR<0.05) |> 
-	distinct(cell_type_harmonised, c_effect, is_compositionally_different) |> 
+	distinct(cell_type_harmonised, c_effect, is_compositionally_different, c_FDR) |> 
 	
 	# Filter cell types that are more than 3 tissues, 
 	# otherwise a body level inference does not make much sense
@@ -494,7 +494,7 @@ significant_cell_types_plot_sex_relative_variability =
 	filter(parameter == "sexmale") |>
 	filter(v_FDR < 0.05 & c_FDR > 0.05) |>
 	mutate(is_compositionally_different = v_FDR<0.05) |> 
-	distinct(cell_type_harmonised, v_effect, is_compositionally_different) |> 
+	distinct(cell_type_harmonised, v_effect, is_compositionally_different, v_FDR) |> 
 	
 	# Filter cell types that are more than 3 tissues, 
 	# otherwise a body level inference does not make much sense
@@ -755,8 +755,8 @@ df_heatmap_sex_relative_organ_cell_type =
 	# mutate(c_effect = c_effect |> pmax(-5) |> pmin(5)) |>
 	mutate(Difference = c_effect) |>
 	
-	dplyr::rename(`Mean diff` = cell_type_mean_change) |>
-	mutate(`Mean diff tissue` = -tissue_mean_change) |>
+	dplyr::rename(`Sum abs diff` = cell_type_mean_change) |>
+	mutate(`Sum abs diff tissue` = -tissue_mean_change) |>
 	mutate(cell_type = cell_type |> str_replace("macrophage", "macro")) |>
 	mutate(tissue = tissue |> str_replace_all("_", " ")) |>
 	
@@ -802,17 +802,17 @@ df_heatmap_sex_relative_organ_cell_type =
 				 	str_replace("terminal effector cd4 t", "cd4 eff") |> 
 				 	str_remove("cyte") 
 	) |> 
-	mutate(tissue = tissue |> 
-				 	str_replace("intestine", "int") |> 
-				 	str_replace("large", "lrg") |> 
-				 	str_replace("small", "sml") |> 
-				 	str_replace("node", "nd") |> 
-				 	str_replace("prostate", "prost")
-	) |> 
+	# mutate(tissue = tissue |> 
+	# 			 	str_replace("intestine", "int") |> 
+	# 			 	str_replace("large", "lrg") |> 
+	# 			 	str_replace("small", "sml") |> 
+	# 			 	str_replace("node", "nd") |> 
+	# 			 	str_replace("prostate", "prost")
+	# ) |> 
 	
 	# Order
-	mutate(tissue = fct_reorder(tissue, `Mean diff tissue`)) |>
-	mutate(cell_type = fct_reorder(cell_type, -`Mean diff`)) 
+	mutate(tissue = fct_reorder(tissue, `Sum abs diff tissue`)) |>
+	mutate(cell_type = fct_reorder(cell_type, -`Sum abs diff`)) 
 
 # Plot heatmap with tidyHeatmap, Figure 3
 plot_heatmap_sex_relative_organ_cell_type =
@@ -838,8 +838,8 @@ plot_heatmap_sex_relative_organ_cell_type =
     show_heatmap_legend = FALSE
   ) |>
   
-  annotation_bar(`Mean diff`, annotation_name_gp= gpar(fontsize = 8), size = unit(0.4, "cm")) |>
-  annotation_bar(`Mean diff tissue`, annotation_name_gp= gpar(fontsize = 8), size = unit(0.4, "cm")) |>
+  annotation_bar(`Sum abs diff`, annotation_name_gp= gpar(fontsize = 8), size = unit(0.4, "cm")) |>
+  annotation_bar(`Sum abs diff tissue`, annotation_name_gp= gpar(fontsize = 8), size = unit(0.4, "cm")) |>
   # annotation_tile(
   #   tissue, show_legend = FALSE,
   #   palette =
@@ -881,35 +881,35 @@ result_directory_pseudobulk = "pseudobulk_0.2.3.5_non_immune"
 store = glue("{result_directory_pseudobulk}/_targets__pseudobulk_non_immune_split3")
 # Plot of importance of composition vs transcription
 
-library(furrr)
-library(tidybulk)
-plan(multisession, workers = 36)
-options(future.globals.maxSize = 200000 * 1024^2)
-
-
-de_sex_cell_type =
-	tar_meta( store = store	) |>
-	dplyr::filter(name |> str_detect("estimates_sex_cell_type_")) |>
-	filter(!is.na(data)) |>
-	mutate(se = future_map(
-		name,
-		~ .x |>
-			tar_read_raw(store=store ) |>
-			mutate(is_immune = map_lgl(data, ~ .x |> tidySummarizedExperiment::pull(cell_type_harmonised) %in% c(
-				"b memory",     "cd8 tcm"  ,    "cd8 tem",      "plasma" ,
-				"b naive" ,     "cd14 mono" ,   "cd4 fh"   ,    "cd4 naive"  ,
-				"cd4 th1/th17", "cd4 th17",     "cd4 th2" ,     "cdc"  ,
-				"ilc" ,         "macrophage",   "mait" ,        "nk" ,
-				"tgd"  ,        "treg"
-			) |> any())) |>
-			mutate(data = map(data, tidybulk::pivot_transcript)),
-		.progress=T
-		# ,
-		# .env_globals = environment()
-	)) |>
-	select(-data) |>
-	unnest(se)
-de_sex_cell_type |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_cell_type.rds")
+# library(furrr)
+# library(tidybulk)
+# plan(multisession, workers = 36)
+# options(future.globals.maxSize = 200000 * 1024^2)
+# 
+# 
+# de_sex_cell_type =
+# 	tar_meta( store = store	) |>
+# 	dplyr::filter(name |> str_detect("estimates_sex_cell_type_")) |>
+# 	filter(!is.na(data)) |>
+# 	mutate(se = future_map(
+# 		name,
+# 		~ .x |>
+# 			tar_read_raw(store=store ) |>
+# 			mutate(is_immune = map_lgl(data, ~ .x |> tidySummarizedExperiment::pull(cell_type_harmonised) %in% c(
+# 				"b memory",     "cd8 tcm"  ,    "cd8 tem",      "plasma" ,
+# 				"b naive" ,     "cd14 mono" ,   "cd4 fh"   ,    "cd4 naive"  ,
+# 				"cd4 th1/th17", "cd4 th17",     "cd4 th2" ,     "cdc"  ,
+# 				"ilc" ,         "macrophage",   "mait" ,        "nk" ,
+# 				"tgd"  ,        "treg"
+# 			) |> any())) |>
+# 			mutate(data = map(data, tidybulk::pivot_transcript)),
+# 		.progress=T
+# 		# ,
+# 		# .env_globals = environment()
+# 	)) |>
+# 	select(-data) |>
+# 	unnest(se)
+# de_sex_cell_type |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_cell_type.rds")
 
 de_sex_cell_type = readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_cell_type.rds")
 
@@ -956,44 +956,43 @@ differential_composition_sex_relative = differential_composition_sex_relative |>
 
 plot_ranks_cell_type = 
 	
-	differential_composition_sex_relative |> 
-	sccomp_test() |>
-	filter(parameter=="sexmale") |>
-	arrange(c_FDR) |>
-	filter(!cell_type_harmonised %in% c("immune_unclassified", "dnt")) |>
+  df_heatmap_sex_relative_organ_cell_type |> 
+  distinct(cell_type, `Sum abs diff`) |> 
+	filter(!cell_type %in% c("immune_unclassified", "dnt")) |>
 	rowid_to_column("rank_composition") |>
-	dplyr::select(cell_type = cell_type_harmonised, rank_composition) |>
+	dplyr::select(cell_type, rank_composition) |>
 	
 	full_join(
 		
 		# DE
-		rank_de_cell_type ,
+		rank_de_cell_type |>
+		  
+		  # Parse cell types
+		  mutate(cell_type_for_colors = cell_type) |> 
+		  mutate(cell_type = cell_type |> 
+		           str_replace("megakaryocytes", "mega") |> 
+		           str_remove("phage") |> 
+		           str_replace("th1 th17", "th1/17") |> 
+		           str_replace("mono", "mn") |> 
+		           str_replace("tcm", "cm") |> 
+		           str_replace("cd4 th", "Th") |> 
+		           str_replace("memory", "mem") |> 
+		           str_replace("naive", "nv") |> 
+		           str_replace("terminal effector cd4 t", "cd4 eff") |> 
+		           str_remove("cyte") 
+		  )  ,
 		by = join_by(cell_type)
 		
 	) |>
-	dplyr::select(cell_type, contains("rank")) |>
+	dplyr::select(cell_type, cell_type_for_colors, contains("rank")) |>
 	pivot_longer(contains("rank")) |>
 	mutate(name = name |> str_remove("rank")) |>
 	
-	# Parse cell types
-	mutate(cell_type_formatted = cell_type |> 
-				 	str_replace("megakaryocytes", "mega") |> 
-				 	str_remove("phage") |> 
-				 	str_replace("th1 th17", "th1/17") |> 
-				 	str_replace("mono", "mn") |> 
-				 	str_replace("tcm", "cm") |> 
-				 	str_replace("cd4 th", "Th") |> 
-				 	str_replace("memory", "mem") |> 
-				 	str_replace("naive", "nv") |> 
-				 	str_replace("terminal effector cd4 t", "cd4 eff") |> 
-				 	str_remove("cyte") 
-	) |>
-	
 	
 	# Plot
-	ggplot(aes(name, value, group=cell_type,  label=cell_type_formatted)) +
-	geom_line(aes(color = cell_type)) +
-	geom_point(aes(color = cell_type)) +
+	ggplot(aes(name, value, group=cell_type,  label=cell_type_for_colors)) +
+	geom_line(aes(color = cell_type_for_colors)) +
+	geom_point(aes(color = cell_type_for_colors)) +
 	geom_text(size = 2.5) +
 	
 	scale_color_manual(values = cell_type_color) +
@@ -1113,17 +1112,10 @@ plot_ranks_tissue_barplot =
 
 plot_ranks_tissue = 
 	
-	differential_composition_sex_relative |> 
-	sccomp_test() |>
-	filter(parameter |> str_detect("sexmale___")) |>
-	with_groups(parameter, ~ .x |> summarise(median_FDR= median(c_FDR))) |>
-	arrange(median_FDR) |>
-	
-	# Drop random effects
-	filter(parameter |> str_detect("\\:", negate = TRUE)) |> 
-	
+  df_heatmap_sex_relative_organ_cell_type |> 
+  distinct(tissue, `Sum abs diff tissue`) |>
+	arrange(`Sum abs diff tissue`) |> 
 	rowid_to_column("rank_composition") |>
-	mutate(tissue = parameter |> str_remove("sexmale___")) |>
 	select(tissue , rank_composition) |>
 	
 	# DE
@@ -1260,7 +1252,7 @@ plot_genes_most_altered =
 	geom_point(aes(size = n_cell_type, color = class, alpha = !is.na(class))) +
 	ggrepel::geom_text_repel(min.segment.length = 0, size=2.5, max.overlaps = 100) +
 	scale_color_brewer(palette = "Set1", na.value="grey") +
-	#scale_size_continuous(range = c(0.2, 2)) +
+	scale_size_continuous(range = c(0.2, 2)) +
 	#scale_alpha_manual(values = c(`FALSE` = 0.3, `TRUE` = 1)) +
 	ylab("Number of cell type with significant changes") +
 	xlab("Proportion of significant cell types on all tested cell types") +
@@ -1740,57 +1732,106 @@ venn =
   eulerr::euler(fshape = "ellipse") |>
   plot(quantities = list(cex = .5), labels = list(cex = .5))
 
-# Common genes age * sex
-plot_genes_most_altered = 
+# # Common genes age * sex
+# plot_genes_most_altered = 
+#   
+#   de_sex_cell_type |>
+#   filter(map_lgl(data, ~ "P_age_days.sex_adjusted" %in% colnames(.x))) |>
+#   mutate(data = map(data, ~ .x |> select(P_age_days.sex_adjusted, .feature))) |>
+#   select(data, name) |>
+#   unnest(data) |>
+#   filter(name |> str_detect("immune_unclassified", negate = TRUE)) |>
+#   nest(cell_types = -.feature) |>
+#   
+#   mutate(cell_types_significant = map(
+#     cell_types,
+#     ~ .x |> filter(P_age_days.sex_adjusted<0.05) 
+#   )) |>
+#   
+#   mutate(
+#     n_cell_type = map_int(cell_types, nrow),
+#     n = map_int(cell_types_significant, nrow)
+#   ) |>
+#   filter(n_cell_type >= 5) |>
+#   mutate(proportion = n/n_cell_type) |>
+#   #filter(proportion > 0.30) |>
+#   arrange(desc(n)) |>
+#   filter(!.feature %in% gene_chr$ID) |>
+#   mutate(cell_type_names = map_chr(cell_types_significant, ~ .x |> pull(name) |> str_c(collapse = ", ") |> str_remove_all("data_"))) |>
+#   
+#   mutate(class = case_when(
+#     .feature %in% c("IL2", "NOTCH3", "DDX43", "GNLY", "TNFSF4") ~ "Used in diagnosis",
+#     n > 3 ~ "Other top DE"
+#   )) |> 
+#   mutate(label = if_else(
+#     class == "Used in diagnosis" | class == "Other top DE", 
+#     .feature,
+#     NA
+#   )) |>
+#   
+#   mutate(label = if_else(!is.na(class), .feature, NA)) |>
+#   mutate(n = as.character(n)) |>
+#   
+#   # Plot
+#   ggplot(aes(proportion, n, label = label)) +
+#   geom_point(aes(size = n_cell_type, color = class, alpha = !is.na(class))) +
+#   ggrepel::geom_text_repel(min.segment.length = 0, size=2.5, max.overlaps = 100) +
+#   scale_color_brewer(palette = "Set1", na.value="grey") +
+#   #scale_size_continuous(range = c(0.2, 2)) +
+#   #scale_alpha_manual(values = c(`FALSE` = 0.3, `TRUE` = 1)) +
+#   ylab("Number of cell type with significant changes") +
+#   xlab("Proportion of significant cell types on all tested cell types") +
+#   #xlim(c(NA, 0.4)) +
+#   theme_multipanel
+
+
+
+rank_tissue_composition = 
+  differential_composition_sex_relative |>
   
-  de_sex_cell_type |>
-  filter(map_lgl(data, ~ "P_age_days.sex_adjusted" %in% colnames(.x))) |>
-  mutate(data = map(data, ~ .x |> select(P_age_days.sex_adjusted, .feature))) |>
-  select(data, name) |>
-  unnest(data) |>
-  filter(name |> str_detect("immune_unclassified", negate = TRUE)) |>
-  nest(cell_types = -.feature) |>
+  # Find stats of random effect with groups
+  sccomp_test(
+    contrasts =
+      differential_composition_sex_relative |>
+      filter(parameter |> 
+               str_detect("age_days:sexmale___") 
+      ) |>
+      distinct(parameter) |>
+      mutate(contrast = glue("`age_days:sexmale` + `{parameter}`") |> as.character()) |>
+      tidyr::extract(parameter, "tissue_harmonised", ".+___(.+)") |>
+      deframe( ),
+    #test_composition_above_logit_fold_change = FDR_threshold_1_percent_change_at_20_percent_baseline
+  )  |>
   
-  mutate(cell_types_significant = map(
-    cell_types,
-    ~ .x |> filter(P_age_days.sex_adjusted<0.05) 
-  )) |>
+  filter(cell_type_harmonised != "immune_unclassified") |>
+  add_count(cell_type_harmonised) |>
+  arrange(parameter, desc(n)) |>
   
-  mutate(
-    n_cell_type = map_int(cell_types, nrow),
-    n = map_int(cell_types_significant, nrow)
-  ) |>
-  filter(n_cell_type >= 5) |>
-  mutate(proportion = n/n_cell_type) |>
-  #filter(proportion > 0.30) |>
-  arrange(desc(n)) |>
-  filter(!.feature %in% gene_chr$ID) |>
-  mutate(cell_type_names = map_chr(cell_types_significant, ~ .x |> pull(name) |> str_c(collapse = ", ") |> str_remove_all("data_"))) |>
+  dplyr::rename(tissue = parameter) |>
+  dplyr::rename(cell_type = cell_type_harmonised) |>
   
-  mutate(class = case_when(
-    .feature %in% c("IL2", "NOTCH3", "DDX43", "GNLY", "TNFSF4") ~ "Used in diagnosis",
-    n > 3 ~ "Other top DE"
+  # To be fixed in the model
+  mutate(is_treg = cell_type =="treg") |> 
+  nest(data = -is_treg) |> 
+  mutate(data = map2(
+    data, is_treg,
+    ~ {
+      if(.y) .x |> mutate(c_effect = c_effect/10 )
+      else(.x)
+    }
   )) |> 
-  mutate(label = if_else(
-    class == "Used in diagnosis" | class == "Other top DE", 
-    .feature,
-    NA
-  )) |>
+  unnest(data) |> 
   
-  mutate(label = if_else(!is.na(class), .feature, NA)) |>
-  mutate(n = as.character(n)) |>
+  # Cell type abundance
+  with_groups(cell_type, ~ .x |> mutate(c_effect_significant = case_when(c_FDR<0.05 ~ c_effect)) |>   mutate(cell_type_mean_change = sum(abs(c_effect_significant), na.rm = TRUE))) |>
   
-  # Plot
-  ggplot(aes(proportion, n, label = label)) +
-  geom_point(aes(size = n_cell_type, color = class, alpha = !is.na(class))) +
-  ggrepel::geom_text_repel(min.segment.length = 0, size=2.5, max.overlaps = 100) +
-  scale_color_brewer(palette = "Set1", na.value="grey") +
-  #scale_size_continuous(range = c(0.2, 2)) +
-  #scale_alpha_manual(values = c(`FALSE` = 0.3, `TRUE` = 1)) +
-  ylab("Number of cell type with significant changes") +
-  xlab("Proportion of significant cell types on all tested cell types") +
-  #xlim(c(NA, 0.4)) +
-  theme_multipanel
+  # Filter for visualisation
+  filter(!cell_type %in% c("non_immune", "immune_unclassified")) |>
+  
+  # Tissue diversity
+  with_groups(tissue, ~ .x |> mutate(c_effect_significant = case_when(c_FDR<0.05 ~ c_effect)) |>   mutate(tissue_mean_change = sum(abs(c_effect_significant), na.rm = TRUE))) |> 
+  distinct(tissue, tissue_mean_change)
+  
 
 
 # Rank AGE * SEX
@@ -1838,17 +1879,9 @@ plot_ranks_tissue_sex_age_barplot =
 
 plot_ranks_tissue_sex_age = 
   
-  differential_composition_sex_relative |> 
-  sccomp_test() |>
-  filter(parameter |> str_detect("sexmale___")) |>
-  with_groups(parameter, ~ .x |> summarise(median_FDR= median(c_FDR))) |>
-  arrange(median_FDR) |>
-  
-  # Drop random effects
-  filter(parameter |> str_detect("age_days\\:sexmale")) |> 
-  
+  rank_tissue_composition |> 
+  arrange(desc(tissue_mean_change)) |> 
   rowid_to_column("rank_composition") |>
-  mutate(tissue = parameter |> str_remove("age_days\\:sexmale___")) |>
   select(tissue , rank_composition) |>
   
   # DE
@@ -2172,81 +2205,6 @@ plot_differential_ageing =
   theme_multipanel
 
 
-#------------------------------
-# Plots single cell ALEX
-#------------------------------
-
-#Read the rds Seurat objects
-merged_seurat_ln = readRDS(glue("{result_directory}/alex_differential_ageing_UMAP/merged_seurat_ln.rds"))
-merged_seurat_heart = readRDS(glue("{result_directory}/alex_differential_ageing_UMAP/merged_seurat_heart.rds"))
-
-#Scale and Normalize the RNA
-merged_seurat_ln <- merged_seurat_ln |> 
-  mutate(age = age_days/365) |>
-  NormalizeData(assay = "RNA", verbose = T) |> 
-  ScaleData(assay = "RNA", 
-            features = rownames(merged_seurat_ln), 
-            verbose = T) |> 
-  mutate(age_range = case_when(
-    age <= 65 ~ "60<",
-    age > 65 ~ "65+"
-  ))
-
-merged_seurat_heart <- merged_seurat_heart |> 
-  mutate(age = age_days/365) |>
-  NormalizeData(assay = "RNA", verbose = T) |> 
-  ScaleData(assay = "RNA", 
-            features = rownames(merged_seurat_heart), 
-            verbose = T) |>
-  mutate(age_range = case_when(
-    age <= 30 ~ "30<",
-    age > 30 & age < 55 ~ "30-55",
-    age > 55 ~ ">55"
-  )) |>
-  mutate(age_range = fct_relevel(age_range, c("30<", "30-55", ">55")))
-
-# Create function for plotting the sex-age grid plot
-grid.plot <- function(seurat_obj, reduction, assay = "RNA", slot = "scale.data", gene){
-  
-  gene_name <- sym(gene)
-  
-  reduc.key_1 <- paste0(seurat_obj[[reduction]]@key, "1")
-  reduc.key_2 <- paste0(seurat_obj[[reduction]]@key, "2")
-  
-  seurat_obj |> 
-    join_features(gene_name, slot = slot, shape = "wide", assay = assay) |>
-    select(gene_name, reduc.key_1, reduc.key_2, sex, age_range) |>
-    arrange(!!gene_name) |> 
-    ggplot(aes(x = !!rlang::sym(reduc.key_1), y = !!rlang::sym(reduc.key_2))) +
-    ggrastr::rasterise(geom_point(aes(color = !!gene_name), shape="."), dpi = 300) +
-    scale_color_gradient(low = "azure3", high = "darkblue", na.value = "azure3", guide = "none") +
-    facet_grid(sex ~ age_range) +  # Add facet_grid to split by sex and age_group
-    xlab("UMAP 1") +
-    ylab("UMAP 2") +
-    ggtitle(gene) +
-    guides(color = "none") +
-    theme_multipanel +
-    theme(
-      axis.title.y = element_blank(), 
-      axis.text.y = element_blank(), 
-      axis.ticks.y = element_blank(),
-      axis.title.x = element_blank(), 
-      axis.text.x = element_blank(), 
-      axis.ticks.x = element_blank()
-    )
-}
-
-# Create the plots for Lymph node
-rab21_ln <- grid.plot(merged_seurat_ln, "umap_sct.harmony.sample", assay = "RNA", slot = "scale.data", gene = "RAB21")
-
-rasgef1b_ln <- grid.plot(merged_seurat_ln, "umap_sct.harmony.sample", assay = "RNA", slot = "scale.data", gene = "RASGEF1B")
-
-irs2_ln <- grid.plot(merged_seurat_ln, "umap_sct.harmony.sample", assay = "RNA", slot = "scale.data", gene = "IRS2")
-
-lmna_ln <- grid.plot(merged_seurat_ln, "umap_sct.harmony.sample", assay = "RNA", slot = "scale.data", gene = "LMNA")
-
-tlr4_ln <- grid.plot(merged_seurat_ln, "umap_sct.harmony.sample", assay = "RNA", slot = "scale.data", gene = "TLR4")
-
 
 # PLOT INTERACTIONS
 
@@ -2261,13 +2219,10 @@ plot_interaction =
   plot_ranks_tissue_sex_age_barplot 
   ) + plot_layout(width = c(1, 0.5,0.2, 1, 0.8, 0.2))) /
     
-  plot_differential_ageing_shared_pathways /
-  (
-    wrap_plots(rab21_ln, rasgef1b_ln, irs2_ln, lmna_ln) |
-      wrap_plots(plot_spacer())
-  )
+  plot_spacer() / plot_spacer()
+
 ) + 
-  plot_layout(height = c(0.5, 0.3, 1), guides = 'collect') &
+  plot_layout(height = c(0.7, 1, 1), guides = 'collect') &
   theme(
     plot.margin = margin(0, 0, 0, 0, "pt"),
     legend.key.size = unit(0.2, 'cm'),
@@ -2280,7 +2235,7 @@ ggsave(
   plot = plot_interaction,
   units = c("mm"),
   width = 183 ,
-  height = 183 ,
+  height = 140 ,
   limitsize = FALSE
 )
 
