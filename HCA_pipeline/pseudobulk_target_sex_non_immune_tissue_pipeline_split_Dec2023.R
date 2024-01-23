@@ -113,7 +113,7 @@ tar_script({
 	tar_option_set(
 		packages = c(
 			"CuratedAtlasQueryR", "stringr", "tibble", "tidySingleCellExperiment", "dplyr", "Matrix",
-			"Seurat", "glue", "qs",  "purrr", "tidybulk", "tidySummarizedExperiment", "edgeR", "jascap", "crew", "magrittr", "digest", "glmmSeq"
+			"Seurat", "glue", "qs",  "purrr", "tidybulk", "tidySummarizedExperiment", "edgeR", "crew", "magrittr", "digest", "glmmSeq", "readr"
 		),
 		
 		garbage_collection = TRUE,
@@ -129,52 +129,69 @@ tar_script({
 		#-----------------------#
 		controller = crew_controller_group(
 			
-				crew_controller_slurm(
-					name = "small_slurm",
-					slurm_memory_gigabytes_per_cpu = 20,
-					slurm_cpus_per_task = 2,
-					workers = 200,
-					verbose = T
-					#,
-					#script_lines = "module load R/4.2.1",
-					#host = "spartan.hpc.unimelb.edu.au"
-				),
+			crew_controller_slurm(
+				name = "slurm_2_20",
+				slurm_memory_gigabytes_per_cpu = 20,
+				slurm_cpus_per_task = 2,
+				workers = 100,
+				verbose = T, 
+				seconds_timeout = 30
+				#,
+				#script_lines = "module load R/4.2.1",
+				#host = "spartan.hpc.unimelb.edu.au"
+			),
 			
-				crew_controller_slurm(
-					name = "slurm_1_40",
-					slurm_memory_gigabytes_per_cpu = 40,
-					slurm_cpus_per_task = 1,
-					workers = 200,
-					verbose = T
-				),
+			crew_controller_slurm(
+				name = "slurm_1_40",
+				slurm_memory_gigabytes_per_cpu = 40,
+				slurm_cpus_per_task = 1,
+				workers = 200,
+				verbose = T
+			),
 			
-				crew_controller_slurm(
-					name = "small_slurm_memory",
-					slurm_memory_gigabytes_per_cpu = 200,
-					slurm_cpus_per_task = 1,
-					workers = 10,
-					verbose = T
-				),
+			crew_controller_slurm(
+				name = "slurm_1_80",
+				slurm_memory_gigabytes_per_cpu = 80,
+				slurm_cpus_per_task = 1,
+				workers = 20,
+				verbose = T
+			),
 			
-				crew_controller_slurm(
-					name = "slurm_3",
-					slurm_memory_gigabytes_per_cpu = 10,
-					slurm_cpus_per_task = 3,
-					workers = 400,
-					verbose = T
-				),
+			crew_controller_slurm(
+				name = "slurm_1_120",
+				slurm_memory_gigabytes_per_cpu = 120,
+				slurm_cpus_per_task = 1,
+				workers = 10,
+				verbose = T
+			),
 			
-				crew_controller_slurm(
-					name = "big_slurm",
-					slurm_memory_gigabytes_per_cpu = 4,
-					slurm_cpus_per_task = 5,
-					workers = 300,
-					verbose = T
-				)
+			crew_controller_slurm(
+				name = "slurm_2_400",
+				slurm_memory_gigabytes_per_cpu = 400,
+				slurm_cpus_per_task = 2,
+				workers = 5,
+				verbose = T
+			),
+			
+			crew_controller_slurm(
+				name = "slurm_3",
+				slurm_memory_gigabytes_per_cpu = 10,
+				slurm_cpus_per_task = 3,
+				workers = 200,
+				verbose = T
+			),
+			
+			crew_controller_slurm(
+				name = "big_slurm",
+				slurm_memory_gigabytes_per_cpu = 4,
+				slurm_cpus_per_task = 5,
+				workers = 300,
+				verbose = T
+			)
 		),
-		resources = tar_resources(crew = tar_resources_crew("small_slurm")) ,
-		debug = "pseudobulk_df_scaled_abundant_curated_formula_tissue_ethnicity_43fcc6a9", # Set the target you want to debug.
-		cue = tar_cue(mode = "never")		,
+		resources = tar_resources(crew = tar_resources_crew("slurm_2_20")) ,
+		 # debug = "tissue_cell_type_metadata", # Set the target you want to debug.
+		cue = tar_cue(mode = "never")		
 	)
 	
 	root_directory = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap"
@@ -312,8 +329,13 @@ tar_script({
 		sce_df |>
 			mutate(data = map(
 				data, 
-				~ .x |>
-					tidySingleCellExperiment::aggregate_cells( .sample = sample_se	)
+				~ {
+					.x = tidySingleCellExperiment::aggregate_cells(.x, .sample = sample_se	)
+					
+					assay(.x, "counts") = assay(.x, "counts") |> as("sparseMatrix")
+					
+					.x
+				}
 			))
 		
 	}
@@ -376,79 +398,7 @@ tar_script({
 		
 	}
 	
-	# samples_NOT_complete_confounders_for_ethnicity_assay = function(se){
-	# 	
-	# 	
-	# 	
-	# 	se =
-	# 		se |>
-	# 		# distinct(assay_simplified, ethnicity_simplified, .sample) |>
-	# 		#
-	# 		nest(se_data = -c(assay_simplified, ethnicity_simplified)) |>
-	# 		
-	# 		# How many ethnicity per assay
-	# 		nest(data = -assay_simplified) |>
-	# 		mutate(n1 = map_int(data, ~ .x |> distinct(ethnicity_simplified) |> nrow())) |>
-	# 		unnest(data) |>
-	# 		
-	# 		# How many assay per ethnicity
-	# 		nest(data = - ethnicity_simplified) |>
-	# 		mutate(n2 = map_int(data, ~ .x |> distinct(assay_simplified) |> nrow())) |>
-	# 		unnest(data)
-	# 	
-	# 	# Replace ethnicity
-	# 	dummy_assay = se |> arrange(desc(n1 + n2)) |> slice(1) |> pull(assay_simplified)
-	# 	
-	# 	se |>
-	# 		mutate(assay_simplified = if_else(n1 + n2 < 3, dummy_assay, assay_simplified)) 	|>
-	# 		
-	# 		# # Filter
-	# 		# filter(!(n1==1 & n2==1)) |>
-	# 		select(-n1, -n2) |>
-	# 		
-	# 		unnest_summarized_experiment(se_data)
-	# 	# |>
-	# 	# 	pull(.sample) |>
-	# 	# 	unique()
-	# }
-	# 
-	# samples_NOT_complete_confounders_for_ethnicity_disease = function(se){
-	# 	
-	# 	
-	# 	
-	# 	se =
-	# 		se |>
-	# 		#distinct(disease, ethnicity_simplified, .sample) |>
-	# 		
-	# 		nest(se_data = -c(disease, ethnicity_simplified)) |>
-	# 		
-	# 		# How many ethnicity per assay
-	# 		nest(data = -disease) |>
-	# 		mutate(n1 = map_int(data, ~ .x |> distinct(ethnicity_simplified) |> nrow())) |>
-	# 		unnest(data) |>
-	# 		
-	# 		# How many assay per ethnicity
-	# 		nest(data = - ethnicity_simplified) |>
-	# 		mutate(n2 = map_int(data, ~ .x |> distinct(disease) |> nrow())) |>
-	# 		unnest(data)
-	# 	
-	# 	
-	# 	# Replace ethnicity
-	# 	dummy_ethnicity = se |> arrange(desc(n1 + n2)) |> slice(1) |> pull(ethnicity_simplified)
-	# 	
-	# 	se |>
-	# 		mutate(ethnicity_simplified = if_else(n1 + n2 < 3, dummy_ethnicity, ethnicity_simplified)) 	|>
-	# 		
-	# 		# # Filter
-	# 		# filter(!(n1==1 & n2==1)) |>
-	# 		select(-n1, -n2) |>
-	# 		
-	# 		unnest_summarized_experiment(se_data)
-	# 	# |>
-	# 	# 	pull(.sample) |>
-	# 	# 	unique()
-	# }
-	
+
 	aggregate = function(se_df){
 		
 		print("Start aggregate")
@@ -632,10 +582,10 @@ tar_script({
 									# # Avoid indeterminability
 									# if(ncol(se) > 0) {
 									#
-									# 	ethnicity_to_keep = se |> pivot_sample() |> count(ethnicity_simplified) |> filter(n >1) |> pull(ethnicity_simplified)
+									# 	ethnicity_to_keep = se |> pivot_sample() |> dplyr::count(ethnicity_simplified) |> filter(n >1) |> pull(ethnicity_simplified)
 									# 	se = se |> filter(ethnicity_simplified %in% ethnicity_to_keep)
 									#
-									# 	sex_to_keep = se |> pivot_sample() |> count(sex) |> filter(n >1) |> pull(sex)
+									# 	sex_to_keep = se |> pivot_sample() |> dplyr::count(sex) |> filter(n >1) |> pull(sex)
 									# 	se = se |> filter(sex %in% sex_to_keep)
 									#
 									# 	se = se |> drop_samples_complete_confounder(sex, ethnicity_simplified)
@@ -689,10 +639,10 @@ tar_script({
 		# 						# # Avoid indeterminability
 		# 						# if(ncol(se) > 0) {
 		# 						# 	
-		# 						# 	ethnicity_to_keep = se |> pivot_sample() |> count(ethnicity_simplified) |> filter(n >1) |> pull(ethnicity_simplified)
+		# 						# 	ethnicity_to_keep = se |> pivot_sample() |> dplyr::count(ethnicity_simplified) |> filter(n >1) |> pull(ethnicity_simplified)
 		# 						# 	se = se |> filter(ethnicity_simplified %in% ethnicity_to_keep)
 		# 						# 	
-		# 						# 	sex_to_keep = se |> pivot_sample() |> count(sex) |> filter(n >1) |> pull(sex)
+		# 						# 	sex_to_keep = se |> pivot_sample() |> dplyr::count(sex) |> filter(n >1) |> pull(sex)
 		# 						# 	se = se |> filter(sex %in% sex_to_keep)
 		# 						# 	
 		# 						# 	se = se |> drop_samples_complete_confounder(sex, ethnicity_simplified)
@@ -743,10 +693,10 @@ tar_script({
 					# Avoid indeterminability
 					if(ncol(se) > 0) {
 						
-						ethnicity_to_keep = se |> pivot_sample() |> count(ethnicity_simplified) |> filter(n >1) |> pull(ethnicity_simplified)
+						ethnicity_to_keep = se |> pivot_sample() |> dplyr::count(ethnicity_simplified) |> filter(n >1) |> pull(ethnicity_simplified)
 						se = se |> filter(ethnicity_simplified %in% ethnicity_to_keep)
 						
-						sex_to_keep = se |> pivot_sample() |> count(sex) |> filter(n >1) |> pull(sex)
+						sex_to_keep = se |> pivot_sample() |> dplyr::count(sex) |> filter(n >1) |> pull(sex)
 						se = se |> filter(sex %in% sex_to_keep)
 					}
 					if(ncol(se) > 0) {
@@ -829,7 +779,7 @@ tar_script({
 				data,
 				~ {
 					
-					if(ncol(.x) == 0) return(.x)
+					if(ncol(.x) <= 1) return(NULL)
 					
 					# Filter
 					se = 
@@ -838,9 +788,8 @@ tar_script({
 						
 						
 						# Eliminate complete confounders
-						samples_NOT_complete_confounders_for_ethnicity_assay() |>
-						samples_NOT_complete_confounders_for_ethnicity_disease()
-					
+						resolve_complete_confounders_of_non_interest(assay_simplified, disease, ethnicity_simplified) 
+						
 					rm(.x)
 					gc()
 					
@@ -850,23 +799,24 @@ tar_script({
 						filter(disease %in% (
 							se |>
 								distinct(disease, sex) |>
-								count(disease) |>
+								dplyr::count(disease) |>
 								filter(n>1) |>
 								pull(disease)
 						))
 					
 					# Return prematurely
-					if(ncol(se) == 0) return(se)
-					if(se |> distinct(sex, ethnicity_simplified) |> count(ethnicity_simplified) |> pull(n) |> max() == 1) return(se)
+					if(ncol(se) == 0) return(NULL)
+					if(se |> distinct(sex, ethnicity_simplified) |> dplyr::count(ethnicity_simplified) |> pull(n) |> max() == 1) return(NULL)
 					
 					
 					# Vell types with enough samples
 					cell_type_to_keep =
 						se |>
 						distinct(sample_, cell_type_harmonised) |>
-						count(  cell_type_harmonised) |>
+						dplyr::count(  cell_type_harmonised) |>
 						filter(n > 3) |>
 						pull(cell_type_harmonised)
+					if(length(cell_type_to_keep)== 0) return(NULL)
 					
 					
 					se = 
@@ -903,8 +853,9 @@ tar_script({
 				data,
 				~ {
 					
-					if(ncol(.x) == 0) return(~1)
-					if(.x |> distinct(sex, ethnicity_simplified) |> count(ethnicity_simplified) |> pull(n) |> max() == 1) return(~1)
+					if(is.null(.x)) return(~1)
+					if(ncol(.x) <= 1) return(~1)
+					if(.x |> distinct(sex, ethnicity_simplified) |> dplyr::count(ethnicity_simplified) |> pull(n) |> max() == 1) return(~1)
 					
 					se = .x
 					
@@ -938,7 +889,10 @@ tar_script({
 					) 
 						my_formula = glue("{my_formula} + (1 + {random_effects} | cell_type_harmonised)")
 					
-					if( 	se |> distinct(sample_) |> nrow() > 1	)
+					if( 
+						se |> distinct(sample_) |> nrow() > 1	&& 
+						se |> distinct(cell_type_harmonised) |> nrow() > 1
+					)
 						my_formula = glue("{my_formula} + (1 | sample_)")
 					
 					
@@ -966,7 +920,7 @@ tar_script({
 				data,
 				~ {
 					
-					if(ncol(.x) == 0) return(.x)
+					if(ncol(.x) <= 1) return(NULL)
 					
 					# Filter
 					se = 
@@ -975,8 +929,8 @@ tar_script({
 						
 						
 						# Eliminate complete confounders
-						samples_NOT_complete_confounders_for_ethnicity_assay() |>
-						samples_NOT_complete_confounders_for_ethnicity_disease()
+						resolve_complete_confounders_of_non_interest(assay_simplified, disease, ethnicity_simplified) 
+					
 					
 					rm(.x)
 					gc()
@@ -987,23 +941,24 @@ tar_script({
 						filter(disease %in% (
 							se |>
 								distinct(disease, sex) |>
-								count(disease) |>
+								dplyr::count(disease) |>
 								filter(n>1) |>
 								pull(disease)
 						))
 					
 					# Return prematurely
-					if(ncol(se) == 0) return(se)
-					if(se |> distinct(sex, ethnicity_simplified) |> count(ethnicity_simplified) |> pull(n) |> max() == 1) return(se)
+					if(ncol(se) == 0) return(NULL)
+					if(se |> distinct(sex, ethnicity_simplified) |> dplyr::count(ethnicity_simplified) |> pull(n) |> max() == 1) return(NULL)
 					
 					
 					# Vell types with enough samples
 					tissues_to_keep =
 						se |>
 						distinct(sample_, tissue_harmonised) |>
-						count(  tissue_harmonised) |>
+						dplyr::count(  tissue_harmonised) |>
 						filter(n > 3) |>
 						pull(tissue_harmonised)
+					if(length(tissues_to_keep)== 0) return(NULL)
 					
 					se =
 						se |>
@@ -1035,12 +990,13 @@ tar_script({
 	map_create_formula_sex_cell_type = function(se_df){
 		
 		se_df |> 
-			mutate(data = map(
+			mutate(formula = map(
 				data,
 				~ {
 					
-					if(ncol(.x) == 0) return(~1)
-					if(.x |> distinct(sex, ethnicity_simplified) |> count(ethnicity_simplified) |> pull(n) |> max() == 1) return(~1)
+					if(is.null(.x)) return(~1)
+					if(ncol(.x) <= 1) return(~1)
+					if(.x |> distinct(sex, ethnicity_simplified) |> dplyr::count(ethnicity_simplified) |> pull(n) |> max() == 1) return(~1)
 					
 					se = .x
 					
@@ -1091,124 +1047,11 @@ tar_script({
 				}))
 	}
 	
-	# Ethnicity
-	# samples_NOT_complete_confounders_for_sex_assay = function(se){
-	# 	
-	# 	
-	# 	
-	# 	se = 
-	# 		se |> 
-	# 		# distinct(assay_simplified, sex, .sample) |>
-	# 		# 
-	# 		nest(se_data = -c(assay_simplified, sex)) |>
-	# 		
-	# 		# How many ethnicity per assay
-	# 		nest(data = -assay_simplified) |> 
-	# 		mutate(n1 = map_int(data, ~ .x |> distinct(sex) |> nrow())) |> 
-	# 		unnest(data) |> 
-	# 		
-	# 		# How many assay per ethnicity
-	# 		nest(data = - sex) |> 
-	# 		mutate(n2 = map_int(data, ~ .x |> distinct(assay_simplified) |> nrow())) |> 
-	# 		unnest(data) 
-	# 	
-	# 	# Replace ethnicity
-	# 	dummy_assay = se |> arrange(desc(n1 + n2)) |> slice(1) |> pull(assay_simplified)
-	# 	
-	# 	se |>
-	# 		mutate(assay_simplified = if_else(n1 + n2 < 3, dummy_assay, assay_simplified)) 	|>
-	# 		
-	# 		# # Filter
-	# 		# filter(!(n1==1 & n2==1)) |>
-	# 		select(-n1, -n2) |>
-	# 		
-	# 		unnest_summarized_experiment(se_data) 
-	# 	# |>
-	# 	# 	pull(.sample) |>
-	# 	# 	unique()
-	# }
 	# 
-	# samples_NOT_complete_confounders_for_sex_disease = function(se){
-	# 	
-	# 	
-	# 	
-	# 	se = 
-	# 		se |> 
-	# 		#distinct(disease, sex, .sample) |>
-	# 		
-	# 		nest(se_data = -c(disease, sex)) |>
-	# 		
-	# 		# How many ethnicity per assay
-	# 		nest(data = -disease) |> 
-	# 		mutate(n1 = map_int(data, ~ .x |> distinct(sex) |> nrow())) |> 
-	# 		unnest(data) |> 
-	# 		
-	# 		# How many assay per ethnicity
-	# 		nest(data = - sex) |> 
-	# 		mutate(n2 = map_int(data, ~ .x |> distinct(disease) |> nrow())) |> 
-	# 		unnest(data) 
-	# 	
-	# 	
-	# 	# Replace ethnicity
-	# 	dummy_ethnicity = se |> arrange(desc(n1 + n2)) |> slice(1) |> pull(sex)
-	# 	
-	# 	se |>
-	# 		mutate(sex = if_else(n1 + n2 < 3, dummy_ethnicity, sex)) 	|>
-	# 		
-	# 		# # Filter
-	# 		# filter(!(n1==1 & n2==1)) |>
-	# 		select(-n1, -n2) |>
-	# 		
-	# 		unnest_summarized_experiment(se_data)
-	# 	# |>
-	# 	# 	pull(.sample) |>
-	# 	# 	unique()
-	# }
-	
-	samples_NOT_complete_confounders_for_assay_ethnicity = function(se){
-		se |> 
-			#distinct(ethnicity_simplified, assay_simplified, .sample) |>
-			
-			nest(se_data = -c(ethnicity_simplified, assay_simplified)) |>
-			
-			# How many ethnicity per assay
-			nest(data = -ethnicity_simplified) |> 
-			mutate(n1 = map_int(data, ~ .x |> distinct(assay_simplified) |> nrow())) |> 
-			unnest(data) |> 
-			
-			# How many assay per ethnicity
-			nest(data = - assay_simplified) |> 
-			mutate(n2 = map_int(data, ~ .x |> distinct(ethnicity_simplified) |> nrow())) |> 
-			unnest(data) |>
-			
-			filter(n1+n2>2) |>
-			select(-n1, -n2) |>
-			unnest_summarized_experiment(se_data)
-	}
-	
-	samples_NOT_complete_confounders_for_disease_ethnicity = function(se){
-		se |> 
-			#distinct(ethnicity_simplified, assay_simplified, .sample) |>
-			
-			nest(se_data = -c(ethnicity_simplified, disease)) |>
-			
-			# How many ethnicity per assay
-			nest(data = -ethnicity_simplified) |> 
-			mutate(n1 = map_int(data, ~ .x |> distinct(disease) |> nrow())) |> 
-			unnest(data) |> 
-			
-			# How many assay per ethnicity
-			nest(data = - disease) |> 
-			mutate(n2 = map_int(data, ~ .x |> distinct(ethnicity_simplified) |> nrow())) |> 
-			unnest(data) |>
-			
-			filter(n1+n2>2) |>
-			select(-n1, -n2) |>
-			unnest_summarized_experiment(se_data)
-	}
 	
 	samples_NOT_complete_confounders_for_age_ethnicity = function(se){
 		
+			
 		clean = 
 			se |> 
 			#distinct(ethnicity_simplified, assay_simplified, .sample) |>
@@ -1227,11 +1070,21 @@ tar_script({
 			
 			filter(n1+n2>2) |>
 			select(-n1, -n2) 
+		
 		if(
 			nrow(clean) == 0 || clean |>
 			distinct(ethnicity_simplified) |>
 			nrow() == 1
-		)
+		){
+			
+			# If I just have one observation
+			if(	se |> 
+					#distinct(ethnicity_simplified, assay_simplified, .sample) |>
+					mutate(age_days = age_days > 1) |>
+					distinct(ethnicity_simplified, age_days) |> 
+					nrow() < 2
+			) return(se)
+			
 			clean = 
 				se |> 
 				#distinct(ethnicity_simplified, assay_simplified, .sample) |>
@@ -1249,9 +1102,14 @@ tar_script({
 				unnest(data) |>
 				
 				filter(n1+n2>2) |>
-				select(-n1, -n2) 
+				select(-n1, -n2) |> 
+				mutate(age_days = age_days |> as.integer())
+			
+			
+		}
 		
-		clean |> unnest_summarized_experiment(se_data)
+		clean |> unnest_summarized_experiment(se_data) 
+			
 	}
 	
 	map_avoid_confounders_ethnicity_tissue = function(se_df){
@@ -1261,20 +1119,22 @@ tar_script({
 				data,
 				~ {
 					
-					if(ncol(.x) == 0) return(.x)
+					if(ncol(.x) <= 1) return(NULL)
 					
 					# Filter
 					se = 
 						.x |> 
 						
 						# Eliminate complete confounders
+						resolve_complete_confounders_of_non_interest(assay_simplified, disease, sex) |> 
 						samples_NOT_complete_confounders_for_age_ethnicity()
+					
 					
 					rm(.x)
 					gc()
 					
 					# ethnicity to keep
-					ethnicity_to_keep = se |> pivot_sample() |> count(ethnicity_simplified) |> filter(n>1) |> pull(ethnicity_simplified)
+					ethnicity_to_keep = se |> pivot_sample() |> dplyr::count(ethnicity_simplified) |> filter(n>1) |> pull(ethnicity_simplified)
 					se = se |> filter(ethnicity_simplified %in% ethnicity_to_keep)
 					
 					# Filter disease
@@ -1283,23 +1143,24 @@ tar_script({
 						filter(disease %in% (
 							se |>
 								distinct(disease, ethnicity_simplified) |>
-								count(disease) |>
+								dplyr::count(disease) |>
 								filter(n>1) |>
 								pull(disease)
 						))
 					
 					# Return prematurely
-					if(ncol(se) == 0) return(se)
-					if(se |> distinct(sex, ethnicity_simplified) |> count(sex) |> pull(n) |> max() == 1) return(se)
+					if(ncol(se) == 0) return(NULL)
+					if(se |> distinct(sex, ethnicity_simplified) |> dplyr::count(sex) |> pull(n) |> max() == 1) return(NULL)
 					
 					
 					# Vell types with enough samples
 					cell_type_to_keep =
 						se |>
 						distinct(sample_, cell_type_harmonised) |>
-						count(  cell_type_harmonised) |>
+						dplyr::count(  cell_type_harmonised) |>
 						filter(n > 3) |>
 						pull(cell_type_harmonised)
+					if(length(cell_type_to_keep)== 0) return(NULL)
 					
 					se = 
 						se |>
@@ -1333,12 +1194,13 @@ tar_script({
 	map_create_formula_ethnicity_tissue = function(se_df){
 		
 		se_df |> 
-			mutate(data = map(
+			mutate(formula = map(
 				data,
 				~ {
 					
-					if(ncol(.x) == 0) return(~1)
-					if(.x |> distinct(sex, ethnicity_simplified) |> count(sex) |> pull(n) |> max() == 1) return(~1)
+					if(is.null(.x)) return(~1)
+					if(ncol(.x) <= 1) return(~1)
+					if(.x |> distinct(sex, ethnicity_simplified) |> dplyr::count(sex) |> pull(n) |> max() == 1) return(~1)
 					
 					se = .x
 					
@@ -1347,7 +1209,7 @@ tar_script({
 						c("age_days", "sex", "ethnicity_simplified", "assay_simplified",  ".aggregated_cells", "disease") |>
 						enframe(value = "factor") |>
 						mutate(n = map_int(
-							factor, ~ se |> select(.x) |> distinct() |> nrow()
+							factor, ~ se |> select(all_of(.x)) |> distinct() |> nrow()
 						)) |>
 						filter(n>1) |>
 						pull(factor) |>
@@ -1373,7 +1235,10 @@ tar_script({
 						my_formula = glue("{my_formula} + (1 + {random_effects} | cell_type_harmonised)")
 					
 					
-					if( 	se |> distinct(sample_) |> nrow() > 1	)
+					if( 	
+						se |> distinct(sample_) |> nrow() > 1	&& 
+						se |> distinct(cell_type_harmonised) |> nrow() > 1
+					)
 						my_formula = glue("{my_formula} + (1 | sample_)")
 					
 					
@@ -1398,15 +1263,15 @@ tar_script({
 				data,
 				~ {
 					
-					if(ncol(.x) == 0) return(.x)
+					if(ncol(.x) <= 1) return(NULL)
 					
 					# Filter
 					se = 
 						.x |> 
 						
 						# Eliminate complete confounders
-						samples_NOT_complete_confounders_for_sex_assay() |>
-						samples_NOT_complete_confounders_for_sex_disease()
+						resolve_complete_confounders_of_non_interest(assay_simplified, disease, sex) 
+					
 					
 					rm(.x)
 					gc()
@@ -1417,7 +1282,7 @@ tar_script({
 						filter(disease %in% (
 							se |>
 								distinct(disease, ethnicity_simplified) |>
-								count(disease) |>
+								dplyr::count(disease) |>
 								filter(n>1) |>
 								pull(disease)
 						))
@@ -1425,16 +1290,18 @@ tar_script({
 					
 					
 					# Return prematurely
-					if(ncol(se) == 0) return(se)
-					if(se |> distinct(sex, ethnicity_simplified) |> count(sex) |> pull(n) |> max() == 1) return(se)
+					if(ncol(se) == 0) return(NULL)
+					if(se |> distinct(sex, ethnicity_simplified) |> dplyr::count(sex) |> pull(n) |> max() == 1) return(NULL)
 					
 					# Vell types with enough samples
 					tissues_to_keep =
 						se |>
 						distinct(sample_, tissue_harmonised) |>
-						count(  tissue_harmonised) |>
+						dplyr::count(  tissue_harmonised) |>
 						filter(n > 3) |>
 						pull(tissue_harmonised)
+					
+					if(length(tissues_to_keep)== 0) return(NULL)
 					
 					se =
 						se |>
@@ -1466,12 +1333,13 @@ tar_script({
 	map_create_formula_ethnicity_cell_type = function(se_df){
 		
 		se_df |> 
-			mutate(data = map(
+			mutate(formula = map(
 				data,
 				~ {
 					
-					if(ncol(.x) == 0) return(~1)
-					if(.x |> distinct(sex, ethnicity_simplified) |> count(sex) |> pull(n) |> max() == 1) return(~1)
+					if(is.null(.x)) return(~1)
+					if(ncol(.x) <= 1) return(~1)
+					if(.x |> distinct(sex, ethnicity_simplified) |> dplyr::count(sex) |> pull(n) |> max() == 1) return(~1)
 					
 					se = .x
 					
@@ -1531,9 +1399,11 @@ tar_script({
 		# Do metadata
 		tarchetypes::tar_group_by(
 			tissue_cell_type_metadata,
-			split_metadata(glue("{root_directory}/sccomp_on_HCA_0.2.3.4/input_relative.rds")),
-			cell_type_harmonised, tissue_harmonised, file_id, is_immune, sample_chunk,
-			deployment = "main"
+			glue("{root_directory}/sccomp_on_HCA_0.2.3.4/input_relative.rds") |> 
+				split_metadata(),
+			cell_type_harmonised, tissue_harmonised, file_id, is_immune, sample_chunk, 
+			deployment = "main",
+			resources = tar_resources(crew = tar_resources_crew("slurm_1_80"))
 		),
 		
 		# Get SCE
@@ -1542,8 +1412,7 @@ tar_script({
 			tissue_cell_type_metadata |> get_sce() |> get_pseudobulk(),
 			pattern = map(tissue_cell_type_metadata),
 			iteration = "group",
-			resources = tar_resources(crew = tar_resources_crew("small_slurm"))
-			#resources = small_slurm_resource
+			resources = tar_resources(crew = tar_resources_crew("slurm_2_20"))
 		),
 		
 		
@@ -1556,9 +1425,8 @@ tar_script({
 			pseudobulk_df_tissue, 
 			pseudobulk_df, 
 			tissue_harmonised, is_immune,
-			resources = tar_resources(crew = tar_resources_crew("small_slurm_memory"))
+			resources = tar_resources(crew = tar_resources_crew("slurm_1_80"))
 		),
-		
 		
 		# Add dispersion
 		tar_target(
@@ -1569,7 +1437,7 @@ tar_script({
 				map_keep_abundant() ,
 			pattern = map(pseudobulk_df_tissue),
 			iteration = "group",
-			resources = tar_resources(crew = tar_resources_crew("slurm_1_40"))
+			resources = tar_resources(crew = tar_resources_crew("slurm_1_80"))
 		),
 		
 		# Make data SEX TISSUE
@@ -1580,7 +1448,7 @@ tar_script({
 				map_create_formula_sex_tissue(),
 			pattern = map(pseudobulk_df_scaled_abundant_tissue),
 			iteration = "group",
-			resources = tar_resources(crew = tar_resources_crew("small_slurm"))
+			resources = tar_resources(crew = tar_resources_crew("slurm_2_20"))
 		),
 		
 		# Make data SEX TISSUE
@@ -1591,7 +1459,7 @@ tar_script({
 				map_create_formula_ethnicity_tissue(),
 			pattern = map(pseudobulk_df_scaled_abundant_tissue),
 			iteration = "group",
-			resources = tar_resources(crew = tar_resources_crew("small_slurm"))
+			resources = tar_resources(crew = tar_resources_crew("slurm_2_20"))
 		),
 		
 		#-----------------------#
@@ -1601,11 +1469,11 @@ tar_script({
 		# Group samples
 		tarchetypes::tar_group_by(
 			pseudobulk_df_cell_type, 
-			pseudobulk_df |> filter(is_immune == "TRUE"), 
+			pseudobulk_df |> 
+				filter(is_immune == "TRUE"), 
 			cell_type_harmonised, is_immune,
-			resources = tar_resources(crew = tar_resources_crew("small_slurm_memory"))
+			resources = tar_resources(crew = tar_resources_crew("slurm_1_80"))
 		),
-		
 		
 		# Add dispersion
 		tar_target(
@@ -1617,31 +1485,28 @@ tar_script({
 			pattern = map(pseudobulk_df_cell_type),
 			iteration = "group",
 			resources = tar_resources(crew = tar_resources_crew("slurm_1_40"))
-			# ,
-			#  deployment = "main"
-			#resources = small_slurm_resource
 		),
 		
 		# Make data SEX TISSUE
 		tar_target(
 			pseudobulk_df_scaled_abundant_curated_formula_cell_type_sex,
 			pseudobulk_df_scaled_abundant_cell_type |> 
-				map_avoid_confounders_sex_tissue() |> 
-				map_create_formula_sex_tissue(),
+				map_avoid_confounders_sex_cell_type() |> 
+				map_create_formula_sex_cell_type(),
 			pattern = map(pseudobulk_df_scaled_abundant_cell_type),
 			iteration = "group",
-			resources = tar_resources(crew = tar_resources_crew("small_slurm"))
+			resources = tar_resources(crew = tar_resources_crew("slurm_2_20"))
 		),
 		
 		# Make data SEX TISSUE
 		tar_target(
 			pseudobulk_df_scaled_abundant_curated_formula_cell_type_ethnicity,
 			pseudobulk_df_scaled_abundant_cell_type |> 
-				map_avoid_confounders_ethnicity_tissue() |> 
-				map_create_formula_ethnicity_tissue(),
+				map_avoid_confounders_ethnicity_cell_type() |> 
+				map_create_formula_ethnicity_cell_type(),
 			pattern = map(pseudobulk_df_scaled_abundant_cell_type),
 			iteration = "group",
-			resources = tar_resources(crew = tar_resources_crew("small_slurm"))
+			resources = tar_resources(crew = tar_resources_crew("slurm_1_120"))
 		)
 		
 	)
@@ -1652,45 +1517,14 @@ tar_script({
 
 
 #job::job({
-result_directory = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/pseudobulk_0.2.3.5_non_immune"
+# result_directory = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/pseudobulk_0.2.3.5_non_immune"
 
 tar_make(
-	callr_function = NULL,
+	 #callr_function = NULL,
 	script = glue("{result_directory}/_targets__pseudobulk_non_immune_split_Dec2023.R"),
 	store = glue("{result_directory}/_targets__pseudobulk_non_immune_split_Dec2023")
 )
-#})
-# 
-# tar_meta(store = glue("{result_directory}/_targets__pseudobulk_non_immune_split_Dec2023")	)  |>
-# 	filter(name |> str_detect("sce_df_split_by_gene_")) |> 
-# 	filter(name |> str_detect("grouped", negate = TRUE)) |> 
-# 	mutate(saved = map_lgl(
-# 		name, 
-# 		~ {
-# 			.x |> 
-# 				tar_read_raw(name = _, store = glue("{result_directory}/_targets__pseudobulk_non_immune_split_Dec2023")) |> 
-# 				mutate(file_name = glue("{se_md5}___{tissue_harmonised}.qs")) |> 
-# 				nest(data_to_save = -file_name) |> 
-# 				mutate(saved = map2(
-# 					data_to_save, file_name,
-# 					~ .x |> qs::qsave(glue("{result_directory}/sce_df_split_by_gene/{.y}"))
-# 				))
-# 			
-# 			return(TRUE)
-# 		},
-# 		.progress = TRUE
-# 	))
 
-# tar_make_future(
-# 	script = glue("{result_directory}/_targets__pseudobulk_non_immune_split_Dec2023.R"),
-# 	store = glue("{result_directory}/_targets__pseudobulk_non_immune_split_Dec2023"), 
-# 	workers = 200,
-# 	garbage_collection = TRUE
-# )
 
-# tar_read(pseudobulk_df_tissue, store = glue("{result_directory}/_targets__pseudobulk_non_immune_split_Dec2023"), branches = 1)
-# 
-# tar_visnetwork(
-# 	store = glue("{result_directory}/_targets__pseudobulk_non_immune_split_Dec2023")
-# )
 
+#  "/stornext/General/scratch/GP_Transfer/michael_targets/"
