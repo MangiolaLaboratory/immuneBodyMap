@@ -187,10 +187,12 @@ tar_script({
 				slurm_cpus_per_task = 5,
 				workers = 300,
 				verbose = T
-			)
+			),
+			
+			crew_controller_local(name = "local_30", workers = 30)
 		),
 		resources = tar_resources(crew = tar_resources_crew("slurm_2_20")) ,
-		 # debug = "tissue_cell_type_metadata", # Set the target you want to debug.
+		debug = "pseudobulk_df", # Set the target you want to debug.
 		cue = tar_cue(mode = "never")		
 	)
 	
@@ -1412,7 +1414,7 @@ tar_script({
 			tissue_cell_type_metadata |> get_sce() |> get_pseudobulk(),
 			pattern = map(tissue_cell_type_metadata),
 			iteration = "group",
-			resources = tar_resources(crew = tar_resources_crew("slurm_2_20"))
+			resources = tar_resources(crew = tar_resources_crew("local_30"))
 		),
 		
 		
@@ -1520,7 +1522,7 @@ tar_script({
 # result_directory = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/pseudobulk_0.2.3.5_non_immune"
 
 tar_make(
-	 #callr_function = NULL,
+	 callr_function = NULL,
 	script = glue("{result_directory}/_targets__pseudobulk_non_immune_split_Dec2023.R"),
 	store = glue("{result_directory}/_targets__pseudobulk_non_immune_split_Dec2023")
 )
