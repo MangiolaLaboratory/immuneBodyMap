@@ -119,5 +119,5 @@ res_relative |>
 
 # Remove unwanted variation
 res_relative |>
-  remove_unwanted_variation(~  ethnicity_simplified, ~  ethnicity_simplified) |>
+  sccomp_remove_unwanted_variation(~  ethnicity_simplified, ~  ethnicity_simplified) |>
   saveRDS(output_file_2)

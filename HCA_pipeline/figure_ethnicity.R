@@ -128,7 +128,7 @@ plot_ethnicity_absolute_1D =
 
 	  drop_na() |>
 
-	  select(sample_dummy,    Other,`Hispanic or Latin American`, African, European,) |>
+	  select(sample_dummy,    Other, Hispanic = `Hispanic or Latin American`, African, European,) |>
 	  tidybulk::as_matrix(rownames = sample_dummy) |>
 	  bayesplot::mcmc_intervals(point_size = 1, inner_size = 0.5, outer_size = 0.25) +
 	  coord_flip() +
@@ -1059,18 +1059,23 @@ plot_PCA_ethnicity =
                                              yend = (PC2*5)), arrow = arrow(length = unit(1/2, "picas")),
                      color = "black") +
         geom_point(size = 0.5) +
-        annotate("text", x = (PCAloadings$PC1*5), y = (PCAloadings$PC2*5),
-                 label = PCAloadings$Variables) +
-        scale_color_manual(values = c("European" = "#E41A1C", "Chinese" = "#377EB8", "African" = "#4DAF4A", "Other" = "#984EA3")) +
+        annotate("text",
+                 x = (PCAloadings$PC1*5),
+                 y = (PCAloadings$PC2*5),
+                 label = PCAloadings$Variables, 
+                 size = 2
+                  ) +
+        scale_color_manual(values = c("European" = "#E41A1C", "Chinese" = "#377EB8", "African" = "#4DAF4A", "Other" = "#984EA3", "Hispanic" = "#FF7F00")) +
         guides(color="none") +
-        theme_multipanel
+        theme_multipanel +
+        theme(axis.title.x = element_blank(), axis.title.y = element_blank())
 
-      ggExtra::ggMarginal(gg, groupColour = TRUE, groupFill = TRUE)
+      ggExtra::ggMarginal(gg, groupColour = TRUE, groupFill = TRUE, size = 5)
       },
     .progress = TRUE
   )) |>
   pull(plot) |>
-  wrap_plots()
+  wrap_plots(nrow = 1)
 
 
 # # Which genes are shared across tissue programs
@@ -1103,9 +1108,9 @@ plot_genes_most_altered =
   de_ethnicity_cell_type |>
   filter(map_lgl(data, ~ "P_ethnicity_simplified_adjusted" %in% colnames(.x))) |>
   mutate(data = map(data, ~ .x |> select(P_ethnicity_simplified_adjusted, .feature))) |>
-  select(data, name) |>
+  select(data, name, cell_type_harmonised) |>
   unnest(data) |>
-  filter(name |> str_detect("immune_unclassified", negate = TRUE)) |>
+  filter(cell_type_harmonised |> str_detect("immune_unclassified", negate = TRUE)) |>
   nest(cell_types = -.feature) |>
 
   mutate(cell_types_significant = map(
@@ -1121,17 +1126,20 @@ plot_genes_most_altered =
   mutate(proportion = n/n_cell_type) |>
   #filter(proportion > 0.30) |>
   arrange(desc(n)) |>
-  mutate(cell_type_names = map_chr(cell_types_significant, ~ .x |> pull(name) |> str_c(collapse = ", ") |> str_remove_all("data_"))) |>
+  mutate(cell_type_names = map_chr(cell_types_significant, ~ .x |> pull(cell_type_harmonised) |> str_c(collapse = ", ") |> str_remove_all("data_"))) |>
 
-  # Plot
   mutate(class = case_when(
-    row_number() <= 10 ~ "shared",
-    row_number() == 11 ~ "CD4",
-    row_number() %in% c(21, 23, 34) ~ "naive",
-    row_number() == 41 ~ "Monocyte"
+    .feature %in% c(
+      "TOP2A", "LAG3", "SLAMF7", "HLA-DRA", "CD8B", "IFIT1", "IFIT3", "PTGS2",
+      "HMOX1", "GZMK", "FCER1G", "KLRC3", "KLRF1", "TGFBR3"
+    ) ~ "Used in diagnosis",
+    n > 7 ~ "Other top DE"
+  )) |> 
+  mutate(label = if_else(
+    class == "Used in diagnosis" | class == "Other top DE", 
+    .feature,
+    NA
   )) |>
-
-  mutate(label = if_else(!is.na(class), .feature, NA)) |>
   #mutate(n = as.character(n)) |>
   ggplot(aes(proportion, n, label = label)) +
   geom_point(aes(size = n_cell_type, color = class, alpha = !is.na(class))) +
@@ -1141,8 +1149,64 @@ plot_genes_most_altered =
   #scale_alpha_manual(values = c(`FALSE` = 0.3, `TRUE` = 1)) +
   ylab("Number of cell type with significant changes") +
   xlab("Proportion of significant cell types on all tested cell types") +
-  xlim(c(NA, 0.4)) +
   theme_multipanel
+
+
+fixed_effects = 
+  de_ethnicity_cell_type |>
+  filter(map_lgl(data, ~ "P_ethnicity_simplified_adjusted" %in% colnames(.x))) |>
+  select(data, name, cell_type_harmonised) |>
+  unnest(data) |> 
+  filter(cell_type_harmonised |> str_detect("immune_unclassified", negate = TRUE)) |> 
+  filter(P_ethnicity_simplified_adjusted < 0.05) |> 
+  filter(.feature == "TOP2A") |> 
+  select(cell_type_harmonised, contains("ethnicity_simplified")) |> 
+  select(1:5) |> 
+  pivot_longer(-cell_type_harmonised, names_to = "ethnicity", values_to = "fixed_effect")
+
+
+plot_genes_most_altered_effects = 
+  de_ethnicity_cell_type |>
+  filter(map_lgl(data, ~ "P_ethnicity_simplified_adjusted" %in% colnames(.x))) |>
+  select(data, name, cell_type_harmonised) |>
+  unnest(data) |> 
+  filter(cell_type_harmonised |> str_detect("immune_unclassified", negate = TRUE)) |> 
+  filter(P_ethnicity_simplified_adjusted < 0.05) |> 
+  nest(data = -.feature) |> 
+  filter(.feature %in% c("TOP2A", "LAG3", "SLAMF7")) |> 
+  mutate(plot = map2(
+    data, .feature,
+    ~ .x |> 
+      select(cell_type_harmonised, contains("tissue_harmonised__ethnicity_simplified")) |> 
+      pivot_longer(-cell_type_harmonised, names_sep = "__", names_to = c("tissue", "ethnicity", "stat")) |> 
+      left_join(fixed_effects) |> 
+      mutate(ethnicity = ethnicity |> str_remove("ethnicity_simplified") |> str_replace("Hispanic\\.or\\.Latin\\.American", "Hispanic")) |>     
+      drop_na() |>  
+      mutate(value = value + fixed_effect) |> 
+      pivot_wider(names_from = stat, values_from = value) |> 
+      arrange(ethnicity, mode) |> 
+      distinct(ethnicity, mode, lower, upper) |>
+      drop_na() |>  
+      rowid_to_column("order") |> 
+      #mutate(tissue = tissue |> str_remove("_tissue_harmonised")) |> 
+      #unite(c(tissue, cell_type_harmonised, ethnicity), col = "label", remove = FALSE ) |>  
+      ggplot(aes(color = ethnicity )) + 
+      geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
+      geom_linerange(aes(y=order, xmin=lower, xmax=upper)) +
+      geom_point(aes(mode, order), shape = ".") + 
+      annotate("text", label = "European baseline", x = 0.5, y = 30, angle = 90) +
+      scale_color_manual(values = c("European" = "#E41A1C", "Chinese" = "#377EB8", "African" = "#4DAF4A", "Other" = "#984EA3", "Hispanic" = "#FF7F00")) +
+      xlab("Log-fold change") +
+      ylab("Tissue/cell-type pairs") +
+      guides(color = "none") +
+      ggtitle(.y) +
+      theme_multipanel +
+      theme(axis.text.y = element_blank(), axis.ticks.y = element_blank(), axis.title.y = element_blank()), 
+    .progress = TRUE
+  )) |> 
+  pull(plot) |> 
+  wrap_plots(nrow = 1)
+ 
 
 # # Tissue DE
 # job::job({
@@ -1464,75 +1528,24 @@ plot_genes_most_altered =
 #
 # se_adjust_cell_type |> qs::qsave("sccomp_on_HCA_0.2.3.5/de_ethnicity_cell_type_adjusted.qs")
 
-
-
-
-# Select tissue pathways
-xx =
-	qs::qread("sccomp_on_HCA_0.2.3.5/de_ethnicity_tissue_adjusted.qs") |>
-	select(name, enriched_m_f, enriched_pathways, generic_vc_cell_specific) |>
-	mutate(enriched_pathways = map(
-		enriched_pathways,
-		~ .x |>
-			filter(p.adjust<0.05) |>
-			mutate(GeneRatio = map_dbl(GeneRatio, ~ parse(text = .x) |> eval())) |>
-			arrange(desc(GeneRatio)) |>
-			head(10) |>
-
-			# Convert back to entrez
-			mutate(symbol = map(
-				entrez,
-				~ AnnotationDbi::mapIds(org.Hs.eg.db::org.Hs.eg.db,
-																keys = .x,
-																keytype = "ENTREZID",
-																column = "SYMBOL",
-																multiVals = "first"
-				) |> suppressMessages()
-			))
-	)) |>
-	unnest(enriched_pathways)
-
-
-
 # Compose plot with patchwork
 plot =
 
 	# Row 1
-	((
 		((
 			plot_ethnicity_absolute_1D |
-			  plot_spacer() |
-			  plot_PCA_ethnicity
+			  plot_spacer()
+			  
 		) +
-			plot_layout(width = c(0.5, 2, 1))
+			plot_layout(width = c(0.3, 2))
 		) /
-
+    plot_PCA_ethnicity /
 		# Row 2
 		((
-			wrap_heatmap(
-				plot_heatmap_ethnicity_relative_organ_cell_type,
-				padding = grid::unit(c(-50, -20, -0, -5), "points" ),
-				clip = FALSE
-			) |
-				plot_ranks_cell_type |
-				plot_ranks_cell_type_barplot |
-				plot_ranks_tissue | # Add bar plot
-				plot_ranks_tissue_barplot
-		) + plot_layout(width = c(1.5, 0.9, 0.2, 1.1, 0.2))
-	) /
-
-		# Row 3
-		((
-			(		wrap_plots(venn_0_3) / wrap_plots(venn_0_5) ) |
-			plot_genes_most_altered |
-			plot_spacer() |
-			plot_spacer()
-		) + plot_layout(width = c(1, 0.8, 1, 1))
-	)
-
-	) + plot_layout( height = c(55, 60, 55))
-	) +
-	plot_layout(width = c(84, 97)) &
+		  plot_genes_most_altered |
+		    plot_genes_most_altered_effects
+		) + plot_layout(width = c(1, 2))
+	)  &
 	theme(
 		plot.margin = margin(0, 0, 0, 0, "pt"),
 		legend.key.size = unit(0.2, 'cm'),
@@ -1545,7 +1558,7 @@ ggsave(
 	plot = plot,
 	units = c("mm"),
 	width = 183 ,
-	height = 200 ,
+	height = 170 ,
 	limitsize = FALSE
 )
 
