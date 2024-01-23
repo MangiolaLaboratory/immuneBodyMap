@@ -914,7 +914,7 @@ store = glue("{result_directory_pseudobulk}/_targets__pseudobulk_non_immune_spli
 de_sex_cell_type = readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_cell_type.rds")
 
 
-rank_de_cell_type = 
+ rank_de_cell_type = 
   de_sex_cell_type |>
 	filter(!is.na(cell_type_harmonised)) |> 
 	unnest(data) |> 
