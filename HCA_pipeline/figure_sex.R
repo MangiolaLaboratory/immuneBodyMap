@@ -878,7 +878,7 @@ library(tidyverse)
 library(glue)
 library(targets)
 result_directory_pseudobulk = "pseudobulk_0.2.3.5_non_immune"
-store = glue("{dplyr::countresult_directory_pseudobulk}/_targets__pseudobulk_non_immune_split3")
+store = glue("{result_directory_pseudobulk}/_targets__pseudobulk_non_immune_split3")
 # Plot of importance of composition vs transcription
 
 library(furrr)
@@ -887,34 +887,34 @@ plan(multisession, workers = 36)
 options(future.globals.maxSize = 200000 * 1024^2)
 
 
-# de_sex_cell_type =
-# 	tar_meta( store = store	) |>
-# 	dplyr::filter(name |> str_detect("estimates_sex_cell_type_")) |>
-# 	filter(!is.na(data)) |>
-# 	mutate(se = future_map(
-# 		name,
-# 		~ .x |>
-# 			tar_read_raw(store=store ) |>
-# 			mutate(is_immune = map_lgl(data, ~ .x |> tidySummarizedExperiment::pull(cell_type_harmonised) %in% c(
-# 				"b memory",     "cd8 tcm"  ,    "cd8 tem",      "plasma" ,
-# 				"b naive" ,     "cd14 mono" ,   "cd4 fh"   ,    "cd4 naive"  ,
-# 				"cd4 th1/th17", "cd4 th17",     "cd4 th2" ,     "cdc"  ,
-# 				"ilc" ,         "macrophage",   "mait" ,        "nk" ,
-# 				"tgd"  ,        "treg"
-# 			) |> any())) |>
-# 			mutate(data = map(data, tidybulk::pivot_transcript)),
-# 		.progress=T
-# 		# ,
-# 		# .env_globals = environment()
-# 	)) |>
-# 	select(-data) |>
-# 	unnest(se)
-# de_sex_cell_type |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_cell_type.rds")
+de_sex_cell_type =
+	tar_meta( store = store	) |>
+	dplyr::filter(name |> str_detect("estimates_sex_cell_type_")) |>
+	filter(!is.na(data)) |>
+	mutate(se = future_map(
+		name,
+		~ .x |>
+			tar_read_raw(store=store ) |>
+			mutate(is_immune = map_lgl(data, ~ .x |> tidySummarizedExperiment::pull(cell_type_harmonised) %in% c(
+				"b memory",     "cd8 tcm"  ,    "cd8 tem",      "plasma" ,
+				"b naive" ,     "cd14 mono" ,   "cd4 fh"   ,    "cd4 naive"  ,
+				"cd4 th1/th17", "cd4 th17",     "cd4 th2" ,     "cdc"  ,
+				"ilc" ,         "macrophage",   "mait" ,        "nk" ,
+				"tgd"  ,        "treg"
+			) |> any())) |>
+			mutate(data = map(data, tidybulk::pivot_transcript)),
+		.progress=T
+		# ,
+		# .env_globals = environment()
+	)) |>
+	select(-data) |>
+	unnest(se)
+de_sex_cell_type |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_cell_type.rds")
 
 de_sex_cell_type = readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_sex_cell_type.rds")
 
 
-rank_de_cell_type = 
+ rank_de_cell_type = 
   de_sex_cell_type |>
 	filter(!is.na(cell_type_harmonised)) |> 
 	unnest(data) |> 
