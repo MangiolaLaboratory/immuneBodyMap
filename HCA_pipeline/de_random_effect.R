@@ -152,6 +152,7 @@ pairs(data.frame(glmGamPoi_disk, glmGamPoi, DESeq2, egdeR))
 
 result_directory = "/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_3"
 library(targets)
+
 tar_script({
   
   library(tidyverse)
@@ -185,11 +186,11 @@ tar_script({
         workers = 500,
         tasks_max = 20,
         seconds_idle = 30,
-        crashes_error = 6,
+        crashes_error = 7,
         options_cluster = crew_options_slurm(
-          memory_gigabytes_required = c(5, 10, 20, 40, 80, 160), 
+          memory_gigabytes_required = c(3, 5, 10, 20, 40, 80, 160), 
           cpus_per_task = 2, 
-          time_minutes = c(60*4, 60*4, 60*4, 60*4, 60*24, 60*24),
+          time_minutes = c(60, 60*4, 60*4, 60*4, 60*4, 60*24, 60*24),
           verbose = T
         )
       )
@@ -250,6 +251,9 @@ tar_script({
           # Get scaling factor
           scale_abundance(method = "TMMwsp", reference_sample = "0edf00b9d5cd39b046f90be198fb07db___1") |> 
           
+          # Drop sex unknown as causes problem during fit
+          select(sex != "unknown") |> 
+          
           # Eliminate complete confounders
           tidybulk:::resolve_complete_confounders_of_non_interest(assay_groups, dataset_id, age_bin_sex_specific, sex, disease_groups)
         
@@ -272,7 +276,7 @@ tar_script({
     tar_target(
       pseudobulk_sample_gene_split, 
       {
-        chunk_size = 100
+        chunk_size = 1
         
         total_rows = nrow(pseudobulk_sample)
         num_chunks = ceiling(total_rows / chunk_size)
