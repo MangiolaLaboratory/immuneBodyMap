@@ -4,33 +4,10 @@ library(HPCell)
 library(magrittr)
 library(tibble)
 devtools::load_all("~/PostDoc/tidybulk/")
-pseudobulk_sample = 
-  HDF5Array::loadHDF5SummarizedExperiment("/vast/projects/cellxgene_curated/cellNexus/pseudobulk_sample_is_immune") |> 
-  filter(is_gene_shared) |> 
-  filter(is_immune & do_analyse) 
-
-samples_with_right_number_of_detected_genes = 
-  (pseudobulk_sample |> assay() > 0) |> 
-  colSums() |> 
-  divide_by(nrow(pseudobulk_sample)) |> 
-  between(0.3, 0.7)
-
-pseudobulk_sample = pseudobulk_sample[,samples_with_right_number_of_detected_genes] 
-
-pseudobulk_sample = 
-  pseudobulk_sample |> 
-  tidybulk::keep_abundant(design = 
-                            pseudobulk_sample |> 
-                            mutate(is_old_individual = age_days > 50*365) |> 
-                            tidybulk::resolve_complete_confounders_of_non_interest(tissue_groups, sex, ethnicity_groups, is_old_individual) |> 
-                            colData() |> 
-                            droplevels() |> 
-                            model.matrix(~ tissue_groups + sex + ethnicity_groups + is_old_individual, data = _  ), 
-                          minimum_counts = 100
-  )
 
 
-# On real dataset
+
+# Dispersion 2 days calculation
 job::job({
   library(tictoc)
   tic()
@@ -51,30 +28,11 @@ job::job({
   toc()
 })
 
-# overdispersion with subsampling
-glmGamPoi_subsample_overdispersions  = readRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/glmGamPoi_cellNexus_1_0_3.rds")$overdispersions
-glmGamPoi_subsample_overdispersions[glmGamPoi_subsample_overdispersions>1e5] = max(glmGamPoi_subsample_overdispersions[glmGamPoi_subsample_overdispersions<1e5])
 
 # overdispersion with NO subsampling ~ 6K samples
 glmGamPoi_overdispersions  = readRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/glmGamPoi_all_samples_no_subsampling_cellNexus_1_0_3.rds")$overdispersions
 glmGamPoi_overdispersions[glmGamPoi_overdispersions>1e5] = max(glmGamPoi_overdispersions[glmGamPoi_overdispersions<1e5])
 
-plot(glmGamPoi_overdispersions, glmGamPoi_subsample_overdispersions)
-
-x = 
-  pseudobulk_sample |> 
-  HPCell::split_summarized_experiment()
-
-
-
-profvis::profvis({
-  pseudobulk_sample_small |> 
-    assay() |> 
-    edgeR::estimateDisp(tagwise = TRUE, robust = TRUE, design = design) %$% 
-    tagwise.dispersion |>
-    setNames(rownames(pseudobulk_sample_small)) |>
-    enframe(name = ".feature", value = "dispersion")
-})
 
 pseudobulk_sample_small_mat = pseudobulk_sample_small
 as = assay(pseudobulk_sample_small_mat) |> as.matrix() |> apply(2, as.integer)
@@ -177,7 +135,7 @@ tar_script({
     workspace_on_error = TRUE,
     format = "qs",
     
-    debug = "pseudobulk_sample",
+    debug = "estimates_chunk",
     
     controller = crew_controller_group(
       
@@ -188,9 +146,22 @@ tar_script({
         seconds_idle = 30,
         crashes_error = 7,
         options_cluster = crew_options_slurm(
-          memory_gigabytes_required = c(3, 5, 10, 20, 40, 80, 160), 
+          memory_gigabytes_required = c(10, 20, 40, 80, 160), 
           cpus_per_task = 2, 
-          time_minutes = c(60, 60*4, 60*4, 60*4, 60*4, 60*24, 60*24),
+          time_minutes = c(60*4, 60*4, 60*4, 60*24, 60*24),
+          verbose = T
+        )
+      ),
+      crew_controller_slurm(
+        name = "elastic_big",
+        workers = 50,
+        tasks_max = 20,
+        seconds_idle = 30,
+        crashes_error = 5,
+        options_cluster = crew_options_slurm(
+          memory_gigabytes_required = c(80, 160), 
+          cpus_per_task = 2, 
+          time_minutes = c(60*24, 60*24),
           verbose = T
         )
       )
@@ -252,77 +223,106 @@ tar_script({
           scale_abundance(method = "TMMwsp", reference_sample = "0edf00b9d5cd39b046f90be198fb07db___1") |> 
           
           # Drop sex unknown as causes problem during fit
-          select(sex != "unknown") |> 
+          filter(sex != "unknown") |> 
           
           # Eliminate complete confounders
-          tidybulk:::resolve_complete_confounders_of_non_interest(assay_groups, dataset_id, age_bin_sex_specific, sex, disease_groups)
+          tidybulk:::resolve_complete_confounders_of_non_interest(assay_groups, dataset_id, disease_groups) |> 
+          
+          mutate(offset = log(multiplier))
         
         # Add dispersion
         rowData(se)  = 
           rowData(se) |> 
           as_tibble(rownames = ".feature") |> 
           left_join(glmGamPoi_overdispersions |> enframe(name = ".feature", value = "dispersion")) |> 
+          mutate(dispersion = 1 / dispersion) |> 
           data.frame(row.names = ".feature") |> DataFrame()
           
         se
         
       }, 
       packages = c("tidybulk", "HDF5Array", "tidySummarizedExperiment", "magrittr", "tibble"),
-      resources = tar_resources(crew = tar_resources_crew("elastic"))
+      resources = tar_resources(crew = tar_resources_crew("elastic_big"))
       
     ),
     
     # Split in gene chunks
     tar_target(
-      pseudobulk_sample_gene_split, 
-      {
-        chunk_size = 1
-        
-        total_rows = nrow(pseudobulk_sample)
-        num_chunks = ceiling(total_rows / chunk_size)
-        
-        chunks =
-          tibble(.feature = rownames(pseudobulk_sample)) |>
-          mutate(chunk___ = rep(1:num_chunks, each = chunk_size, length.out = nrow(pseudobulk_sample)))
-        
-        # Join chunks
-        grouping_factor = chunks |> pull(chunk___) |> as.factor()
-        
-        pseudobulk_sample |> HPCell:::splitRowData(f = grouping_factor)
-      }, 
-      
-      iteration = "list",
-      packages = c( "HPCell"),
+      feature_df, 
+        pseudobulk_sample |> 
+        distinct(.feature)|> 
+        group_by(.feature) |> 
+        tar_group(), 
+      iteration = "group",
+      packages = c( "tidySummarizedExperiment", "targets", "purrr", "dplyr"),
       resources = tar_resources(crew = tar_resources_crew("elastic"))
     ),
     tar_target(
-      estimates_chunk, 
-      {
-        
-        if(ncol(pseudobulk_sample_gene_split) > 2000) method = "glmmseq_glmmTMB"
-        else method = "glmmSeq_lme4"
-        
-        
-        # Test
-        pseudobulk_sample_gene_split |> 
-          filter(sex != "unknown") |> 
-        test_differential_abundance(
-          ~ 1  + sex   + 
-            (1  + sex  | tissue_groups), 
-          method = method,
-          .dispersion = dispersion,
-          .scaling_factor = multiplier,
-          max_rows_for_matrix_multiplication = 10000, 
-          cores = 1, # as.numeric(Sys.getenv("SLURM_CPUS_PER_TASK", unset = 1)), 
-          action = "get",
-          family = Gamma(link="log")
-        )
-      } , 
-      pattern = map(pseudobulk_sample_gene_split),
-      iteration = "list",
-      packages = c( "HPCell"),
-      resources = tar_resources(crew = tar_resources_crew("elastic"))
+      se_df, 
+        feature_df |> mutate(se = map(.feature, ~ 
+          pseudobulk_sample[.x, , drop=FALSE]
+        ))  , 
+      pattern = map(feature_df),
+      packages = c( "brms", "glue"),
+      resources = tar_resources(crew = tar_resources_crew("elastic_big"))
       
+    ),
+    tar_target(
+      estimates_chunk, 
+        
+        se_df |> mutate(brms_fit = map(se, ~ {
+          
+          data = 
+            .x |>
+            as_tibble() |> 
+            mutate(counts = counts |> as.integer()) |> 
+            droplevels()
+          
+          # Define the model formula
+          formula <- bf(
+            counts ~ 1 + offset(offset) + age_bin_sex_specific*sex + disease_groups + ethnicity_groups + assay_groups + 
+              (1 | dataset_id) + 
+              (1 + age_bin_sex_specific*sex + ethnicity_groups | tissue_groups),
+            shape ~ 1 + dispersion  # Model 'shape' as a function of scaled 'disp'
+          )
+          
+          prior = c(
+            prior(normal(i, 2), class = Intercept),
+            prior(normal(0, 2), class = Intercept, dpar = shape),
+            prior(normal(0, 2), class = b, dpar = shape)
+          ) |> 
+            substitute(env = list(i = mean(log1p(data$counts * exp(data$offset))))) |> 
+            eval()
+          
+          chains = 2
+          inits <- list(Intercept = mean(log1p(data$counts * exp(data$offset))))
+          inits <- replicate(chains, inits, simplify = FALSE)
+          
+          
+          brm(
+            formula = formula,
+            data = data,
+            family = zero_inflated_negbinomial(),
+            prior = prior,
+            chains = chains,
+            cores = as.numeric(Sys.getenv("SLURM_CPUS_PER_TASK", unset = 1)), #, threads = 2,
+            warmup = 300, 
+            refresh = 10,
+            backend = "cmdstanr", 
+            #sparse = TRUE,
+            #save_model = glue("{external_directory}~/temp.rds"),
+            #algorithm = "pathfinder",
+            init = inits,
+            iter = 400  # Increase iterations for better convergence
+          )
+          
+          
+          
+          }))  , 
+      pattern = map(se_df),
+      packages = c( "brms", "glue", "dplyr", "purrr", "SummarizedExperiment", "tidySummarizedExperiment"),
+      resources = tar_resources(crew = tar_resources_crew("elastic")),
+      cue = tar_cue(mode = "never")
       
     )
     
@@ -336,17 +336,20 @@ job::job({
   
   tar_make(
     # callr_function = NULL,
-    reporter = "verbose_positives",
+    reporter = "summary",
     script = glue::glue("{result_directory}/_targets.R"),
     store = glue::glue("{result_directory}/_targets")
   )
   
 })
 
-tar_read(pseudobulk_sample, store = glue::glue("{result_directory}/_targets"))
+x = tar_read_raw("estimates_chunk_062dd2621e3cb7e1", store = glue::glue("{result_directory}/_targets"), branches = 1)
+x |> saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1/estimates_chunk_062dd2621e3cb7e1.rds")
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1/estimates_chunk_062dd2621e3cb7e1.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/removal_unwanted_effects/")
+
 
 tar_workspace(
-  estimates_chunk_f4560cdbe9bb3364, 
+  estimates_chunk_f3b204e35ac2d218, 
   store = glue::glue("{result_directory}/_targets"),
   script = glue::glue("{result_directory}/_targets.R")
 )
