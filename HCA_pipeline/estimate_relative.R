@@ -78,7 +78,6 @@ tar_script({
     retrieval = "worker", 
     error = "continue", 
     #  debug = "dataset_id_sce_ce393fc1e85f2cbc", 
-    # cue = tar_cue(mode = "never"), 
     workspace_on_error = TRUE,
     format = "qs",
     
