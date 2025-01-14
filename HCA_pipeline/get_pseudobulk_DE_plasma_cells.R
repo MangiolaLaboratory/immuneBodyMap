@@ -65,7 +65,7 @@ age_bin <- function(age_days, sex) {
 library(readr)
 library(forcats)
 library(glue)
-edit_covariates = function(tbl, result_directory){
+edit_covariates = function(tbl, disease_tbl){
   
   
   ethnicity_grouped <- tribble(
@@ -262,12 +262,11 @@ edit_covariates = function(tbl, result_directory){
     "pilocytic astrocytoma", "Other Diseases"
   )
   
-  system(glue("~/bin/rclone copy box_adelaide:/minh_immune_map_disease/disease_data_grouped_further.csv {result_directory}/"))
   
   disease_data_grouped = 
     disease_data_grouped |> 
     select(-disease_groups) |> 
-    left_join(read_csv(glue("{result_directory}/disease_data_grouped_further.csv"))) |> 
+    left_join(disease_tbl) |> 
     mutate(disease_groups = if_else(disease_groups |> is.na(), "other", disease_groups))
   
   age_bin_table = 
@@ -321,9 +320,16 @@ edit_covariates = function(tbl, result_directory){
   
 }     
 
+# result_directory = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1") 
+system(glue("~/bin/rclone copy box_adelaide:/minh_immune_map_disease/disease_data_grouped_further.csv ./"))
+
+
 # REMOVE OLD CACHE which is here get_default_cache_dir()
 get_metadata() |> 
-  edit_covariates(result_directory = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1") |> 
+  edit_covariates(
+    read_csv(glue("./disease_data_grouped_further.csv"))
+    ) |>
+     
   # filter( your filtering ) |>
   get_single_cell_experiment(atlas = "cellxgene")
 
