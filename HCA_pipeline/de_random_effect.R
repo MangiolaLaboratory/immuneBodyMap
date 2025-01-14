@@ -266,7 +266,6 @@ tar_script({
         #   rowData(se) |> 
         #   as_tibble(rownames = ".feature") |> 
         #   left_join(glmGamPoi_overdispersions |> enframe(name = ".feature", value = "dispersion")) |> 
-        #   mutate(dispersion = 1 / dispersion) |> 
         #   data.frame(row.names = ".feature") |> DataFrame()
         
         se
@@ -358,7 +357,10 @@ tar_script({
           
           # Formula for dispersion
           shape ~ 1 + disease_groups + assay_groups + ethnicity_groups + (1 | tissue_groups)  # Model 'shape' as a function of scaled 'disp'
-        )
+          
+          # Using the externally, eBayes inferred overdispersion
+          # shape ~ 1 + offset(log(1/dispersion))
+         )
         
         prior = c(
           prior(normal(i, 5), class = Intercept),
