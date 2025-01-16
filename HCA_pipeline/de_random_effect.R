@@ -2,8 +2,7 @@
 library(tidySummarizedExperiment)
 library(HPCell)
 library(magrittr)
-library(tibble)
-library(dplyr)
+library(tidyverse)
 # devtools::load_all("~/PostDoc/tidybulk/")
 
 
@@ -489,6 +488,8 @@ job::job({
 })
 
 
+
+
 pseudobulk_sample = tar_read(pseudobulk_sample, store = glue::glue("{result_directory}/_targets"))
 
 lib_size = pseudobulk_sample |> assay() |> colSums()
@@ -500,10 +501,7 @@ effect_removed =
   tar_read(
     effect_removed,
     store = glue::glue("{result_directory}/_targets")
-  ) 
-
-effect_removed = 
-  effect_removed |>
+  )  |>
   filter(map_int(brms_fit_adjusted, nrow) == 4926 ) |> 
   mutate(brms_fit_adjusted = map(brms_fit_adjusted, ~ .x |> 
                                    select(adjusted___Estimate) |> #, adjusted___Q2.5, adjusted___Q97.5) |> 
@@ -555,13 +553,16 @@ summaries =
   filter(n < 4) |> 
   with_groups(Hypothesis, ~ .x |> arrange(desc(closest_to_zero)) |> dplyr::slice(1:50))
 
-pseudobulk_sample_for_PCA = pseudobulk_sample
-
-pseudobulk_sample_for_PCA |> 
+# Save the unknown ethnicities
+pseudobulk_sample |> 
+  select(-contains("PC"), -contains("tSNE"), -contains("UMAP")) |> 
+  filter(ethnicity_groups == "Other/Unknown") |> 
   as("SingleCellExperiment") |> 
-  zellkonverter::writeH5AD(file = "~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/pseudobulk_sample_for_PCA_adjusted_ethnicity.h5ad", compression = "gzip")
-system("~/bin/rclone copy ~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/pseudobulk_sample_for_PCA_adjusted_ethnicity.h5ad box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/removal_unwanted_effects/")
+  zellkonverter::writeH5AD(file = "~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/pseudobulk_sample_for_PCA_adjusted_ethnicity_unknown_ethnicity.h5ad", compression = "gzip")
+system("~/bin/rclone copy ~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/pseudobulk_sample_for_PCA_adjusted_ethnicity_unknown_ethnicity.h5ad box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/removal_unwanted_effects/")
 
+
+pseudobulk_sample_for_PCA = pseudobulk_sample
 
 pseudobulk_sample_for_PCA = 
   pseudobulk_sample_for_PCA |> 
@@ -575,6 +576,17 @@ pseudobulk_sample_for_PCA =
 pseudobulk_sample_for_PCA  = pseudobulk_sample_for_PCA |> filter(PC1 < 60)
 pseudobulk_sample_for_PCA  = pseudobulk_sample_for_PCA |> filter(PC4 > -20)
 
+pseudobulk_sample_for_PCA |> 
+  as("SingleCellExperiment") |> 
+  zellkonverter::writeH5AD(file = "~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/pseudobulk_sample_for_PCA_adjusted_ethnicity.h5ad", compression = "gzip")
+system("~/bin/rclone copy ~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/pseudobulk_sample_for_PCA_adjusted_ethnicity.h5ad box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/removal_unwanted_effects/")
+
+pseudobulk_sample_for_PCA = 
+  zellkonverter::readH5AD(
+    file = "~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/pseudobulk_sample_for_PCA_adjusted_ethnicity.h5ad",
+    use_hdf5 = TRUE, 
+    reader = "R"
+  )
 
 
 colData(pseudobulk_sample)$sum = pseudobulk_sample |> assay("counts_adjusted_ethnicity") |> colSums()
@@ -591,13 +603,16 @@ pseudobulk_sample_for_PCA |>
   select(contains("PCA"), everything()) |> 
 GGally::ggpairs(columns = 19:38, ggplot2::aes(colour=`ethnicity_groups`))
 
+
+library(plotly)
+library(tidyomics)
 pseudobulk_sample_for_PCA |>
   pivot_sample() |> 
   plot_ly(
     x = ~`tSNE1`,
     y = ~`tSNE2`,
     z = ~`tSNE3`,
-    color = ~disease_groups
+    color = ~ethnicity_groups
   ) %>%
   add_markers(size = I(10))
 
