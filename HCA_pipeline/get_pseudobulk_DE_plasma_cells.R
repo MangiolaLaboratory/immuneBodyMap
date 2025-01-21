@@ -845,73 +845,98 @@ tar_script({
     tar_target(
       pseudobulk_sample,
       {
-        se = 
-          # readRDS()
-          loadHDF5SummarizedExperiment("/vast/projects/cellxgene_curated/cellNexus/pseudobulk_sample_cell_type/") |> 
-          
-          #---------------------------------#
-          # Edit or add more filters here for analyses
-          #---------------------------------#
-          
-          filter(is_gene_shared) |> 
-          filter(cell_type_unified_ensemble == "epithelial" ) |>
-          select(.feature, .sample, counts, sample_id, gene_presence, cell_type_unified_ensemble) |> 
-          left_join(
-            get_metadata() |> 
-              filter(cell_type_unified_ensemble == "epithelial" ) |> 
-              edit_covariates(
-                read_csv(glue("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1/disease_data_grouped_further.csv"))
-              ) |> 
-              distinct(sample_id, dataset_id, collection_id,  age_bin, age_days, sex, disease_groups, ethnicity_groups, assay_groups, tissue_groups ) 
+        
+        system("~/bin/rclone copy box_adelaide:/Mangiola_ImmuneAtlas/dharmesh_shared_mix/se_age_sex_tissues_epithelial.rds ~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/")
+        
+        
+        sce = readRDS("~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/se_age_sex_tissues_epithelial.rds") 
+        
+        se  = 
+          sce |> 
+          filter(ncells >=10) |> 
+          as("SummarizedExperiment")
+        
+       rownames(se) = rownames(sce) 
+        
+         cd = 
+          colData(se) |> 
+          as_tibble(rownames = "rn") |> 
+          mutate(
+            prop_plasma_logit_scaled = prop_plasma_logit |> scale() |> as.numeric(),
+            ncells_log_scaled = ncells |> log() |> scale() |> as.numeric()
           ) |> 
-          filter(age_days > 365) |> 
-          # Drop sex unknown as causes problem during fit
-          filter(sex != "unknown") |> 
-          filter(
-            disease_groups == "Normal",
-            tissue_groups %in% c("bone marrow", "cardiovascular system", "epithelium and mucosal tissues", "large intestine", "liver", "nasal, oral, and pharyngeal regions", "oesophagus", "stomach")
-          )  
+          as.data.frame() |> 
+          DataFrame()
         
-        # filter(is_immune & do_analyse) 
+        cd |> rownames() = colnames(se)
         
+        colData(se) = cd
         
-        samples_with_right_number_of_detected_genes = 
-          (se |> assay() > 0) |> 
-          colSums() |> 
-          divide_by(nrow(se)) |> 
-          between(0.3, 0.7)
-        
-        se = se[,samples_with_right_number_of_detected_genes] 
-        
-        se = 
-          se |> 
-          keep_abundant(design = 
-                          se |> 
-                          
-                          # Discretise the age for the following operation
-                          mutate(is_old_individual = age_days > 50*365) |> 
-                          resolve_complete_confounders_of_non_interest(tissue_groups, sex, ethnicity_groups, is_old_individual) |> 
-                          colData() |> 
-                          droplevels() |> 
-                          model.matrix(~ tissue_groups + sex + ethnicity_groups + is_old_individual, data = _  ), 
-                        minimum_counts = 100
-          ) 
-        
+        #   loadHDF5SummarizedExperiment("/vast/projects/cellxgene_curated/cellNexus/pseudobulk_sample_cell_type/") |> 
+        #   
+        #   #---------------------------------#
+        #   # Edit or add more filters here for analyses
+        #   #---------------------------------#
+        #   
+        #   filter(is_gene_shared) |> 
+        #   filter(cell_type_unified_ensemble == "epithelial" ) |>
+        #   select(.feature, .sample, counts, sample_id, gene_presence, cell_type_unified_ensemble) |> 
+        #   left_join(
+        #     get_metadata() |> 
+        #       filter(cell_type_unified_ensemble == "epithelial" ) |> 
+        #       edit_covariates(
+        #         read_csv(glue("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1/disease_data_grouped_further.csv"))
+        #       ) |> 
+        #       distinct(sample_id, dataset_id, collection_id,  age_bin, age_days, sex, disease_groups, ethnicity_groups, assay_groups, tissue_groups ) 
+        #   ) |> 
+        #   filter(age_days > 365) |> 
+        #   # Drop sex unknown as causes problem during fit
+        #   filter(sex != "unknown") |> 
+        #   filter(
+        #     disease_groups == "Normal",
+        #     tissue_groups %in% c("bone marrow", "cardiovascular system", "epithelium and mucosal tissues", "large intestine", "liver", "nasal, oral, and pharyngeal regions", "oesophagus", "stomach")
+        #   )  
+        # 
+        # # filter(is_immune & do_analyse) 
+        # 
+        # 
+        # samples_with_right_number_of_detected_genes = 
+        #   (se |> assay() > 0) |> 
+        #   colSums() |> 
+        #   divide_by(nrow(se)) |> 
+        #   between(0.3, 0.7)
+        # 
+        # se = se[,samples_with_right_number_of_detected_genes] 
+        # 
+        # se = 
+        #   se |> 
+        #   keep_abundant(design = 
+        #                   se |> 
+        #                   
+        #                   # Discretise the age for the following operation
+        #                   mutate(is_old_individual = age_days > 50*365) |> 
+        #                   resolve_complete_confounders_of_non_interest(tissue_groups, sex, ethnicity_groups, is_old_individual) |> 
+        #                   colData() |> 
+        #                   droplevels() |> 
+        #                   model.matrix(~ tissue_groups + sex + ethnicity_groups + is_old_individual, data = _  ), 
+        #                 minimum_counts = 100
+        #   ) 
+        # 
         # Compute mean library size
-        mean_library_size <- se |> 
-          assay("counts") |> 
-          colSums() |> 
+        mean_library_size <- se |>
+          assay("counts") |>
+          colSums() |>
           mean()
-        
+
         # Optional: retrieve the sample name (column name in the SummarizedExperiment)
         reference_sample <- colnames(se)[
-          se |> 
-            assay("counts") |> 
-            colSums() |> 
+          se |>
+            assay("counts") |>
+            colSums() |>
             {\(x) abs(x - mean_library_size)}() |>  # Calculate absolute difference from the mean
             which.min()                             # Identify the smallest difference
         ]
-        
+
         
         se = 
           se |> 
@@ -922,7 +947,7 @@ tar_script({
           mutate(offset = log(1/multiplier)) |> 
           
           # Eliminate complete confounders
-          tidybulk:::resolve_complete_confounders_of_non_interest(assay_groups, dataset_id, disease_groups) 
+          tidybulk:::resolve_complete_confounders_of_non_interest(assay_groups, dataset_id) 
         
         # As we have large sample size, we leave the estimation to gene-by-gene    
         # # Add dispersion
@@ -1015,9 +1040,9 @@ tar_script({
         formula <- bf(
           
           # Formula for counts
-          counts ~ 1 + offset(offset) + age_bin*sex + ethnicity_groups + assay_groups + 
+          counts ~ 1 + offset(offset) + ncells_log_scaled + prop_plasma_logit_scaled + ethnicity_groups + assay_groups + 
             (1 | dataset_id) + 
-            (1 + age_bin*sex + ethnicity_groups | tissue_groups),
+            (1 + prop_plasma + ethnicity_groups | tissue_groups),
           
           # Formula for dispersion
           shape ~ 1 + assay_groups + (1 | tissue_groups)  # Model 'shape' as a function of scaled 'disp'
@@ -1063,64 +1088,36 @@ tar_script({
         select(-se), 
       pattern = map(se_df),
       packages = c( "brms", "glue", "dplyr", "purrr", "SummarizedExperiment", "tidySummarizedExperiment"),
-      resources = tar_resources(crew = tar_resources_crew("elastic")),
-      cue = tar_cue(mode = "never")
+      resources = tar_resources(crew = tar_resources_crew("elastic"))
+      #,
+      #cue = tar_cue(mode = "never")
       
     ),
     tar_target(
       summary,
       estimates_chunk |>
-        mutate(summary = map(brms_fit, ~ .x |> hypothesis(
-          c(
-            "Europeans" = "(ethnicity_groupsAfrican
-    + ethnicity_groupsEastAsian
-    + ethnicity_groupsHispanicDLatinAmerican
-    + ethnicity_groupsSouthAsian
-    + `ethnicity_groupsNativeAmerican&PacificIslander`) / 5 = 0",
-            "EastAsian" = "(
-       ethnicity_groupsAfrican
-     + ethnicity_groupsHispanicDLatinAmerican
-     + ethnicity_groupsSouthAsian
-     + `ethnicity_groupsNativeAmerican&PacificIslander`
-     - 5 * ethnicity_groupsEastAsian
-     ) / 5 = 0",
-            "SouthAsian" = "(
-       ethnicity_groupsAfrican
-     + ethnicity_groupsHispanicDLatinAmerican
-     + ethnicity_groupsEastAsian
-     + `ethnicity_groupsNativeAmerican&PacificIslander`
-     - 5 * ethnicity_groupsSouthAsian
-     ) / 5 = 0",
-            "African" = "(
-       ethnicity_groupsEastAsian
-     + ethnicity_groupsHispanicDLatinAmerican
-     + ethnicity_groupsSouthAsian
-     + `ethnicity_groupsNativeAmerican&PacificIslander`
-     - 5 * ethnicity_groupsAfrican
-     ) / 5 = 0",
-            "HispanicDLatinAmerican" = "(
-       ethnicity_groupsAfrican
-     + ethnicity_groupsEastAsian
-     + ethnicity_groupsSouthAsian
-     + `ethnicity_groupsNativeAmerican&PacificIslander`
-     - 5 * ethnicity_groupsHispanicDLatinAmerican
-     ) / 5 = 0",
-            "NativeAmericanPacificIslander" = "(
-       ethnicity_groupsAfrican
-     + ethnicity_groupsHispanicDLatinAmerican
-     + ethnicity_groupsSouthAsian
-     + ethnicity_groupsEastAsian
-     - 5 * `ethnicity_groupsNativeAmerican&PacificIslander`
-     ) / 5 = 0"
-          ),
-
+        
+        # Random
+        mutate(random_plus_fixed_effect_of_plasma_proportion = map(brms_fit, ~ .x |> coef(
           # Median instead and mad of mean and sd
-          robust=TRUE)
+          robust=TRUE
+        ) %$%
+            tissue_groups |> 
+            _[,,"prop_plasma"] |> 
+          as_tibble(rownames = "tissue_groups")
+        )) |>
+        
+        # Fixed
+        mutate(fixed_effects = map(brms_fit, ~ .x |> fixef(
+          # Median instead and mad of mean and sd
+          robust=TRUE
+        ) |> 
+          as_tibble(rownames = "coefficient")
         )) |>
         select(-brms_fit),
 
       pattern = map(estimates_chunk),
-      packages = c( "brms", "glue", "dplyr", "purrr", "rstan"),
+      packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr"),
       resources = tar_resources(crew = tar_resources_crew("elastic"))
     ),
     
@@ -1130,7 +1127,7 @@ tar_script({
         mutate(brms_fit_adjusted = map(brms_fit, ~ .x |> remove_unwanted_effect(
           newdata = .x$data |> mutate(assay_groups=NA, ethnicity_groups = NA), 
           robust = TRUE, 
-          re_formula = ~ (1 + age_bin*sex | tissue_groups) 
+          re_formula = ~ (1 + prop_plasma  | tissue_groups) 
         ))) |> 
         select(-brms_fit),
       
@@ -1156,7 +1153,7 @@ job::job({
   
 })
 
-
+tar_read(estimates_chunk, store = glue::glue("{result_directory}/_targets"), branches = 1)
 
 tar_meta(store = glue::glue("{result_directory}/_targets")) |> 
   arrange(desc(time)) |>
@@ -1165,10 +1162,68 @@ tar_meta(store = glue::glue("{result_directory}/_targets")) |>
 
 
 tar_workspace(
-  summary_cf1bf21b3341ad25, 
+  pseudobulk_sample, 
   script = glue::glue("{result_directory}/_targets.R"),
   store = glue::glue("{result_directory}/_targets")
 )
+
+# Effects
+tar_read(summary, store = glue::glue("{result_directory}/_targets")) |> 
+  select(-tar_group) |> 
+  saveRDS(glue::glue("{result_directory}/summary_epithelial_prop_plasma_DE_brms.rds"))
+
+system(glue("~/bin/rclone copy {result_directory}/summary_epithelial_prop_plasma_DE_brms.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/"))
+
+
+# Adjusted counts
+
+pseudobulk_sample = tar_read(pseudobulk_sample, store = glue::glue("{result_directory}/_targets"))
+
+effect_removed = 
+  tar_read(
+    effect_removed,
+    store = glue::glue("{result_directory}/_targets")
+  )  |>
+ # filter(map_int(brms_fit_adjusted, nrow) == 4926 ) |> 
+  mutate(brms_fit_adjusted = map(brms_fit_adjusted, ~ .x |> 
+                                   select(adjusted___Estimate) |> #, adjusted___Q2.5, adjusted___Q97.5) |> 
+                                   mutate(sample_id = colnames(pseudobulk_sample)), 
+                                 .progress = TRUE
+  )) |>
+  unnest(brms_fit_adjusted)
+
+m = 
+  effect_removed |> 
+  pivot_wider(names_from = sample_id, values_from = adjusted___Estimate) |> 
+  select(-tar_group) |> 
+  tidybulk:::as_matrix(rownames = ".feature") |> 
+  as("sparseMatrix")  |> 
+  Matrix::Matrix(sparse = T)
+
+pseudobulk_sample = pseudobulk_sample[rownames(m),, drop=FALSE ] 
+assay(pseudobulk_sample, "counts_adjusted_plasma") = m
+
+# Cap infinite
+max_rm_infinite = 
+  pseudobulk_sample |> 
+  assay("counts_adjusted_plasma") |> 
+  _[!pseudobulk_sample |> assay("counts_adjusted_plasma") |> is.infinite()] |> 
+  quantile(0.999)
+
+pseudobulk_sample |> 
+  assay("counts_adjusted_plasma") |> 
+  _[pseudobulk_sample |> assay("counts_adjusted_plasma") > max_rm_infinite] = 
+  max_rm_infinite
+
+pseudobulk_sample |> 
+  assay("counts_adjusted_plasma") |> 
+  _[pseudobulk_sample |> assay("counts_adjusted_plasma") < 0] = 
+  0
+
+pseudobulk_sample |> saveRDS(glue::glue("{result_directory}/se_age_sex_tissues_epithelial_adjusted.rds"))
+
+system(glue("~/bin/rclone copy {result_directory}/se_age_sex_tissues_epithelial_adjusted.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/"))
+
 
 sce |> 
   # select(.cell, sex, age_days, dataset_id, observation_joinid , sample_id,  contains("cell"), disease, collection_id, title, contains("ethnicity"), assay, tissue, tissue_groups) |> 
