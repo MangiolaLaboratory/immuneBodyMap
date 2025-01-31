@@ -338,7 +338,11 @@ get_metadata() |>
 #-----------------------#
 
 
-result_directory = "/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_3_plasma_cell_study"
+
+
+#result_directory = "/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_3_plasma_cell_study_no_ncell_factor"
+result_directory = "/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_3_plasma_cell_study_scaled_ncell_factor"
+
 library(targets)
 
 tar_script({
@@ -404,7 +408,7 @@ tar_script({
   #-----------------------#
   # Functions
   #-----------------------#  
-
+  
   #' Remove Unwanted Effects from a brmsfit Model
   #'
   #' This function calculates posterior residuals from a \code{brmsfit} model and combines them with 
@@ -482,7 +486,7 @@ tar_script({
     
     # Extract fitted values for the specified factor only, removing random effects by setting re_formula = ~0
     # 'resp = factor' focuses on the selected response variable (factor)
-    fitted_values_ethnicity <- fitted(fit, newdata = newdata, re_formula = re_formula, summary = FALSE, offset=0)
+    fitted_values_ethnicity <- posterior_epred(fit, newdata = newdata, re_formula = re_formula, summary = FALSE, offset=0)
     
     # Adjusted counts are obtained by adding the factor-specific fitted values and the normalised residuals
     adjusted_counts = fitted_values_ethnicity + fitted_residuals
@@ -856,13 +860,14 @@ tar_script({
           filter(ncells >=10) |> 
           as("SummarizedExperiment")
         
-       rownames(se) = rownames(sce) 
+        rownames(se) = rownames(sce) 
         
-         cd = 
+        cd = 
           colData(se) |> 
           as_tibble(rownames = "rn") |> 
           mutate(
             prop_plasma_logit_scaled = prop_plasma_logit |> scale() |> as.numeric(),
+            ncells_scaled = ncells |> scale() |> as.numeric(),
             ncells_log_scaled = ncells |> log() |> scale() |> as.numeric()
           ) |> 
           as.data.frame() |> 
@@ -927,7 +932,7 @@ tar_script({
           assay("counts") |>
           colSums() |>
           mean()
-
+        
         # Optional: retrieve the sample name (column name in the SummarizedExperiment)
         reference_sample <- colnames(se)[
           se |>
@@ -936,7 +941,7 @@ tar_script({
             {\(x) abs(x - mean_library_size)}() |>  # Calculate absolute difference from the mean
             which.min()                             # Identify the smallest difference
         ]
-
+        
         
         se = 
           se |> 
@@ -968,7 +973,7 @@ tar_script({
     # Split in gene chunks
     tar_target(
       feature_df, 
-        pseudobulk_sample |> 
+      pseudobulk_sample |> 
         distinct(.feature)|> 
         group_by(.feature) |> 
         tar_group(), 
@@ -1040,7 +1045,7 @@ tar_script({
         formula <- bf(
           
           # Formula for counts
-          counts ~ 1 + offset(offset) + ncells_log_scaled + prop_plasma_logit_scaled + ethnicity_groups + assay_groups + 
+          counts ~ 1 + offset(offset) + ncells_scaled + prop_plasma_logit_scaled + ethnicity_groups + assay_groups + 
             (1 | dataset_id) + 
             (1 + prop_plasma + ethnicity_groups | tissue_groups),
           
@@ -1102,8 +1107,8 @@ tar_script({
           # Median instead and mad of mean and sd
           robust=TRUE
         ) %$%
-            tissue_groups |> 
-            _[,,"prop_plasma"] |> 
+          tissue_groups |> 
+          _[,,"prop_plasma"] |> 
           as_tibble(rownames = "tissue_groups")
         )) |>
         
@@ -1115,7 +1120,7 @@ tar_script({
           as_tibble(rownames = "coefficient")
         )) |>
         select(-brms_fit),
-
+      
       pattern = map(estimates_chunk),
       packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr"),
       resources = tar_resources(crew = tar_resources_crew("elastic"))
@@ -1125,7 +1130,7 @@ tar_script({
       effect_removed, 
       estimates_chunk |> 
         mutate(brms_fit_adjusted = map(brms_fit, ~ .x |> remove_unwanted_effect(
-          newdata = .x$data |> mutate(assay_groups=NA, ethnicity_groups = NA), 
+          newdata = .x$data |> mutate(assay_groups=NA, ethnicity_groups = NA, ncells_log_scaled = NA, ncells_scaled = NA), 
           robust = TRUE, 
           re_formula = ~ (1 + prop_plasma  | tissue_groups) 
         ))) |> 
@@ -1184,7 +1189,7 @@ effect_removed =
     effect_removed,
     store = glue::glue("{result_directory}/_targets")
   )  |>
- # filter(map_int(brms_fit_adjusted, nrow) == 4926 ) |> 
+  # filter(map_int(brms_fit_adjusted, nrow) == 4926 ) |> 
   mutate(brms_fit_adjusted = map(brms_fit_adjusted, ~ .x |> 
                                    select(adjusted___Estimate) |> #, adjusted___Q2.5, adjusted___Q97.5) |> 
                                    mutate(sample_id = colnames(pseudobulk_sample)), 
