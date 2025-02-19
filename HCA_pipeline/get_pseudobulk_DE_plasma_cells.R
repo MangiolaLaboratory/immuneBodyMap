@@ -340,8 +340,11 @@ get_metadata() |>
 
 
 
-#result_directory = "/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_3_plasma_cell_study_no_ncell_factor"
-result_directory = "/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_3_plasma_cell_study_scaled_ncell_factor"
+# result_directory = "/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_3_plasma_cell_study_no_ncell_factor"
+#result_directory = "/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_3_plasma_cell_study_scaled_ncell_factor"
+# result_directory = "/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_3_plasma_cell_study_scaled_ncell_factor_MAFA"
+# result_directory = "/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_3_plasma_cell_study_scaled_ncell_factor_digestive_tract"
+result_directory = "/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_3_plasma_cell_study_scaled_ncell_factor_digestive_tract_3_datasets"
 
 library(targets)
 
@@ -362,14 +365,11 @@ tar_script({
     garbage_collection = 100, 
     storage = "worker", 
     retrieval = "worker", 
-    error = "continue", 
     
-    #cue = tar_cue(mode = "never"), 
-    
-    workspace_on_error = TRUE,
+    workspace_on_error = TRUE, workspaces = "effect_removed_e305355bab6b41ed",
     format = "qs",
     
-    debug = "estimates_chunk",
+     debug = "pseudobulk_sample",
     
     controller = crew_controller_group(
       
@@ -850,22 +850,38 @@ tar_script({
       pseudobulk_sample,
       {
         
-        system("~/bin/rclone copy box_adelaide:/Mangiola_ImmuneAtlas/dharmesh_shared_mix/se_age_sex_tissues_epithelial.rds ~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/")
+        # system("~/bin/rclone copy box_adelaide:/Mangiola_ImmuneAtlas/dharmesh_shared_mix/se_age_sex_tissues_epithelial.rds ~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/")
+        # sce = readRDS("~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/se_age_sex_tissues_epithelial.rds")
+         
         
+        system("~/bin/rclone copy box_adelaide:/Mangiola_ImmuneAtlas/dharmesh_shared_mix/se_age_sex_tissues_epithelial_gut.rds ~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/")
+        sce = readRDS("~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/se_age_sex_tissues_epithelial_gut.rds")
         
-        sce = readRDS("~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/se_age_sex_tissues_epithelial.rds") 
+        # # MAFA
+        # system("~/bin/rclone copy box_adelaide:/Mangiola_ImmuneAtlas/dharmesh_shared_mix/se_age_sex_tissues_epithelial_split.rds ~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/")
+        # sce = 
+        #   readRDS("~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/se_age_sex_tissues_epithelial_split.rds") 
+        
+        colnames(sce)  = sce |> pull(sample_id)
+        
+        sce = sce |> filter(ncells >=10)
+       
+        # sce = sce |> filter(tissue_groups %in% c("large intestine", "stomach", "oesophagus"))
         
         se  = 
           sce |> 
-          filter(ncells >=10) |> 
           as("SummarizedExperiment")
         
+        # Filter for digestive tract
+        
         rownames(se) = rownames(sce) 
+        rownames(assay(se)) = rownames(sce) 
         
         cd = 
           colData(se) |> 
           as_tibble(rownames = "rn") |> 
           mutate(
+            prop_plasma_logit = prop_plasma |> boot::logit(),
             prop_plasma_logit_scaled = prop_plasma_logit |> scale() |> as.numeric(),
             ncells_scaled = ncells |> scale() |> as.numeric(),
             ncells_log_scaled = ncells |> log() |> scale() |> as.numeric()
@@ -948,6 +964,17 @@ tar_script({
           
           # Get scaling factor 
           # DHARMESH PROB THE ONLY LIKE TO ADD
+          identify_abundant(design = 
+                                            se |>
+
+                                            # Discretise the age for the following operation
+                                            mutate(is_old_individual = age_days > 50*365) |>
+                                            resolve_complete_confounders_of_non_interest(tissue_groups, sex, ethnicity_groups, is_old_individual) |>
+                                            colData() |>
+                                            droplevels() |>
+                                            model.matrix(~ tissue_groups + sex + ethnicity_groups + is_old_individual, data = _  ),
+                                          minimum_counts = 100
+                            ) |> 
           scale_abundance(method = "TMMwsp", reference_sample = reference_sample) |> 
           mutate(offset = log(1/multiplier)) |> 
           
@@ -1044,13 +1071,20 @@ tar_script({
         # Define the model formula
         formula <- bf(
           
+          # # Formula for counts
+          # counts ~ 1 + offset(offset) + ncells_scaled + prop_plasma_logit_scaled + ethnicity_groups + assay_groups + 
+          #   (1 | dataset_id) + 
+          #   (1 + prop_plasma_logit_scaled + ethnicity_groups | tissue_groups),
+          
           # Formula for counts
-          counts ~ 1 + offset(offset) + ncells_scaled + prop_plasma_logit_scaled + ethnicity_groups + assay_groups + 
+          counts ~ 1 + offset(offset) + ncells_scaled + prop_plasma_logit_scaled + 
             (1 | dataset_id) + 
-            (1 + prop_plasma + ethnicity_groups | tissue_groups),
+            (1 + prop_plasma_logit_scaled | tissue_groups),
           
           # Formula for dispersion
-          shape ~ 1 + assay_groups + (1 | tissue_groups)  # Model 'shape' as a function of scaled 'disp'
+          # shape ~ 1 + assay_groups + (1 | tissue_groups)  # Model 'shape' as a function of scaled 'disp'
+          
+          shape ~ 1 + tissue_groups  # Model 'shape' as a function of scaled 'disp'
           
           # Using the externally, eBayes inferred overdispersion
           # shape ~ 1 + offset(log(1/dispersion))
@@ -1084,7 +1118,7 @@ tar_script({
           #save_model = glue("{external_directory}~/temp.rds"),
           #algorithm = "pathfinder",
           init = inits,
-          iter = 400  # Increase iterations for better convergence
+          iter = 800  # Increase iterations for better convergence
         )
         
       })) |> 
@@ -1093,7 +1127,8 @@ tar_script({
         select(-se), 
       pattern = map(se_df),
       packages = c( "brms", "glue", "dplyr", "purrr", "SummarizedExperiment", "tidySummarizedExperiment"),
-      resources = tar_resources(crew = tar_resources_crew("elastic"))
+      resources = tar_resources(crew = tar_resources_crew("elastic")),
+      error = "continue"
       #,
       #cue = tar_cue(mode = "never")
       
@@ -1108,7 +1143,7 @@ tar_script({
           robust=TRUE
         ) %$%
           tissue_groups |> 
-          _[,,"prop_plasma"] |> 
+          _[,,"prop_plasma_logit_scaled"] |> 
           as_tibble(rownames = "tissue_groups")
         )) |>
         
@@ -1119,26 +1154,37 @@ tar_script({
         ) |> 
           as_tibble(rownames = "coefficient")
         )) |>
+        
+        mutate(Rhat = map_dbl(brms_fit, 
+                              ~ summary(.x)$fixed |> 
+                                as_tibble(rownames = "par") |> 
+                                filter(par |> str_detect("plasma")) |> 
+                                pull(Rhat) |>
+                                max()
+        )) |> 
+        
         select(-brms_fit),
       
       pattern = map(estimates_chunk),
-      packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr"),
-      resources = tar_resources(crew = tar_resources_crew("elastic"))
+      packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr", "stringr"),
+      resources = tar_resources(crew = tar_resources_crew("elastic")),
+      error = "continue"
     ),
     
     tar_target(
       effect_removed, 
       estimates_chunk |> 
         mutate(brms_fit_adjusted = map(brms_fit, ~ .x |> remove_unwanted_effect(
-          newdata = .x$data |> mutate(assay_groups=NA, ethnicity_groups = NA, ncells_log_scaled = NA, ncells_scaled = NA), 
+          newdata = .x$data |> mutate(assay_groups=NA, ethnicity_groups = NA, ncells_log_scaled = NA), 
           robust = TRUE, 
-          re_formula = ~ (1 + prop_plasma  | tissue_groups) 
+          re_formula = ~ (1 + prop_plasma_logit_scaled  | tissue_groups) 
         ))) |> 
         select(-brms_fit),
       
       pattern = map(estimates_chunk),
       packages = c( "brms", "glue", "dplyr", "purrr", "rstan"),
-      resources = tar_resources(crew = tar_resources_crew("elastic"))
+      resources = tar_resources(crew = tar_resources_crew("elastic")),
+      error = "continue"
     )
     
   )
@@ -1175,9 +1221,9 @@ tar_workspace(
 # Effects
 tar_read(summary, store = glue::glue("{result_directory}/_targets")) |> 
   select(-tar_group) |> 
-  saveRDS(glue::glue("{result_directory}/summary_epithelial_prop_plasma_DE_brms.rds"))
+  saveRDS(glue::glue("{result_directory}/summary_epithelial_prop_plasma_DE_brms_digestive_tract_3_datasets.rds"))
 
-system(glue("~/bin/rclone copy {result_directory}/summary_epithelial_prop_plasma_DE_brms.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/"))
+system(glue("~/bin/rclone copy {result_directory}/summary_epithelial_prop_plasma_DE_brms_digestive_tract_3_datasets.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/"))
 
 
 # Adjusted counts
@@ -1225,9 +1271,9 @@ pseudobulk_sample |>
   _[pseudobulk_sample |> assay("counts_adjusted_plasma") < 0] = 
   0
 
-pseudobulk_sample |> saveRDS(glue::glue("{result_directory}/se_age_sex_tissues_epithelial_adjusted.rds"))
+pseudobulk_sample |> saveRDS(glue::glue("{result_directory}/se_age_sex_tissues_epithelial_adjusted_digestive_tract_3_datasets.rds"))
 
-system(glue("~/bin/rclone copy {result_directory}/se_age_sex_tissues_epithelial_adjusted.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/"))
+system(glue("~/bin/rclone copy {result_directory}/se_age_sex_tissues_epithelial_adjusted_digestive_tract_3_datasets.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/"))
 
 
 sce |> 
