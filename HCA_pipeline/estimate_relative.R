@@ -12,43 +12,41 @@ library(dplyr)
 library(duckdb)
 
 
-# system("~/bin/rclone copy box_adelaide:/Mangiola_ImmuneAtlas/dharmesh_shared_mix/drop_samples.csv /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1/")
 
 
 
 
-write_parquet_to_parquet = function(data_tbl, output_parquet, compression = "gzip") {
-  
-  # Establish connection to DuckDB in-memory database
-  con_write <- dbConnect(duckdb::duckdb(), dbdir = ":memory:")
-  
-  # Register `data_tbl` within the DuckDB connection (this doesn't load it into memory)
-  duckdb::duckdb_register(con_write, "data_tbl_view", data_tbl)
-  
-  # Use DuckDB's COPY command to write `data_tbl` directly to Parquet with compression
-  copy_query <- paste0("
-  COPY data_tbl_view TO '", output_parquet, "' (FORMAT PARQUET, COMPRESSION '", compression, "');
-  ")
-  
-  # Execute the COPY command
-  dbExecute(con_write, copy_query)
-  
-  # Unregister the temporary view
-  duckdb::duckdb_unregister(con_write, "data_tbl_view")
-  
-  # Disconnect from the database
-  dbDisconnect(con_write, shutdown = TRUE)
-}
+# write_parquet_to_parquet = function(data_tbl, output_parquet, compression = "gzip") {
+#   
+#   # Establish connection to DuckDB in-memory database
+#   con_write <- dbConnect(duckdb::duckdb(), dbdir = ":memory:")
+#   
+#   # Register `data_tbl` within the DuckDB connection (this doesn't load it into memory)
+#   duckdb::duckdb_register(con_write, "data_tbl_view", data_tbl)
+#   
+#   # Use DuckDB's COPY command to write `data_tbl` directly to Parquet with compression
+#   copy_query <- paste0("
+#   COPY data_tbl_view TO '", output_parquet, "' (FORMAT PARQUET, COMPRESSION '", compression, "');
+#   ")
+#   
+#   # Execute the COPY command
+#   dbExecute(con_write, copy_query)
+#   
+#   # Unregister the temporary view
+#   duckdb::duckdb_unregister(con_write, "data_tbl_view")
+#   
+#   # Disconnect from the database
+#   dbDisconnect(con_write, shutdown = TRUE)
+# }
 
 # dplyr::tbl(
 #   DBI::dbConnect(duckdb::duckdb(), dbdir = ":memory:"),
-#   dbplyr::sql("SELECT * FROM read_parquet('/vast/projects/cellxgene_curated/cellNexus/cell_metadata_cell_type_consensus_v1_0_1.parquet')")
+#   dbplyr::sql("SELECT * FROM read_parquet('/vast/projects/cellxgene_curated/cellNexus/cell_metadata_cell_type_consensus_v1_0_6.parquet')")
 # ) |> 
 #   inner_join(input_relative |> select(-n), copy=TRUE) |> 
-#   write_parquet_to_parquet("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1/cell_metadata_1_0_1_sccomp_input.parquet")
+#   write_parquet_to_parquet("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_6/cell_metadata_1_0_6_sccomp_input.parquet")
 
-# system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1/cell_metadata_1_0_1_sccomp_input.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
-system("~/bin/rclone copy box_adelaide:/Mangiola_ImmuneAtlas/reannotation_consensus/caq_celltype_level_map.csv /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1/")
+# system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_6/cell_metadata_1_0_6_sccomp_input.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
 
 
 
@@ -76,7 +74,6 @@ tar_script({
     garbage_collection = 100, 
     storage = "worker", 
     retrieval = "worker", 
-    error = "continue", 
     #  debug = "dataset_id_sce_ce393fc1e85f2cbc", 
     workspace_on_error = TRUE,
     format = "qs",
@@ -144,13 +141,13 @@ tar_script({
   #' @examples
   #' age_days <- c(500, 4000, 15000, 25000, 30000)
   #' sex <- c("male", "female", "male", "female", "unknown")
-  #' age_bins <- age_bin_sex_specific(age_days, sex)
+  #' age_bins <- age_bin(age_days, sex)
   #' print(age_bins)
   #'
   #' @importFrom dplyr case_when
   #' 
   #' @export
-  age_bin_sex_specific <- function(age_days, sex) {
+  age_bin <- function(age_days, sex) {
     # Convert age in days to age in years
     age_years <- age_days / 365.25
     
@@ -200,56 +197,7 @@ tar_script({
     return(age_bins)
   }
   
-  age_range_sex_specific <- function(age_bins, sex) {
-    # Initialise an empty vector to store the age ranges in years
-    age_ranges <- integer(length(age_bins))
-    
-    # Define age thresholds for male, female, and unknown
-    male_thresholds <- c(3, 13, 21, 40, 55)
-    female_thresholds <- c(3, 13, 19, 36, 50)
-    unknown_thresholds <- c(3, 13, 20, 38, 52)
-    
-    # Map age groups to approximate age ranges for each sex category
-    for (i in seq_along(age_bins)) {
-      if (sex[i] == "male") {
-        age_ranges[i] <- dplyr::case_when(
-          age_bins[i] == "Infancy" ~ male_thresholds[1] / 2,
-          age_bins[i] == "Childhood" ~ (male_thresholds[1] + male_thresholds[2]) / 2,
-          age_bins[i] == "Adolescence" ~ (male_thresholds[2] + male_thresholds[3]) / 2,
-          age_bins[i] == "Young Adulthood" ~ (male_thresholds[3] + male_thresholds[4]) / 2,
-          age_bins[i] == "Middle Age" ~ (male_thresholds[4] + 55) / 2,
-          age_bins[i] == "Senior" ~ 55,
-          TRUE ~ NA_integer_
-        )
-      } else if (sex[i] == "female") {
-        age_ranges[i] <- dplyr::case_when(
-          age_bins[i] == "Infancy" ~ female_thresholds[1] / 2,
-          age_bins[i] == "Childhood" ~ (female_thresholds[1] + female_thresholds[2]) / 2,
-          age_bins[i] == "Adolescence" ~ (female_thresholds[2] + female_thresholds[3]) / 2,
-          age_bins[i] == "Young Adulthood" ~ (female_thresholds[3] + female_thresholds[4]) / 2,
-          age_bins[i] == "Middle Age" ~ (female_thresholds[4] + 50) / 2,
-          age_bins[i] == "Senior" ~ 50,
-          TRUE ~ NA_integer_
-        )
-      } else if (sex[i] == "unknown") {
-        age_ranges[i] <- dplyr::case_when(
-          age_bins[i] == "Infancy" ~ unknown_thresholds[1] / 2,
-          age_bins[i] == "Childhood" ~ (unknown_thresholds[1] + unknown_thresholds[2]) / 2,
-          age_bins[i] == "Adolescence" ~ (unknown_thresholds[2] + unknown_thresholds[3]) / 2,
-          age_bins[i] == "Young Adulthood" ~ (unknown_thresholds[3] + unknown_thresholds[4]) / 2,
-          age_bins[i] == "Middle Age" ~ (unknown_thresholds[4] + 52) / 2,
-          age_bins[i] == "Senior" ~ 52,
-          TRUE ~ NA_integer_
-        )
-      } else {
-        stop("Each element of 'sex' must be either 'male', 'female', or 'unknown'.")
-      }
-    }
-    
-    return(age_ranges)
-  }
-  
-  create_input_cell_counts = function(cellNexus_metadata, drop_sample_df, result_directory){
+  edit_covariates = function(tbl, result_directory){
     
     
     ethnicity_grouped <- tribble(
@@ -258,7 +206,7 @@ tar_script({
       "European", "European",
       "Korean", "East Asian",
       "Asian", "East Asian",
-      "Japanese", "East Asian",
+      "Japanese", "Japanese",
       "African American", "African",
       "Hispanic or Latin American", "Hispanic/Latin American",
       "Singaporean Chinese", "East Asian",
@@ -314,14 +262,14 @@ tar_script({
       "Smart-seq v4", "Smart seq",
       "ScaleBio single cell RNA sequencing", "Other Technologies"
     )
-  
+    
     
     disease_data_grouped <- tribble(
       ~disease, ~disease_groups,
-
+      
       # Normal control
       "normal", "Normal",
-
+      
       # Isolated Diseases
       "COVID-19", "COVID-19 related",
       "post-COVID-19 disorder", "COVID-19 related",
@@ -329,7 +277,7 @@ tar_script({
       "glioblastoma", "Glioblastoma",
       "lung adenocarcinoma", "Lung Adenocarcinoma",
       "systemic lupus erythematosus", "Systemic Lupus Erythematosus",
-
+      
       # Infectious and Immune-related Diseases (other than COVID-19)
       "Crohn disease", "Infectious and Immune-related Diseases",
       "Crohn ileitis", "Infectious and Immune-related Diseases",
@@ -344,7 +292,7 @@ tar_script({
       "localized scleroderma", "Infectious and Immune-related Diseases",
       "lymphangioleiomyomatosis", "Infectious and Immune-related Diseases",
       "listeriosis", "Infectious and Immune-related Diseases",
-
+      
       # Cancer (other than isolated cancers)
       "squamous cell lung carcinoma", "Cancer",
       "small cell lung carcinoma", "Cancer",
@@ -375,7 +323,7 @@ tar_script({
       "Wilms tumor", "Cancer",
       "pleomorphic carcinoma", "Cancer",
       "blastoma", "Cancer",
-
+      
       # Neurodegenerative and Neurological Disorders
       "dementia", "Neurodegenerative and Neurological Disorders",
       "Alzheimer disease", "Neurodegenerative and Neurological Disorders",
@@ -388,7 +336,7 @@ tar_script({
       "temporal lobe epilepsy", "Neurodegenerative and Neurological Disorders",
       "Lewy body dementia", "Neurodegenerative and Neurological Disorders",
       "amyotrophic lateral sclerosis 26 with or without frontotemporal dementia", "Neurodegenerative and Neurological Disorders",
-
+      
       # Respiratory Conditions
       "pulmonary fibrosis", "Respiratory Conditions",
       "respiratory system disorder", "Respiratory Conditions",
@@ -400,7 +348,7 @@ tar_script({
       "aspiration pneumonia", "Respiratory Conditions",
       "pulmonary emphysema", "Respiratory Conditions",
       "pulmonary sarcoidosis", "Respiratory Conditions",
-
+      
       # Cardiovascular Diseases
       "myocardial infarction", "Cardiovascular Diseases",
       "acute myocardial infarction", "Cardiovascular Diseases",
@@ -411,7 +359,7 @@ tar_script({
       "non-compaction cardiomyopathy", "Cardiovascular Diseases",
       "cardiomyopathy", "Cardiovascular Diseases",
       "heart disorder", "Cardiovascular Diseases",
-
+      
       # Metabolic and Other Disorders
       "type 2 diabetes mellitus", "Metabolic and Other Disorders",
       "chronic kidney disease", "Metabolic and Other Disorders",
@@ -435,7 +383,7 @@ tar_script({
       "tubulovillous adenoma", "Metabolic and Other Disorders",
       "gastric intestinal metaplasia", "Metabolic and Other Disorders",
       "Barrett esophagus", "Metabolic and Other Disorders",
-
+      
       # Other Diseases
       "injury", "Other Diseases",
       "anencephaly", "Other Diseases",
@@ -453,6 +401,60 @@ tar_script({
       select(-disease_groups) |> 
       left_join(read_csv(glue("{result_directory}/disease_data_grouped_further.csv"))) |> 
       mutate(disease_groups = if_else(disease_groups |> is.na(), "other", disease_groups))
+    
+    age_bin_table = 
+      tbl |> 
+      distinct(age_days, sex) |> 
+      filter(!age_days |> is.na()) |> 
+      mutate(sex = if_else(sex |> is.na(), "unknown", sex)) |> 
+      as_tibble() |> 
+      mutate(age_bin = age_bin(age_days, sex))
+    
+    tbl |> 
+      # TECH
+      left_join(assay_data_grouped, copy=TRUE) |> 
+      
+      # DISEASE
+      left_join(disease_data_grouped, copy=TRUE) |> 
+      
+      
+      # TEMPORARY. de-group pancreas and liver
+      mutate(tissue_groups = case_when(
+        
+        tissue %in% c("gallbladder") ~ "gallbladder",
+        tissue %in% c("pancreas", "exocrine pancreas") ~ "pancreas",
+        tissue %in% c("liver", "caudate lobe of liver", "hepatic cecum" ) ~ "liver",
+        TRUE ~ tissue_groups
+      )) |> 
+      
+      # SEX edit
+      mutate(sex = if_else(sex |> is.na(), "unknown", sex)) |> 
+      
+      # Age
+      filter(age_days > 365) |> 
+      left_join(age_bin_table, copy=TRUE) |> 
+      
+      # ETHNICITY
+      left_join(ethnicity_grouped, copy=TRUE) |> 
+      
+      dplyr::select(sample_id, donor_id, dataset_id, title, collection_id, age_days, age_bin, sex, ethnicity_groups, tissue_groups, tissue, assay_groups, cell_type_unified_ensemble, cell_type, disease_groups) |> 
+      as_tibble() |> 
+      
+      # Set intercept
+      mutate(
+        ethnicity_groups = fct_relevel(ethnicity_groups, "European"),
+        assay_groups = fct_relevel(assay_groups, "10x Genomics 3"),
+        disease_groups = fct_relevel(disease_groups, "Normal"),
+        age_bin = fct_relevel(age_bin, "Adolescence")
+      ) |>
+      
+      # Center based on adolescence
+      mutate(age_days_scaled = age_days  |> scale(center = 15*365) |> as.numeric()) 
+    
+  }     
+  
+  create_input_cell_counts = function(cellNexus_metadata, drop_sample_df, caq_celltype_level_map, result_directory){
+    
 
       tbl(
         dbConnect(duckdb::duckdb(), dbdir = ":memory:"),
@@ -461,12 +463,6 @@ tar_script({
       
       # Filter empty droplets
       filter(!empty_droplet) |> 
-      
-      # SEX edit
-      mutate(sex = if_else(sex |> is.na(), "unknown", sex)) |> 
-      
-      # ETHNICITY
-      left_join(ethnicity_grouped, copy=TRUE) |> 
       
       # TISSUE
       filter(!tissue_groups %in% c(
@@ -481,56 +477,26 @@ tar_script({
       !tissue_groups |> is.na()
       ) |> 
       
-      # TECH
-      left_join(assay_data_grouped, copy=TRUE) |> 
-      
-      # DISEASE
-      left_join(disease_data_grouped, copy=TRUE) |> 
-      
       # IMMUNE CELLS
       filter(is_immune) |> 
       filter(cell_type_unified_ensemble %in% c("cd8 naive", "cd16 mono", "cd4 tcm", "cd4 th17 em", "granulocyte", "cd4 th1/th17 em", "treg", "erythrocyte", "b memory", "b naive", "nk", "plasma", "cd4 th2 em", "mast", "cd4 th1 em", "cd8 tem", "mait", "tgd", "cdc", "cd4 fh em", "cd4 naive", "nkt", "macrophage", "cytotoxic", "cd8 tcm", "cd14 mono", "pdc", "ilc")) |> 
+        
+      edit_covariates(result_directory) |> 
+    
+      # Here we drop those samples with a low cell type entropy. E.g. one cell type only.
+      anti_join(drop_sample_df, copy = TRUE) |> 
       
-      # TEMPORARY. de-group pancreas and liver
-      mutate(tissue_groups = case_when(
-        
-        tissue %in% c("gallbladder") ~ "gallbladder",
-        tissue %in% c("pancreas", "exocrine pancreas") ~ "pancreas",
-        tissue %in% c("liver", "caudate lobe of liver", "hepatic cecum" ) ~ "liver",
-        TRUE ~ tissue_groups
-      )) |> 
-        
-      dplyr::count(sample_id, donor_id, dataset_id, title, collection_id, age_days, sex, ethnicity_groups, tissue_groups, assay_groups, cell_type_unified_ensemble, disease_groups) |> 
+      dplyr::count(sample_id, donor_id, dataset_id, title, collection_id, age_days, age_bin, age_days_scaled, sex, ethnicity_groups, tissue_groups, tissue, assay_groups, cell_type_unified_ensemble, disease_groups) |> 
       mutate(n = as.integer(n)) |> 
       as_tibble() |> 
       
-      # Age
-      filter(age_days > 365) |> 
-      mutate(age_bin_sex_specific = age_bin_sex_specific(age_days, sex)) |> 
-      
-      # Here we drop those samples with a low cell type entropy. E.g. one cell type only.
-      anti_join(drop_sample_df) |> 
-      
 
-    
-    # Set intercept
-      mutate(
-        ethnicity_groups = fct_relevel(ethnicity_groups, "European"),
-        assay_groups = fct_relevel(assay_groups, "10x Genomics 3"),
-        disease_groups = fct_relevel(disease_groups, "Normal"),
-        age_bin_sex_specific = fct_relevel(age_bin_sex_specific, "Adolescence")
-      ) |>
-      
-      # Center based on adolescence
-      mutate(age_days_scaled = age_days  |> scale(center = 15*265) |> as.numeric()) |> 
-      
-      # Add hierarchy of cell types
-      left_join(
-        readr::read_csv("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1/caq_celltype_level_map.csv"), 
-        by = join_by(cell_type_unified_ensemble == cell_type_unified_harmonised)
-      )
-      
-    
+        # Add hierarchy of cell types
+        left_join(
+          caq_celltype_level_map,
+          by = join_by(cell_type_unified_ensemble == cell_type_unified_harmonised)
+        )
+
   }
   
   #-----------------------#
@@ -539,7 +505,7 @@ tar_script({
   list(
     tar_target(
       result_directory,
-      "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1_regularised", 
+      "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_6_more_significant_figures", 
       deployment = "main"
     ),
     tar_target(
@@ -548,6 +514,8 @@ tar_script({
         # evaluate result_directory for targets
         print(result_directory)
         
+        system("~/bin/rclone copy box_adelaide:/Mangiola_ImmuneAtlas/reannotation_consensus/caq_celltype_level_map.csv {result_directory}/")
+        
         system(glue("~/bin/rclone copy box_adelaide:/Mangiola_ImmuneAtlas/dharmesh_shared_mix/drop_samples.csv {result_directory}/"))
         
         read_csv(glue("{result_directory}/drop_samples.csv"))
@@ -555,10 +523,24 @@ tar_script({
       }, packages = c("glue", "readr")
     ),
     tar_target(
+      caq_celltype_level_map,
+      {
+        # evaluate result_directory for targets
+        print(result_directory)
+        
+        system(glue("~/bin/rclone copy box_adelaide:/Mangiola_ImmuneAtlas/reannotation_consensus/caq_celltype_level_map.csv {result_directory}/"))
+        
+        read_csv(glue("{result_directory}/caq_celltype_level_map.csv"))
+        
+      }, packages = c("glue", "readr")
+    ),
+    
+    tar_target(
       input_relative, 
       create_input_cell_counts(
-        "/vast/projects/cellxgene_curated/cellNexus/cell_metadata_cell_type_consensus_v1_0_1.parquet",
+        "/vast/projects/cellxgene_curated/cellNexus/metadata.1.0.6.parquet",
         drop_samples,
+        caq_celltype_level_map,
         result_directory
       ),
       packages = c(
@@ -576,7 +558,7 @@ tar_script({
         # evaluate result_directory for targets
         print(result_directory)
         
-        file_name = glue("{result_directory}/cell_metadata_1_0_1_sccomp_input_counts.rds")
+        file_name = glue("{result_directory}/cell_metadata_1_0_6_sccomp_input_counts.rds")
         input_relative |> 
           saveRDS(file_name)
         
@@ -598,39 +580,51 @@ tar_script({
         "estimates_continuous_age",
         
         # discrete
-        "~ 1 + age_bin_sex_specific + disease_groups + sex + age_bin_sex_specific:sex + ethnicity_groups + assay_groups + 
+        "~ 1 + age_bin + disease_groups + sex + age_bin:sex + ethnicity_groups + assay_groups + 
           (1 | dataset_id) + 
-          (1 + age_bin_sex_specific + sex + age_bin_sex_specific:sex + ethnicity_groups | tissue_groups)",  
-        "~ age_bin_sex_specific + disease_groups",
+          (1 + age_bin + sex + age_bin:sex + ethnicity_groups | tissue_groups)",  
+        "~ age_bin + disease_groups",
         "estimates_age_bins", 
         
         # continuous + discrete
-        "~ 1 + age_days_scaled + disease_groups + age_bin_sex_specific*sex + ethnicity_groups + assay_groups + 
+        "~ 1 + age_days_scaled + disease_groups + age_bin*sex + ethnicity_groups + assay_groups + 
           (1 | dataset_id) + 
-          (1 + age_days_scaled + age_bin_sex_specific*sex + ethnicity_groups | tissue_groups)", 
+          (1 + age_days_scaled + age_bin*sex + ethnicity_groups | tissue_groups)", 
         "~ age_days_scaled + disease_groups",
         "estimates_continuous_age_plus_age_bins",
         
         # disease tissue specific
-        "~ 1 + age_bin_sex_specific + disease_groups + sex + age_bin_sex_specific:sex + ethnicity_groups + assay_groups + 
+        "~ 1 + age_bin + disease_groups + sex + age_bin:sex + ethnicity_groups + assay_groups + 
           (1 | dataset_id) + 
-          (1 + age_bin_sex_specific + disease_groups + sex + age_bin_sex_specific:sex + ethnicity_groups | tissue_groups)",  
-        "~ age_bin_sex_specific + disease_groups",
+          (1 + age_bin + disease_groups + sex + age_bin:sex + ethnicity_groups | tissue_groups)",  
+        "~ age_bin + disease_groups",
         "estimates_age_bins_disease", 
       ) |> 
-        expand_grid(cell_type_level = glue("L{0:3}") |> as.character()) |> 
-        group_by(name, cell_type_level) |> 
+        expand_grid(cell_type_level = glue("L{0:3}") |> as.character(), drop_disease = c(TRUE, FALSE)) |> 
+        mutate(counts = list(input_relative)) |> 
+        mutate(counts = map2(counts, drop_disease, 
+                             ~ {if(.y) 
+                                .x |> filter(disease_groups == "Normal") 
+                             else 
+                               .x
+                             })) |> 
+        mutate(
+          formula_composition = if_else(drop_disease, formula_composition |> str_remove_all("\\+ disease_groups"), formula_composition),
+          formula_variability = if_else(drop_disease, formula_variability |> str_remove_all("\\+ disease_groups"), formula_variability)
+        ) |> 
+        group_by(name, cell_type_level, drop_disease) |> 
         tar_group(), 
       iteration = "group",
-      packages = c("tibble", "glue", "targets", "dplyr", "tidyr")
+      packages = c("tibble", "glue", "targets", "dplyr", "tidyr", "purrr", "stringr")
     ),
     tar_target(
       estimates,
-      input_relative |> 
+ 
+      formula_df$counts[[1]] |> 
         
         # I have to summarise further because I have counts already
         with_groups(
-          c(sample_id,age_days_scaled,age_bin_sex_specific, sex, disease_groups,ethnicity_groups, assay_groups, dataset_id, tissue_groups, all_of(formula_df$cell_type_level)),
+          c(sample_id,age_days_scaled,age_bin, sex, disease_groups,ethnicity_groups, assay_groups, dataset_id, tissue_groups, all_of(formula_df$cell_type_level)),
           ~ .x |> summarise(n = sum(n))
         ) |> 
         
@@ -644,14 +638,16 @@ tar_script({
           mcmc_seed = 42,
           verbose = T, 
           bimodal_mean_variability_association = TRUE,
+          prior_mean = list(intercept = c(0, 0.8), coefficients = c(0, 3)),
           prior_overdispersion_mean_association = list(intercept = c(3.6539176, 0.5), slope = c(-0.5255242, 0.1), standard_deviation = c(20, 40)),
           output_directory = "/vast/scratch/users/mangiola.s/my_draws", 
           max_sampling_iterations = 5000, 
-          inference_method =   "hmc", 
+          inference_method =   "hmc",
           refresh = 1
         ),
       pattern = map(formula_df),
-      resources = tar_resources(crew = tar_resources_crew("slurm_1_80")), 
+      resources = tar_resources(crew = tar_resources_crew("slurm_1_80")),
+      error = "continue", 
       packages = "sccomp"
     ),
     tar_target(
@@ -665,85 +661,91 @@ tar_script({
       
         # Save draws as monolythic
         attr(estimates, "fit")$save_object(file = local_file_name_FIT_FOR_PORTABILITY) 
-        system(glue("~/bin/rclone copy {local_file_name_FIT_FOR_PORTABILITY} box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/sccomp_estimates_1_0_1/"))
+        system(glue("~/bin/rclone copy {local_file_name_FIT_FOR_PORTABILITY} box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/sccomp_estimates_1_0_6_more_significant_figures/"))
         estimates |> attr("fit") = readRDS(local_file_name_FIT_FOR_PORTABILITY)
 
         # Save sccomp estimates
         estimates |>  sccomp_test() |> saveRDS(local_file_name)
-        system(glue("~/bin/rclone copy {local_file_name} box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/sccomp_estimates_1_0_1/"))
+        system(glue("~/bin/rclone copy {local_file_name} box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/sccomp_estimates_1_0_6_more_significant_figures/"))
         
       }, 
       pattern = map(formula_df, estimates), 
-      resources = tar_resources(crew = tar_resources_crew("slurm_1_200")), 
+      resources = tar_resources(crew = tar_resources_crew("slurm_1_200")),
+      error = "continue", 
       packages = c("glue", "sccomp", "magrittr")
     )
     
   )
 }, 
 ask = FALSE, 
-script = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1_regularised/_targets.R"
+script = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_6_more_significant_figures/_targets.R"
 )
 
 
 job::job({
   
   tar_make(
-    script = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1_regularised/_targets.R", 
-    store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1_regularised/_targets", 
+    script = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_6_more_significant_figures/_targets.R", 
+    store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_6_more_significant_figures/_targets", 
     reporter = "verbose" #, callr_function = NULL
   )
   
 })
 
-x = tar_read(input_relative, store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1/_targets")
+tar_meta(store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_6_more_significant_figures/_targets") |> 
+  arrange(desc(time)) |>
+  filter(!error |> is.na()) |> 
+  dplyr::select(name, error)
+
+x = tar_read(input_relative, store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_6_more_significant_figures/_targets")
 
 
-tar_workspace(estimates_2e499e82b1dbf3a0, 
-              script = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1_regularised/_targets.R", 
-              store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1_regularised/_targets"
+tar_workspace(estimates_2124a9be5d9d1f47, 
+              script = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_6_more_significant_figures/_targets.R", 
+              store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_6_more_significant_figures/_targets"
               )
 
-tar_meta(starts_with("estimates_"), store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1_regularised/_targets")
+tar_meta(starts_with("estimates_"), store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_6/_targets")
 
 # Age proportion prediciton
 estimates_age_bins |> 
   sccomp_predict(
-    formula_composition = ~ 1 + age_bin_sex_specific*sex + (1 + age_bin_sex_specific*sex | tissue_groups), 
+    formula_composition = ~ 1 + age_bin*sex + (1 + age_bin*sex | tissue_groups), 
     number_of_draws = 100,
     summary_instead_of_draws = TRUE
   ) |> 
-  mutate(age_bin_sex_specific = factor(
-    age_bin_sex_specific, 
+  mutate(age_bin = factor(
+    age_bin, 
     c("Infancy", "Childhood", "Adolescence", "Young Adulthood", "Middle Age", "Senior"),
     ordered = TRUE
   )) |> 
-  mutate(age_bin_sex_specific_numeric = age_bin_sex_specific |> as.integer())  |> 
-  saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1/prediction_age_bins.rds")
+  mutate(age_bin_numeric = age_bin |> as.integer())  |> 
+  saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_6/prediction_age_bins.rds")
 
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1/prediction_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_6/prediction_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
 
-tar_read(formula_df, store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1_regularised/_targets")
+tar_read(formula_df, store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_6/_targets")
 
 
 # For Hong
-estimate_age_bins = readRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1_regularised/estimates_age_bins.rds")
+estimate_age_bins = readRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_6/estimates_age_bins___L3.rds")
 estimate_age_bins = estimate_age_bins |> dplyr::select(-count_data)
 attr(estimate_age_bins, "fit") = NULL
-estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1/estimates_age_bins_effect_tibble_only.rds")
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1/estimates_age_bins_effect_tibble_only.rds box_adelaide:/immune_map_disease/")
+estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_6/estimates_age_bins_effect_tibble_only.rds")
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_6/estimates_age_bins_effect_tibble_only.rds box_adelaide:/immune_map_disease/")
 
 # Save fit
 library(magrittr)
-estimate_age_bins = readRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1_regularised/estimates_age_bins.rds")
-estimate_age_bins |> attr("fit") %$% save_object(file = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1_regularised/estimates_age_bins_FIT_FOR_PORTABILITY.rds") 
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1_regularised/estimates_age_bins_FIT_FOR_PORTABILITY.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
-estimate_age_bins |> attr("fit") = readRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1_regularised/estimates_age_bins_FIT_FOR_PORTABILITY.rds")
-estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1_regularised/estimates_age_bins.rds")
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1_regularised/estimates_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
+estimate_age_bins = readRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_6/estimates_age_bins.rds")
+estimate_age_bins |> attr("fit") %$% save_object(file = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_6/estimates_age_bins_FIT_FOR_PORTABILITY.rds") 
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_6/estimates_age_bins_FIT_FOR_PORTABILITY.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
+estimate_age_bins |> attr("fit") = readRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_6/estimates_age_bins_FIT_FOR_PORTABILITY.rds")
+estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_6/estimates_age_bins.rds")
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_6/estimates_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
 
 
-# estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1/estimates_age_bins.rds")
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1/21_11_2024_sccomp_archive_before_factor_ordering/estimates_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
+# estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_6/estimates_age_bins.rds")
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_6/21_11_2024_sccomp_archive_before_factor_ordering/estimates_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
 
 # Benchmark
 tic()
@@ -752,3 +754,5 @@ estimate_age_bins |> sccomp_test(contrasts = c(  "respiratory system" = "sexmale
 toc()
 
 
+estimate_age_bins |> 
+  sccomp_test()

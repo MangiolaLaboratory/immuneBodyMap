@@ -15,309 +15,6 @@ library(forcats)
 library(readr)
 library(forcats)
 library(glue)
-age_bin <- function(age_days, sex) {
-  # Convert age in days to age in years
-  age_years <- age_days / 365.25
-  
-  # Initialise an empty vector to store the results
-  age_bins <- vector("character", length(age_years))
-  
-  # Define average thresholds for "unknown" sex based on midpoint between male and female stages
-  unknown_thresholds <- c(3, 13, 20, 38, 52)
-  
-  # Loop through each element to assign the appropriate bin based on sex and age
-  for (i in seq_along(age_years)) {
-    if (sex[i] == "male") {
-      age_bins[i] <- dplyr::case_when(
-        age_years[i] < 3 ~ "Infancy",
-        age_years[i] < 13 ~ "Childhood",
-        age_years[i] < 21 ~ "Adolescence",
-        age_years[i] < 40 ~ "Young Adulthood",
-        age_years[i] < 55 ~ "Middle Age",
-        age_years[i] >= 55 ~ "Senior",
-        TRUE ~ NA_character_
-      )
-    } else if (sex[i] == "female") {
-      age_bins[i] <- dplyr::case_when(
-        age_years[i] < 3 ~ "Infancy",
-        age_years[i] < 13 ~ "Childhood",
-        age_years[i] < 19 ~ "Adolescence",
-        age_years[i] < 36 ~ "Young Adulthood",
-        age_years[i] < 50 ~ "Middle Age",
-        age_years[i] >= 50 ~ "Senior",
-        TRUE ~ NA_character_
-      )
-    } else if (sex[i] == "unknown") {
-      age_bins[i] <- dplyr::case_when(
-        age_years[i] < unknown_thresholds[1] ~ "Infancy",
-        age_years[i] < unknown_thresholds[2] ~ "Childhood",
-        age_years[i] < unknown_thresholds[3] ~ "Adolescence",
-        age_years[i] < unknown_thresholds[4] ~ "Young Adulthood",
-        age_years[i] < unknown_thresholds[5] ~ "Middle Age",
-        age_years[i] >= unknown_thresholds[5] ~ "Senior",
-        TRUE ~ NA_character_
-      )
-    } else {
-      stop("Each element of 'sex' must be either 'male', 'female', or 'unknown'.")
-    }
-  }
-  
-  return(age_bins)
-}
-edit_covariates = function(tbl, disease_tbl){
-  
-  
-  ethnicity_grouped <- tribble(
-    ~self_reported_ethnicity, ~ethnicity_groups,
-    "unknown", "Other/Unknown",
-    "European", "European",
-    "Korean", "East Asian",
-    "Asian", "East Asian",
-    "Japanese", "East Asian",
-    "African American", "African",
-    "Hispanic or Latin American", "Hispanic/Latin American",
-    "Singaporean Chinese", "East Asian",
-    "Han Chinese", "East Asian",
-    "Singaporean Indian", "South Asian",
-    "Singaporean Malay", "Other/Unknown",
-    "British", "European",
-    "African", "African",
-    "South Asian", "South Asian",
-    "European American", "European",
-    "East Asian", "East Asian",
-    "American", "Other/Unknown",
-    "African American or Afro-Caribbean", "African",
-    "Oceanian", "Native American & Pacific Islander",
-    "Jewish Israeli", "Middle Eastern & North African",
-    "Chinese", "East Asian",
-    "South East Asian", "Other/Unknown",
-    "Greater Middle Eastern  (Middle Eastern or North African or Persian)", "Middle Eastern & North African",
-    "Native American", "Native American & Pacific Islander",
-    "Pacific Islander", "Native American & Pacific Islander",
-    "Finnish", "European",
-    "Bangladeshi", "South Asian",
-    "Native American,Hispanic or Latin American", "Hispanic/Latin American",
-    "Irish", "European",
-    "Iraqi", "Middle Eastern & North African",
-    "European,Asian", "European"
-  )
-  
-  assay_data_grouped <- tribble(
-    ~assay, ~assay_groups,
-    "10x 3' v2", "10x Genomics 3",
-    "10x 3' v3", "10x Genomics 3",
-    "10x 5' v2", "10x Genomics 5",
-    "10x 5' v1", "10x Genomics 5",
-    "MARS-seq", "Plate based Technologies",
-    "10x 3' transcription profiling", "10x Genomics 3",
-    "10x 5' transcription profiling", "10x Genomics 5",
-    "Smart-seq2", "Smart seq",
-    "microwell-seq", "Microwell Technologies",
-    "TruDrop", "TruDrop",
-    "Drop-seq", "Drop based Technologies",
-    "Seq-Well S3", "Microwell Technologies",
-    "GEXSCOPE technology", "Other Technologies",
-    "Seq-Well", "Microwell Technologies",
-    "sci-RNA-seq", "Other Technologies",
-    "10x 3' v1", "10x Genomics 3",
-    "BD Rhapsody Whole Transcriptome Analysis", "Other Technologies",
-    "BD Rhapsody Targeted mRNA", "Other Technologies",
-    "CEL-seq2", "Plate based Technologies",
-    "SPLiT-seq", "Other Technologies",
-    "STRT-seq", "Plate based Technologies",
-    "inDrop", "Drop based Technologies",
-    "Smart-seq v4", "Smart seq",
-    "ScaleBio single cell RNA sequencing", "Other Technologies"
-  )
-  
-  
-  disease_data_grouped <- tribble(
-    ~disease, ~disease_groups,
-    
-    # Normal control
-    "normal", "Normal",
-    
-    # Isolated Diseases
-    "COVID-19", "COVID-19 related",
-    "post-COVID-19 disorder", "COVID-19 related",
-    "long COVID-19", "COVID-19 related",
-    "glioblastoma", "Glioblastoma",
-    "lung adenocarcinoma", "Lung Adenocarcinoma",
-    "systemic lupus erythematosus", "Systemic Lupus Erythematosus",
-    
-    # Infectious and Immune-related Diseases (other than COVID-19)
-    "Crohn disease", "Infectious and Immune-related Diseases",
-    "Crohn ileitis", "Infectious and Immune-related Diseases",
-    "pneumonia", "Infectious and Immune-related Diseases",
-    "common variable immunodeficiency", "Infectious and Immune-related Diseases",
-    "toxoplasmosis", "Infectious and Immune-related Diseases",
-    "Plasmodium malariae malaria", "Infectious and Immune-related Diseases",
-    "type 1 diabetes mellitus", "Infectious and Immune-related Diseases",
-    "influenza", "Infectious and Immune-related Diseases",
-    "chronic rhinitis", "Infectious and Immune-related Diseases",
-    "periodontitis", "Infectious and Immune-related Diseases",
-    "localized scleroderma", "Infectious and Immune-related Diseases",
-    "lymphangioleiomyomatosis", "Infectious and Immune-related Diseases",
-    "listeriosis", "Infectious and Immune-related Diseases",
-    
-    # Cancer (other than isolated cancers)
-    "squamous cell lung carcinoma", "Cancer",
-    "small cell lung carcinoma", "Cancer",
-    "non-small cell lung carcinoma", "Cancer",
-    "breast carcinoma", "Cancer",
-    "breast cancer", "Cancer",
-    "luminal B breast carcinoma", "Cancer",
-    "luminal A breast carcinoma", "Cancer",
-    "triple-negative breast carcinoma", "Cancer",
-    "gastric cancer", "Cancer",
-    "colorectal cancer", "Cancer",
-    "colon sessile serrated adenoma/polyp", "Cancer",
-    "follicular lymphoma", "Cancer",
-    "B-cell acute lymphoblastic leukemia", "Cancer",
-    "B-cell non-Hodgkin lymphoma", "Cancer",
-    "acute myeloid leukemia", "Cancer",
-    "acute promyelocytic leukemia", "Cancer",
-    "plasma cell myeloma", "Cancer",
-    "clear cell renal carcinoma", "Cancer",
-    "nonpapillary renal cell carcinoma", "Cancer",
-    "basal cell carcinoma", "Cancer",
-    "colorectal neoplasm", "Cancer",
-    "adenocarcinoma", "Cancer",
-    "chromophobe renal cell carcinoma", "Cancer",
-    "neuroendocrine carcinoma", "Cancer",
-    "lung large cell carcinoma", "Cancer",
-    "tongue cancer", "Cancer",
-    "Wilms tumor", "Cancer",
-    "pleomorphic carcinoma", "Cancer",
-    "blastoma", "Cancer",
-    
-    # Neurodegenerative and Neurological Disorders
-    "dementia", "Neurodegenerative and Neurological Disorders",
-    "Alzheimer disease", "Neurodegenerative and Neurological Disorders",
-    "Parkinson disease", "Neurodegenerative and Neurological Disorders",
-    "amyotrophic lateral sclerosis", "Neurodegenerative and Neurological Disorders",
-    "multiple sclerosis", "Neurodegenerative and Neurological Disorders",
-    "Down syndrome", "Neurodegenerative and Neurological Disorders",
-    "trisomy 18", "Neurodegenerative and Neurological Disorders",
-    "frontotemporal dementia", "Neurodegenerative and Neurological Disorders",
-    "temporal lobe epilepsy", "Neurodegenerative and Neurological Disorders",
-    "Lewy body dementia", "Neurodegenerative and Neurological Disorders",
-    "amyotrophic lateral sclerosis 26 with or without frontotemporal dementia", "Neurodegenerative and Neurological Disorders",
-    
-    # Respiratory Conditions
-    "pulmonary fibrosis", "Respiratory Conditions",
-    "respiratory system disorder", "Respiratory Conditions",
-    "chronic obstructive pulmonary disease", "Respiratory Conditions",
-    "cystic fibrosis", "Respiratory Conditions",
-    "interstitial lung disease", "Respiratory Conditions",
-    "hypersensitivity pneumonitis", "Respiratory Conditions",
-    "non-specific interstitial pneumonia", "Respiratory Conditions",
-    "aspiration pneumonia", "Respiratory Conditions",
-    "pulmonary emphysema", "Respiratory Conditions",
-    "pulmonary sarcoidosis", "Respiratory Conditions",
-    
-    # Cardiovascular Diseases
-    "myocardial infarction", "Cardiovascular Diseases",
-    "acute myocardial infarction", "Cardiovascular Diseases",
-    "dilated cardiomyopathy", "Cardiovascular Diseases",
-    "heart failure", "Cardiovascular Diseases",
-    "arrhythmogenic right ventricular cardiomyopathy", "Cardiovascular Diseases",
-    "congenital heart disease", "Cardiovascular Diseases",
-    "non-compaction cardiomyopathy", "Cardiovascular Diseases",
-    "cardiomyopathy", "Cardiovascular Diseases",
-    "heart disorder", "Cardiovascular Diseases",
-    
-    # Metabolic and Other Disorders
-    "type 2 diabetes mellitus", "Metabolic and Other Disorders",
-    "chronic kidney disease", "Metabolic and Other Disorders",
-    "digestive system disorder", "Metabolic and Other Disorders",
-    "primary sclerosing cholangitis", "Metabolic and Other Disorders",
-    "gastritis", "Metabolic and Other Disorders",
-    "acute kidney failure", "Metabolic and Other Disorders",
-    "tubular adenoma", "Metabolic and Other Disorders",
-    "benign prostatic hyperplasia", "Metabolic and Other Disorders",
-    "opiate dependence", "Metabolic and Other Disorders",
-    "gingivitis", "Metabolic and Other Disorders",
-    "hyperplastic polyp", "Metabolic and Other Disorders",
-    "clonal hematopoiesis", "Metabolic and Other Disorders",
-    "epilepsy", "Metabolic and Other Disorders",
-    "age related macular degeneration 7", "Metabolic and Other Disorders",
-    "kidney benign neoplasm", "Metabolic and Other Disorders",
-    "malignant pancreatic neoplasm", "Metabolic and Other Disorders",
-    "cataract", "Metabolic and Other Disorders",
-    "macular degeneration", "Metabolic and Other Disorders",
-    "hydrosalpinx", "Metabolic and Other Disorders",
-    "tubulovillous adenoma", "Metabolic and Other Disorders",
-    "gastric intestinal metaplasia", "Metabolic and Other Disorders",
-    "Barrett esophagus", "Metabolic and Other Disorders",
-    
-    # Other Diseases
-    "injury", "Other Diseases",
-    "anencephaly", "Other Diseases",
-    "primary biliary cholangitis", "Other Diseases",
-    "keloid", "Other Diseases",
-    "kidney oncocytoma", "Other Diseases",
-    "respiratory failure", "Other Diseases",
-    "pilocytic astrocytoma", "Other Diseases"
-  )
-  
-  
-  disease_data_grouped = 
-    disease_data_grouped |> 
-    select(-disease_groups) |> 
-    left_join(disease_tbl) |> 
-    mutate(disease_groups = if_else(disease_groups |> is.na(), "other", disease_groups))
-  
-  age_bin_table = 
-    tbl |> 
-    distinct(age_days, sex) |> 
-    filter(!age_days |> is.na()) |> 
-    mutate(sex = if_else(sex |> is.na(), "unknown", sex)) |> 
-    as_tibble() |> 
-    mutate(age_bin = age_bin(age_days, sex))
-  
-  tbl |> 
-    # TECH
-    left_join(assay_data_grouped, copy=TRUE) |> 
-    
-    # DISEASE
-    left_join(disease_data_grouped, copy=TRUE) |> 
-    
-    
-    # TEMPORARY. de-group pancreas and liver
-    mutate(tissue_groups = case_when(
-      
-      tissue %in% c("gallbladder") ~ "gallbladder",
-      tissue %in% c("pancreas", "exocrine pancreas") ~ "pancreas",
-      tissue %in% c("liver", "caudate lobe of liver", "hepatic cecum" ) ~ "liver",
-      TRUE ~ tissue_groups
-    )) |> 
-    
-    # SEX edit
-    mutate(sex = if_else(sex |> is.na(), "unknown", sex)) |> 
-    
-    # Age
-    filter(age_days > 365) |> 
-    left_join(age_bin_table, copy=TRUE) |> 
-    
-    # ETHNICITY
-    left_join(ethnicity_grouped, copy=TRUE) |> 
-    
-    dplyr::select(cell_id, sample_id, donor_id, dataset_id, file_id_cellNexus_single_cell, title, collection_id, age_days, age_bin, sex, ethnicity_groups, tissue_groups, tissue, assay_groups, cell_type_unified_ensemble, cell_type, disease_groups) |> 
-    as_tibble() |> 
-    
-    # Set intercept
-    mutate(
-      ethnicity_groups = fct_relevel(ethnicity_groups, "European"),
-      assay_groups = fct_relevel(assay_groups, "10x Genomics 3"),
-      disease_groups = fct_relevel(disease_groups, "Normal"),
-      age_bin = fct_relevel(age_bin, "Adolescence")
-    ) |>
-    
-    # Center based on adolescence
-    mutate(age_days_scaled = age_days  |> scale(center = 15*365) |> as.numeric()) 
-  
-}     
 
 # result_directory = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1") 
 system(glue("~/bin/rclone copy box_adelaide:/minh_immune_map_disease/disease_data_grouped_further.csv ./"))
@@ -344,7 +41,9 @@ get_metadata() |>
 #result_directory = "/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_3_plasma_cell_study_scaled_ncell_factor"
 # result_directory = "/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_3_plasma_cell_study_scaled_ncell_factor_MAFA"
 # result_directory = "/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_3_plasma_cell_study_scaled_ncell_factor_digestive_tract"
-result_directory = "/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_3_plasma_cell_study_scaled_ncell_factor_digestive_tract_3_datasets"
+# result_directory = "/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_3_plasma_cell_study_scaled_ncell_factor_digestive_tract_3_datasets"
+# result_directory = "/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_3_plasma_cell_study_scaled_ncell_factor_digestive_tract_multitissue"
+result_directory = "/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_3_plasma_cell_study_scaled_ncell_factor_digestive_tract_multi_celltype_all"
 
 library(targets)
 
@@ -362,14 +61,14 @@ tar_script({
     
     
     memory = "transient", 
-    garbage_collection = 100, 
+    garbage_collection = 500, 
     storage = "worker", 
     retrieval = "worker", 
     
     workspace_on_error = TRUE, workspaces = "effect_removed_e305355bab6b41ed",
     format = "qs",
     
-     debug = "pseudobulk_sample",
+   #  debug = "feature_df",
     
     controller = crew_controller_group(
       
@@ -396,6 +95,31 @@ tar_script({
           memory_gigabytes_required = c(80, 160), 
           cpus_per_task = 2, 
           time_minutes = c(60*24, 60*24),
+          verbose = T
+        )
+      ),
+      crew_controller_slurm(
+        name = "elastic_big_10_cores",
+        workers = 150,
+        tasks_max = 20,
+        seconds_idle = 30,
+        crashes_error = 5,
+        options_cluster = crew_options_slurm(
+          memory_gigabytes_required = c(80, 160), 
+          cpus_per_task = 10, 
+          time_minutes = c(60*24, 60*24),
+          verbose = T
+        )
+      ),
+      crew_controller_slurm(
+        name = "elastic_big_30_cores",
+        workers = 150,
+        tasks_max = 20,
+        seconds_idle = 30,
+        crashes_error = 5,
+        options_cluster = crew_options_slurm(
+          memory_gigabytes_required = c(160), 
+          cpus_per_task = 30, 
           verbose = T
         )
       )
@@ -477,7 +201,7 @@ tar_script({
     
     # Calculate residuals: observed counts minus fitted values, normalised by exp(offset)
     # This places residuals on a consistent scale, making them addable to adjusted predictions later.
-    fitted_residuals =   fit |> residuals(robust = robust, summary = FALSE) 
+    fitted_residuals =   fit |> predictive_error(robust = robust, summary = FALSE, offset = 0) 
     
     # Correct by offset
     if(correct_by_offset)
@@ -486,7 +210,7 @@ tar_script({
     
     # Extract fitted values for the specified factor only, removing random effects by setting re_formula = ~0
     # 'resp = factor' focuses on the selected response variable (factor)
-    fitted_values_ethnicity <- posterior_epred(fit, newdata = newdata, re_formula = re_formula, summary = FALSE, offset=0)
+    fitted_values_ethnicity <- posterior_epred(fit, newdata = newdata, re_formula = re_formula,  offset=0)
     
     # Adjusted counts are obtained by adding the factor-specific fitted values and the normalised residuals
     adjusted_counts = fitted_values_ethnicity + fitted_residuals
@@ -807,7 +531,7 @@ tar_script({
       # ETHNICITY
       left_join(ethnicity_grouped, copy=TRUE) |> 
       
-      dplyr::select(cell_id, sample_id, donor_id, dataset_id, file_id_cellNexus_single_cell, title, collection_id, age_days, age_bin, sex, ethnicity_groups, tissue_groups, tissue, assay_groups, cell_type_unified_ensemble, cell_type, disease_groups) |> 
+      dplyr::select(cell_id, atlas_id, sample_id, donor_id, dataset_id, file_id_cellNexus_single_cell, title, collection_id, age_days, age_bin, sex, ethnicity_groups, tissue_groups, tissue, assay_groups, cell_type_unified_ensemble, cell_type, disease_groups) |> 
       as_tibble() |> 
       
       # Set intercept
@@ -845,104 +569,130 @@ tar_script({
     #   deployment = "main"
     #   
     # ),
+    tar_target(
+      sce,
+      # load data and create pseudobulks
+      {
+        DelayedArray::setAutoBlockSize(size=1e9)
+        
+        get_metadata() |>
+          filter(
+            cell_type_unified_ensemble %in% c("epithelial", "plasma", "stromal"),
+            feature_count > 600
+            # ,
+            # dataset_id %in% c(
+            #   "7bb64315-9e5a-41b9-9235-59acf9642a3e",
+            #   "e40c6272-af77-4a10-9385-62a398884f27",
+            #   "d6dfdef1-406d-4efb-808c-3c5eddbfe0cb"
+            # )
+          ) |>
+          edit_covariates(
+            read_csv(glue("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1/disease_data_grouped_further.csv"))
+          ) |>
+          filter(
+            age_bin %in% c("Middle Age", "Senior"),
+            disease_groups == "Normal",
+            tissue_groups %in% c("large intestine", "stomach", "oesophagus"),
+            
+          ) |>
+          as_tibble() |>
+          droplevels() |>
+          get_single_cell_experiment() |> 
+          
+          HDF5Array::saveHDF5SummarizedExperiment(
+            "~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/plasma_sce_hdf5",
+            as.sparse = TRUE,
+            replace = TRUE,
+            verbose = TRUE
+          )
+        
+      } ,
+      packages = c("tidybulk", "HDF5Array", "tidySummarizedExperiment", "tidySingleCellExperiment", "magrittr", "tibble", "glue", "cellNexus", "readr", "forcats", "scuttle", "BiocParallel", "purrr"),
+      resources = tar_resources(crew = tar_resources_crew("elastic_big")),
+      memory = "persistent"
+    ),
     
+    tar_target(
+      plasma_count,
+        tar_read(input_relative, store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_6_more_significant_figures/_targets") |>
+        with_groups(sample_id, ~ .x |> mutate(plasma_prop = n/sum(n))) |> 
+        dplyr::select(plasma_prop, sample_id, tissue_groups, cell_type_unified_ensemble) |> 
+        filter(cell_type_unified_ensemble == "plasma") |> 
+        dplyr::select(sample_id, tissue_groups, plasma_prop),
+      packages = c("tidyverse", "targets"),
+      resources = tar_resources(crew = tar_resources_crew("elastic_big")),
+      memory = "persistent"
+    ),
     tar_target(
       pseudobulk_sample,
       {
         
+        
         # system("~/bin/rclone copy box_adelaide:/Mangiola_ImmuneAtlas/dharmesh_shared_mix/se_age_sex_tissues_epithelial.rds ~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/")
         # sce = readRDS("~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/se_age_sex_tissues_epithelial.rds")
-         
-        
-        system("~/bin/rclone copy box_adelaide:/Mangiola_ImmuneAtlas/dharmesh_shared_mix/se_age_sex_tissues_epithelial_gut.rds ~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/")
-        sce = readRDS("~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/se_age_sex_tissues_epithelial_gut.rds")
-        
-        # # MAFA
-        # system("~/bin/rclone copy box_adelaide:/Mangiola_ImmuneAtlas/dharmesh_shared_mix/se_age_sex_tissues_epithelial_split.rds ~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/")
-        # sce = 
-        #   readRDS("~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/se_age_sex_tissues_epithelial_split.rds") 
-        
-        colnames(sce)  = sce |> pull(sample_id)
-        
-        sce = sce |> filter(ncells >=10)
-       
+        # 
+        # 
+        # system("~/bin/rclone copy box_adelaide:/Mangiola_ImmuneAtlas/dharmesh_shared_mix/se_age_sex_tissues_epithelial_gut.rds ~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/")
+        # sce = readRDS("~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/se_age_sex_tissues_epithelial_gut.rds")
+      
+        # colnames(sce)  = sce |> pull(sample_id)
+        # 
+        # sce = sce |> filter(ncells >=10)
+        # 
         # sce = sce |> filter(tissue_groups %in% c("large intestine", "stomach", "oesophagus"))
-        
-        se  = 
-          sce |> 
-          as("SummarizedExperiment")
-        
-        # Filter for digestive tract
-        
-        rownames(se) = rownames(sce) 
-        rownames(assay(se)) = rownames(sce) 
-        
-        cd = 
-          colData(se) |> 
-          as_tibble(rownames = "rn") |> 
-          mutate(
-            prop_plasma_logit = prop_plasma |> boot::logit(),
-            prop_plasma_logit_scaled = prop_plasma_logit |> scale() |> as.numeric(),
-            ncells_scaled = ncells |> scale() |> as.numeric(),
-            ncells_log_scaled = ncells |> log() |> scale() |> as.numeric()
-          ) |> 
-          as.data.frame() |> 
-          DataFrame()
-        
-        cd |> rownames() = colnames(se)
-        
-        colData(se) = cd
-        
-        #   loadHDF5SummarizedExperiment("/vast/projects/cellxgene_curated/cellNexus/pseudobulk_sample_cell_type/") |> 
-        #   
-        #   #---------------------------------#
-        #   # Edit or add more filters here for analyses
-        #   #---------------------------------#
-        #   
-        #   filter(is_gene_shared) |> 
-        #   filter(cell_type_unified_ensemble == "epithelial" ) |>
-        #   select(.feature, .sample, counts, sample_id, gene_presence, cell_type_unified_ensemble) |> 
-        #   left_join(
-        #     get_metadata() |> 
-        #       filter(cell_type_unified_ensemble == "epithelial" ) |> 
-        #       edit_covariates(
-        #         read_csv(glue("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1/disease_data_grouped_further.csv"))
-        #       ) |> 
-        #       distinct(sample_id, dataset_id, collection_id,  age_bin, age_days, sex, disease_groups, ethnicity_groups, assay_groups, tissue_groups ) 
-        #   ) |> 
-        #   filter(age_days > 365) |> 
-        #   # Drop sex unknown as causes problem during fit
-        #   filter(sex != "unknown") |> 
-        #   filter(
-        #     disease_groups == "Normal",
-        #     tissue_groups %in% c("bone marrow", "cardiovascular system", "epithelium and mucosal tissues", "large intestine", "liver", "nasal, oral, and pharyngeal regions", "oesophagus", "stomach")
-        #   )  
         # 
-        # # filter(is_immune & do_analyse) 
+        # se  = 
+        #   sce |> 
+        #   as("SummarizedExperiment")
         # 
+        # # Filter for digestive tract
         # 
-        # samples_with_right_number_of_detected_genes = 
-        #   (se |> assay() > 0) |> 
-        #   colSums() |> 
-        #   divide_by(nrow(se)) |> 
-        #   between(0.3, 0.7)
-        # 
-        # se = se[,samples_with_right_number_of_detected_genes] 
-        # 
-        # se = 
-        #   se |> 
-        #   keep_abundant(design = 
-        #                   se |> 
-        #                   
-        #                   # Discretise the age for the following operation
-        #                   mutate(is_old_individual = age_days > 50*365) |> 
-        #                   resolve_complete_confounders_of_non_interest(tissue_groups, sex, ethnicity_groups, is_old_individual) |> 
-        #                   colData() |> 
-        #                   droplevels() |> 
-        #                   model.matrix(~ tissue_groups + sex + ethnicity_groups + is_old_individual, data = _  ), 
-        #                 minimum_counts = 100
-        #   ) 
-        # 
+        # rownames(se) = rownames(sce) 
+        # rownames(assay(se)) = rownames(sce) 
+        
+        # # Plasma prop
+        # system("~/bin/rclone copy box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/sccomp_estimates_1_0_6/estimates_age_bins___L3.rds ~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/")
+        # L3 = readRDS("~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/estimates_age_bins___L3.rds")
+        # plasma_prop = L3 |> sccomp_predict(~ age_bin*sex + (1 + age_bin*sex | tissue_groups))
+        # plasma_prop = plasma_prop |> dplyr::filter(L3 == "plasma")
+        # plasma_prop |> saveRDS("~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/plasma_prop.rds")
+        plasma_prop = readRDS("~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/plasma_prop.rds")
+
+        
+
+        
+         se = 
+           sce |> 
+           aggregateAcrossCells(
+           ids = sce |>
+             colData() |>
+             as_tibble() |>
+             dplyr::select(sample_id, cell_type_unified_ensemble, dataset_id, tissue_groups, age_bin, sex, ethnicity_groups, assay_groups) |>
+             as("DataFrame"), 
+           statistics = "sum", 
+           BPPARAM = MulticoreParam(10)
+          ) |>
+           
+           # Predicted proportions
+           left_join(
+             plasma_prop |> dplyr::rename(prop_plasma_predicted = proportion_mean) |> distinct(sample_id, prop_plasma_predicted)
+           ) |>
+           
+           # Observed proportions
+           left_join(plasma_count |> dplyr::rename(prop_plasma_observed = plasma_prop)) |> 
+           mutate(prop_plasma_observed_arcsin_sqrt = asin(sqrt(prop_plasma_observed)) |> scale() |> as.numeric()) |> 
+           
+           
+           # Some samples do not have prediction because they do not have immune cells within
+           filter(!prop_plasma_observed |> is.na()) |> 
+           as("SummarizedExperiment")
+        
+      rownames(se) = rownames(sce)
+      se |> assay() |> rownames() = rownames(sce)
+      #colnames(se)  = se |> tidybulk::pivot_sample() |> unite("pseudobulk_sample", sample_id, cell_type_unified_ensemble, tissue_groups) |> pull(pseudobulk_sample)
+         
+      se = se |>  filter(ncells > 10) 
+      
         # Compute mean library size
         mean_library_size <- se |>
           assay("counts") |>
@@ -958,6 +708,11 @@ tar_script({
             which.min()                             # Identify the smallest difference
         ]
         
+        # This technology is an outlier
+        se = se |> 
+          filter(assay_groups != "TruDrop") |> 
+          filter(tissue_groups %in% c("large intestine", "stomach", "oesophagus")) |> 
+          filter(age_bin %in% c("Middle Age", "Senior"))
         
         se = 
           se |> 
@@ -969,17 +724,30 @@ tar_script({
 
                                             # Discretise the age for the following operation
                                             mutate(is_old_individual = age_days > 50*365) |>
-                                            resolve_complete_confounders_of_non_interest(tissue_groups, sex, ethnicity_groups, is_old_individual) |>
+                                            resolve_complete_confounders_of_non_interest(tissue_groups, cell_type_unified_ensemble, sex, is_old_individual) |>
                                             colData() |>
                                             droplevels() |>
-                                            model.matrix(~ tissue_groups + sex + ethnicity_groups + is_old_individual, data = _  ),
+                                            model.matrix(~ cell_type_unified_ensemble + sex + is_old_individual, data = _  ),
                                           minimum_counts = 100
                             ) |> 
           scale_abundance(method = "TMMwsp", reference_sample = reference_sample) |> 
           mutate(offset = log(1/multiplier)) |> 
           
-          # Eliminate complete confounders
-          tidybulk:::resolve_complete_confounders_of_non_interest(assay_groups, dataset_id) 
+          # Resolve confounders
+          group_split(cell_type_unified_ensemble) |> 
+          map(tidybulk:::resolve_complete_confounders_of_non_interest,assay_groups, dataset_id) |> 
+          do.call(cbind, args=_)
+        
+      se = se |> 
+        mutate(
+          prop_plasma_predicted_logit = prop_plasma_predicted |> boot::logit(),
+          prop_plasma_predicted_logit_scaled = prop_plasma_predicted_logit |> scale() |> as.numeric(),
+          ncells_scaled = ncells |> scale() |> as.numeric(),
+          ncells_log_scaled = ncells |> log() |> scale() |> as.numeric()
+        ) |> 
+        
+        # allow for interaction grouping
+        unite("dataset_tissue_assay", dataset_id, tissue_groups, assay_groups, sep = "___", remove = FALSE)
         
         # As we have large sample size, we leave the estimation to gene-by-gene    
         # # Add dispersion
@@ -989,11 +757,13 @@ tar_script({
         #   left_join(glmGamPoi_overdispersions |> enframe(name = ".feature", value = "dispersion")) |> 
         #   data.frame(row.names = ".feature") |> DataFrame()
         
+
+      
         se
         
       }, 
-      packages = c("tidybulk", "HDF5Array", "tidySummarizedExperiment", "magrittr", "tibble", "glue", "cellNexus", "readr", "forcats"),
-      resources = tar_resources(crew = tar_resources_crew("elastic_big")),
+      packages = c("tidybulk", "HDF5Array", "tidySummarizedExperiment", "tidySingleCellExperiment", "magrittr", "tibble", "glue", "cellNexus", "readr", "forcats", "scuttle", "BiocParallel", "purrr"),
+      resources = tar_resources(crew = tar_resources_crew("elastic_big_10_cores")),
       memory = "persistent"
     ),
     
@@ -1001,150 +771,121 @@ tar_script({
     tar_target(
       feature_df, 
       pseudobulk_sample |> 
-        distinct(.feature)|> 
-        group_by(.feature) |> 
+        distinct(.feature, cell_type_unified_ensemble)|> 
+        expand_grid(df = list(tribble(
+          ~ analysis, ~formula, 
+          "observed_proportion", c(
+            "counts ~ 1 + offset(offset) + prop_plasma_observed_arcsin_sqrt + 
+              (1 | dataset_tissue_assay)" ,
+            "shape ~ 1 "
+          ),
+          "age_sex_interaction", c("counts ~ 1 + offset(offset) + age_bin*sex + assay_groups +
+              (1 | tissue_groups)" ,
+            "shape ~ 1"
+          )))
+        ) |> 
+        unnest(df) |> 
+        group_by(.feature, cell_type_unified_ensemble, analysis, formula) |> 
         tar_group(), 
       iteration = "group",
-      packages = c( "tidySummarizedExperiment", "targets", "purrr", "dplyr"),
-      resources = tar_resources(crew = tar_resources_crew("elastic"))
+      packages = c( "tidySummarizedExperiment", "targets", "purrr", "dplyr", "brms"),
+      resources = tar_resources(crew = tar_resources_crew("elastic")),
+      memory = "persistent"
     ),
     tar_target(
       se_df, 
-      feature_df |> mutate(se = map(.feature, ~ 
-                                      pseudobulk_sample[.x, , drop=FALSE]
-      ))  , 
-      pattern = map(feature_df),
-      packages = c( "brms", "glue"),
-      resources = tar_resources(crew = tar_resources_crew("elastic"))
-    ),
-    tar_target(
-      estimates_chunk, 
-      
-      se_df |> mutate(brms_fit = map(se, ~ {
+      feature_df |> 
+        mutate(
+          se = map2(.feature, cell_type_unified_ensemble, ~ pseudobulk_sample[.x, , drop=FALSE] |> filter(cell_type_unified_ensemble == .y)
+      )) |> 
         
-        data = 
-          .x |>
-          as_tibble() |> 
-          mutate(counts = counts |> as.integer()) |> 
-          droplevels()
-        
-        # Drop NA counts. Not sure why they are there. E.g.:
-        # $ .feature             <chr> "ENSG00000134419"
-        # $ .sample              <chr> "3bfa31867cc1c823e0cb2f1ff24df26b___1"
-        # $ counts               <int> NA
-        # $ gene_presence        <int> 25
-        # $ counts_scaled        <dbl> 38316.51
-        # $ sample_id            <chr> "3bfa31867cc1c823e0cb2f1ff24df26b"
-        # $ is_immune            <int> 1
-        # $ do_analyse           <lgl> TRUE
-        # $ donor_id             <chr> "one_Ten"
-        # $ title                <chr> "Individual Single-Cell RNA-seq PBMC Data from Schulte-Schrepping et al."
-        # $ dataset_id           <chr> "5e717147-0f75-4de1-8bd2-6fda01b8d75f"
-        # $ collection_id        <chr> "b9fc3d70-5a72-4479-a046-c2cc1ab19efc"
-        # $ age_days             <int> 10585
-        # $ sex                  <chr> "male"
-        # $ ethnicity_groups     <fct> European
-        # $ tissue_groups        <chr> "blood"
-        # $ assay_groups         <fct> 10x Genomics 3
-        # $ disease_groups       <fct> Normal
-        # $ age_bin <fct> Young Adulthood
-        # $ TMM                  <dbl> 2.538842
-        # $ multiplier           <dbl> 1.394764e-05
-        # $ offset               <dbl> -11.1802
-        # $ is_gene_shared       <lgl> TRUE
-        # $ .abundant            <lgl> TRUE
-        # $ dispersion           <dbl> 0.4960158
-        n_NAs = data |> filter(counts |> is.na()) |> nrow()
-        if(n_NAs > 0){
-          warning(glue("You have {n_NAs} NAs in counts. They have been filtered out"))
+        # Fit
+        mutate(brms_fit = map2(se, formula, ~ {
+          
           data = 
-            data |> 
-            filter(!counts |> is.na())
-        }
-        
-        # # Check if dispersion estimation has failed
-        # if(data |> pull(dispersion) |> unique() |> is.na()){
-        #   warning("The dispersion calculation has failed. 1 is given as default prior.")
-        #   data = data |> mutate(dispersion = 1)
-        # }
-        
-        # Define the model formula
-        formula <- bf(
+            .x |>
+            as_tibble() |> 
+            mutate(counts = counts |> as.integer()) |> 
+            droplevels()
           
-          # # Formula for counts
-          # counts ~ 1 + offset(offset) + ncells_scaled + prop_plasma_logit_scaled + ethnicity_groups + assay_groups + 
-          #   (1 | dataset_id) + 
-          #   (1 + prop_plasma_logit_scaled + ethnicity_groups | tissue_groups),
+          n_NAs = data |> filter(counts |> is.na()) |> nrow()
+          if(n_NAs > 0){
+            warning(glue("You have {n_NAs} NAs in counts. They have been filtered out"))
+            data = 
+              data |> 
+              filter(!counts |> is.na())
+          }
           
-          # Formula for counts
-          counts ~ 1 + offset(offset) + ncells_scaled + prop_plasma_logit_scaled + 
-            (1 | dataset_id) + 
-            (1 + prop_plasma_logit_scaled | tissue_groups),
+          prior = c(
+            prior(normal(i, 5), class = Intercept),
+            prior(normal(0, 2), class = Intercept, dpar = shape),
+            prior(normal(0, 5), class = b)
+            # ,
+            # prior(normal(0, 2), class = b, dpar = shape)
+          ) |> 
+            substitute(env = list(i = mean(log1p(data$counts / exp(data$offset))))) |> 
+            eval()
           
-          # Formula for dispersion
-          # shape ~ 1 + assay_groups + (1 | tissue_groups)  # Model 'shape' as a function of scaled 'disp'
+          chains = 2
+          inits <- list(Intercept = mean(log1p(data$counts / exp(data$offset))))
+          inits <- replicate(chains, inits, simplify = FALSE)
           
-          shape ~ 1 + tissue_groups  # Model 'shape' as a function of scaled 'disp'
           
-          # Using the externally, eBayes inferred overdispersion
-          # shape ~ 1 + offset(log(1/dispersion))
-        )
-        
-        prior = c(
-          prior(normal(i, 5), class = Intercept),
-          prior(normal(0, 2), class = Intercept, dpar = shape),
-          prior(normal(0, 5), class = b),
-          prior(normal(0, 2), class = b, dpar = shape)
-        ) |> 
-          substitute(env = list(i = mean(log1p(data$counts / exp(data$offset))))) |> 
-          eval()
-        
-        chains = 2
-        inits <- list(Intercept = mean(log1p(data$counts / exp(data$offset))))
-        inits <- replicate(chains, inits, simplify = FALSE)
-        
-        
-        brm(
-          formula = formula,
-          data = data,
-          family = zero_inflated_negbinomial(),
-          prior = prior,
-          chains = chains,
-          cores = as.numeric(Sys.getenv("SLURM_CPUS_PER_TASK", unset = 1)), #, threads = 2,
-          warmup = 300, 
-          refresh = 10,
-          backend = "cmdstanr", 
-          #sparse = TRUE,
-          #save_model = glue("{external_directory}~/temp.rds"),
-          #algorithm = "pathfinder",
-          init = inits,
-          iter = 800  # Increase iterations for better convergence
-        )
-        
-      })) |> 
-        
-        # Drop data because it is withn the brms object
-        select(-se), 
-      pattern = map(se_df),
-      packages = c( "brms", "glue", "dplyr", "purrr", "SummarizedExperiment", "tidySummarizedExperiment"),
-      resources = tar_resources(crew = tar_resources_crew("elastic")),
+          brm(
+            formula =   bf(as.formula(.y[1]), as.formula(.y[2])),
+            data = data,
+            family = zero_inflated_negbinomial(),
+            prior = prior,
+            chains = chains,
+            cores = as.numeric(Sys.getenv("SLURM_CPUS_PER_TASK", unset = 1)), #, threads = 2,
+            warmup = 600, 
+            refresh = 10,
+            backend = "cmdstanr", 
+            #sparse = TRUE,
+            #save_model = glue("{external_directory}~/temp.rds"),
+            #algorithm = "pathfinder",
+            init = inits,
+            iter = 2000  # Increase iterations for better convergence
+          )
+          
+        }))  , 
+      pattern = map(feature_df),
+      packages = 
+        c( "brms", "glue") |> 
+        c( "brms", "glue", "dplyr", "purrr", "SummarizedExperiment", "tidySummarizedExperiment", "tidySingleCellExperiment") |> 
+        c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr", "stringr") |> 
+        c( "brms", "glue", "dplyr", "purrr", "rstan"),
+      resources = tar_resources(
+        crew = tar_resources_crew("elastic")
+        ),
       error = "continue"
-      #,
-      #cue = tar_cue(mode = "never")
-      
+      # format = "parquet"
     ),
+    
     tar_target(
-      summary,
-      estimates_chunk |>
+      summary_df, 
+      se_df |> 
+      
         
+        # Summary
         # Random
         mutate(random_plus_fixed_effect_of_plasma_proportion = map(brms_fit, ~ .x |> coef(
           # Median instead and mad of mean and sd
           robust=TRUE
-        ) %$%
-          tissue_groups |> 
-          _[,,"prop_plasma_logit_scaled"] |> 
-          as_tibble(rownames = "tissue_groups")
+        ) |>
+          _[[1]]  |> 
+          # _[,,"prop_plasma_observed_arcsin_sqrt"] |> 
+          as_tibble(rownames = "tissue_groups") |> 
+          
+          # Reshape + significance
+          pivot_longer(-tissue_groups) |> 
+          mutate(name = name |> str_replace("Q2\\.5", "Q2_5") |> 
+                   str_replace("Q97\\.5", "Q97_5") |> 
+                   str_replace("Est\\.Error", "Est_Error")
+          ) |> 
+          separate(name, c("stat", "parameter"), sep="\\.", extra="merge") |> 
+          pivot_wider(names_from = "stat", values_from = "value") |> 
+          mutate(significant = (Q2_5 * Q97_5) > 0)
         )) |>
         
         # Fixed
@@ -1152,39 +893,86 @@ tar_script({
           # Median instead and mad of mean and sd
           robust=TRUE
         ) |> 
-          as_tibble(rownames = "coefficient")
-        )) |>
+          as_tibble(rownames = "coefficient") |> 
+ 
+          mutate(significant = (Q2.5 * Q97.5) > 0)  
+        
+        )) |> 
         
         mutate(Rhat = map_dbl(brms_fit, 
                               ~ summary(.x)$fixed |> 
                                 as_tibble(rownames = "par") |> 
-                                filter(par |> str_detect("plasma")) |> 
+                                filter(par |> str_detect("plasma|sex|age")) |> 
                                 pull(Rhat) |>
                                 max()
         )) |> 
         
-        select(-brms_fit),
-      
-      pattern = map(estimates_chunk),
-      packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr", "stringr"),
-      resources = tar_resources(crew = tar_resources_crew("elastic")),
+        # Adjust
+        mutate(brms_fit_adjusted = map(brms_fit, ~ .x |> remove_unwanted_effect(
+          newdata = .x$data |> mutate(assay_groups=NA, ethnicity_groups = NA, ncells_log_scaled = NA), 
+          robust = FALSE, correct_by_offset = FALSE,
+          re_formula = ~ (1 + prop_plasma_logit_scaled  | tissue_groups) 
+        ))) |> 
+        select(-se, -brms_fit), 
+      pattern = map(se_df),
+      packages = 
+        c( "brms", "glue") |> 
+        c( "brms", "glue", "dplyr", "purrr", "SummarizedExperiment", "tidySummarizedExperiment", "tidySingleCellExperiment") |> 
+        c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr", "stringr") |> 
+        c( "brms", "glue", "dplyr", "purrr", "rstan"),
+      resources = tar_resources(
+        crew = tar_resources_crew("elastic")
+      ),
       error = "continue"
+      # format = "parquet"
     ),
     
     tar_target(
-      effect_removed, 
-      estimates_chunk |> 
-        mutate(brms_fit_adjusted = map(brms_fit, ~ .x |> remove_unwanted_effect(
-          newdata = .x$data |> mutate(assay_groups=NA, ethnicity_groups = NA, ncells_log_scaled = NA), 
-          robust = TRUE, 
-          re_formula = ~ (1 + prop_plasma_logit_scaled  | tissue_groups) 
-        ))) |> 
-        select(-brms_fit),
-      
-      pattern = map(estimates_chunk),
-      packages = c( "brms", "glue", "dplyr", "purrr", "rstan"),
-      resources = tar_resources(crew = tar_resources_crew("elastic")),
-      error = "continue"
+      adjusted_assay,
+      {
+
+        plan(callr, workers = as.numeric(Sys.getenv("SLURM_CPUS_PER_TASK", unset = 1)))
+        
+        m = 
+          summary_df |>
+          select(1, 2, 3, 4, brms_fit_adjusted) |> 
+          # filter(map_int(brms_fit_adjusted, nrow) == 4926 ) |> 
+          mutate(brms_fit_adjusted = future_map2(brms_fit_adjusted, cell_type_unified_ensemble, ~ {
+            library(tidySummarizedExperiment)
+            .x |> 
+                                            select(adjusted___Estimate) |> #, adjusted___Q2.5, adjusted___Q97.5) |> 
+                                            mutate(sample_id = pseudobulk_sample |> dplyr::filter(cell_type_unified_ensemble == .y) |> colnames())
+            }, 
+                                          .progress = TRUE
+          )) |>
+          unnest(brms_fit_adjusted) |> 
+          dplyr::filter(analysis == "observed_proportion") |> 
+          select(.feature, adjusted___Estimate, sample_id) |> 
+          pivot_wider(names_from = sample_id, values_from = adjusted___Estimate) |> 
+          tidybulk:::as_matrix(rownames = ".feature") |> 
+          as("sparseMatrix")  |> 
+          Matrix::Matrix(sparse = T)
+        
+        # Cap infinite
+        max_rm_infinite = 
+          m |> 
+          _[!m |> is.infinite()] |> 
+          quantile(0.999)
+        
+        m |> 
+          _[m > max_rm_infinite] = 
+          max_rm_infinite
+        
+        m |> 
+          _[m < 0] = 
+          0
+        
+        return(m)
+      },
+      packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr", "stringr", "future.callr", "furrr", "tidySummarizedExperiment") ,
+      resources = tar_resources(
+        crew = tar_resources_crew("elastic_big_30_cores")
+      )
     )
     
   )
@@ -1196,7 +984,7 @@ tar_script({
 job::job({
   
   tar_make(
-    # callr_function = NULL,
+   # callr_function = NULL,
     reporter = "summary",
     script = glue::glue("{result_directory}/_targets.R"),
     store = glue::glue("{result_directory}/_targets")
@@ -1209,79 +997,57 @@ tar_read(estimates_chunk, store = glue::glue("{result_directory}/_targets"), bra
 tar_meta(store = glue::glue("{result_directory}/_targets")) |> 
   arrange(desc(time)) |>
   filter(!error |> is.na()) |> 
-  select(name, error)
+  dplyr::select(name, error)
 
 
 tar_workspace(
-  pseudobulk_sample, 
+  adjusted_assay, 
   script = glue::glue("{result_directory}/_targets.R"),
   store = glue::glue("{result_directory}/_targets")
 )
 
 # Effects
-tar_read(summary, store = glue::glue("{result_directory}/_targets")) |> 
-  select(-tar_group) |> 
-  saveRDS(glue::glue("{result_directory}/summary_epithelial_prop_plasma_DE_brms_digestive_tract_3_datasets.rds"))
+meta = tar_meta(starts_with("se_df_"), store = glue::glue("{result_directory}/_targets")) |> filter(!data |> is.na())
 
-system(glue("~/bin/rclone copy {result_directory}/summary_epithelial_prop_plasma_DE_brms_digestive_tract_3_datasets.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/"))
+tar_read(summary_df, store = glue::glue("{result_directory}/_targets")    ) |> 
+
+  filter(analysis == "observed_proportion") |> 
+  select(-brms_fit_adjusted) |> 
+  mutate(
+    fixed_effects = map(fixed_effects, ~ .x |> mutate(significant = (Q2.5 * Q97.5) > 0)  ),
+    random_plus_fixed_effect_of_plasma_proportion = map(random_plus_fixed_effect_of_plasma_proportion, ~ .x |> mutate(significant = (Q2.5.prop_plasma_observed_arcsin_sqrt * Q97.5.prop_plasma_observed_arcsin_sqrt) > 0)  )
+    
+  ) |> 
+  saveRDS(glue::glue("{result_directory}/summary_epithelial_prop_plasma_DE_brms_digestive_tract_observed_proportions_all_tissues.rds"))
+
+system(glue("~/bin/rclone copy {result_directory}/summary_epithelial_prop_plasma_DE_brms_digestive_tract_observed_proportions_all_tissues.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/"))
 
 
 # Adjusted counts
-
 pseudobulk_sample = tar_read(pseudobulk_sample, store = glue::glue("{result_directory}/_targets"))
 
-effect_removed = 
-  tar_read(
-    effect_removed,
-    store = glue::glue("{result_directory}/_targets")
-  )  |>
-  # filter(map_int(brms_fit_adjusted, nrow) == 4926 ) |> 
-  mutate(brms_fit_adjusted = map(brms_fit_adjusted, ~ .x |> 
-                                   select(adjusted___Estimate) |> #, adjusted___Q2.5, adjusted___Q97.5) |> 
-                                   mutate(sample_id = colnames(pseudobulk_sample)), 
-                                 .progress = TRUE
-  )) |>
-  unnest(brms_fit_adjusted)
-
 m = 
-  effect_removed |> 
-  pivot_wider(names_from = sample_id, values_from = adjusted___Estimate) |> 
-  select(-tar_group) |> 
-  tidybulk:::as_matrix(rownames = ".feature") |> 
-  as("sparseMatrix")  |> 
-  Matrix::Matrix(sparse = T)
+  tar_read(
+    adjusted_assay,
+    store = glue::glue("{result_directory}/_targets")
+  )  
 
 pseudobulk_sample = pseudobulk_sample[rownames(m),, drop=FALSE ] 
 assay(pseudobulk_sample, "counts_adjusted_plasma") = m
 
-# Cap infinite
-max_rm_infinite = 
-  pseudobulk_sample |> 
-  assay("counts_adjusted_plasma") |> 
-  _[!pseudobulk_sample |> assay("counts_adjusted_plasma") |> is.infinite()] |> 
-  quantile(0.999)
+pseudobulk_sample |> saveRDS(glue::glue("{result_directory}/pseudobulk_epithelial_adjusted_digestive_tract_observed_proportions_all_tissues.rds"))
 
-pseudobulk_sample |> 
-  assay("counts_adjusted_plasma") |> 
-  _[pseudobulk_sample |> assay("counts_adjusted_plasma") > max_rm_infinite] = 
-  max_rm_infinite
-
-pseudobulk_sample |> 
-  assay("counts_adjusted_plasma") |> 
-  _[pseudobulk_sample |> assay("counts_adjusted_plasma") < 0] = 
-  0
-
-pseudobulk_sample |> saveRDS(glue::glue("{result_directory}/se_age_sex_tissues_epithelial_adjusted_digestive_tract_3_datasets.rds"))
-
-system(glue("~/bin/rclone copy {result_directory}/se_age_sex_tissues_epithelial_adjusted_digestive_tract_3_datasets.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/"))
+system(glue("~/bin/rclone copy {result_directory}/pseudobulk_epithelial_adjusted_digestive_tract_observed_proportions_all_tissues.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/"))
 
 
-sce |> 
+tar_read(  sce,  store = glue::glue("{result_directory}/_targets")) |> 
   # select(.cell, sex, age_days, dataset_id, observation_joinid , sample_id,  contains("cell"), disease, collection_id, title, contains("ethnicity"), assay, tissue, tissue_groups) |> 
-  select(-run_from_cell_id) |> 
-  edit_covariates() |> 
-  zellkonverter::writeH5AD("~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/single_cell_for_dharmesh.h5ad",  verbose = TRUE)
-system("~/bin/rclone copy ~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/single_cell_for_dharmesh.h5ad box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
+  # dplyr::select(-run_from_cell_id) |> 
+  # edit_covariates() |> 
+  zellkonverter::writeH5AD(glue::glue("{result_directory}/single_cell_epithelial_adjusted_digestive_tract_observed_proportions_all_tissues.h5ad"),  verbose = TRUE)
+system(glue("~/bin/rclone copy {result_directory}/single_cell_epithelial_adjusted_digestive_tract_observed_proportions_all_tissues.h5ad box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/"))
+
+
 
 
 
