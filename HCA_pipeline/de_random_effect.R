@@ -5,7 +5,6 @@ library(magrittr)
 library(tidyverse)
 # devtools::load_all("~/PostDoc/tidybulk/")
 
-
 # # Dispersion 2 days calculation
 # job::job({
 #   library(tictoc)
@@ -231,6 +230,10 @@ tar_script({
     #   
     # ),
     
+    # This target loads and processes the pseudobulk sample data. It imports a HDF5 SummarizedExperiment, 
+    # applies filters to retain shared genes, immune cells, and samples marked for analysis, integrates age metadata,
+    # filters for common genes and samples with an appropriate number of detected genes, computes the mean library size, 
+    # selects a reference sample, and performs normalisation and scaling.
     tar_target(
       pseudobulk_sample,
       {
@@ -338,7 +341,8 @@ tar_script({
       error = "stop"
     ),
     
-    # Split in gene chunks
+    # This target extracts unique features from the pseudobulk sample and groups them into 
+    # chunks for parallel processing.
     tar_target(
       feature_df, 
       pseudobulk_sample |> 
@@ -349,6 +353,9 @@ tar_script({
       packages = c( "tidySummarizedExperiment", "targets", "purrr", "dplyr"),
       resources = tar_resources(crew = tar_resources_crew("elastic"))
     ),
+    
+    # This target creates a list-column of SummarizedExperiment objects,
+    # with each object corresponding to a distinct feature.
     tar_target(
       se_df, 
       feature_df |> mutate(se = map(.feature, ~ 
@@ -358,6 +365,9 @@ tar_script({
       packages = c( "brms", "glue"),
       resources = tar_resources(crew = tar_resources_crew("elastic"))
     ),
+    
+    # This target fits Bayesian models on chunks of the data. It processes each feature's data, handles missing values,
+    # defines the model specification with priors, and runs the Bayesian inference using the brm function.
     tar_target(
       estimates_chunk, 
       
@@ -466,6 +476,9 @@ tar_script({
       cue = tar_cue(mode = "never")
       
     ),
+     
+    # This target summarises the fitted Bayesian models by performing hypothesis tests for ethnicity contrasts 
+    # and extracting convergence diagnostics (Rhat) for the ethnicity parameters.
     tar_target(
       summary,
       estimates_chunk |>
@@ -581,6 +594,8 @@ tar_script({
       resources = tar_resources(crew = tar_resources_crew("elastic"))
     ),
     
+   # This target generates adjusted model estimates by removing unwanted effects from the fitted Bayesian models,
+   # thereby isolating the effects of interest. Here, nuisance covariates are set to NA and removed from the predictions.
     tar_target(
       effect_removed, 
       estimates_chunk |> 
@@ -596,6 +611,8 @@ tar_script({
       resources = tar_resources(crew = tar_resources_crew("elastic"))
     ),
     
+   # This target produces adjusted estimates from the Bayesian models, removing unwanted effects while retaining 
+   # the tissue group random effect, thus preserving variability associated with tissue-specific factors.
     tar_target(
       effect_removed_keep_tissue, 
       estimates_chunk |> 
@@ -853,8 +870,8 @@ pseudobulk_sample_for_PCA |>
   guides(color = "none") +
   theme_bw()
 
-x |> saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1/estimates_chunk_062dd2621e3cb7e1.rds")
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1/estimates_chunk_062dd2621e3cb7e1.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/removal_unwanted_effects/")
+# x |> saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1/estimates_chunk_062dd2621e3cb7e1.rds")
+# system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1/estimates_chunk_062dd2621e3cb7e1.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/removal_unwanted_effects/")
 
 tar_meta( store = glue::glue("/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_6/_targets")) |> 
   arrange(desc(time)) |>
