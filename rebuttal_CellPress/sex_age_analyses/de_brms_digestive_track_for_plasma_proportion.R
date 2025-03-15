@@ -727,7 +727,7 @@ tar_script({
                                             resolve_complete_confounders_of_non_interest(tissue_groups, cell_type_unified_ensemble, sex, is_old_individual) |>
                                             colData() |>
                                             droplevels() |>
-                                            model.matrix(~ cell_type_unified_ensemble + sex + is_old_individual, data = _  ),
+                                            model.matrix(~ cell_type_unified_ensemble___altered + sex___altered + is_old_individual___altered, data = _  ),
                                           minimum_counts = 100
                             ) |> 
           scale_abundance(method = "TMMwsp", reference_sample = reference_sample) |> 
@@ -747,7 +747,7 @@ tar_script({
         ) |> 
         
         # allow for interaction grouping
-        unite("dataset_tissue_assay", dataset_id, tissue_groups, assay_groups, sep = "___", remove = FALSE)
+        unite("dataset_tissue_assay", dataset_id___altered, tissue_groups, assay_groups___altered, sep = "___", remove = FALSE)
         
         # As we have large sample size, we leave the estimation to gene-by-gene    
         # # Add dispersion
@@ -779,7 +779,7 @@ tar_script({
               (1 | dataset_tissue_assay)" ,
             "shape ~ 1 "
           ),
-          "age_sex_interaction", c("counts ~ 1 + offset(offset) + age_bin*sex + assay_groups +
+          "age_sex_interaction", c("counts ~ 1 + offset(offset) + age_bin*sex + assay_groups___altered +
               (1 | tissue_groups)" ,
             "shape ~ 1"
           )))

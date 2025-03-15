@@ -207,6 +207,51 @@ tar_script({
       bind_cols(fitted_values_ethnicity_tbl)
   }
   
+  remove_unwanted_effect_new = function(fit, newdata, robust = FALSE, correct_by_offset = T, re_formula = ~0){
+    
+    # Calculate residuals: observed counts minus fitted values, normalised by exp(offset)
+    # This places residuals on a consistent scale, making them addable to adjusted predictions later.
+    fitted_residuals =   fit |> predictive_error(robust = robust, summary = FALSE, offset = 0) 
+    
+    # Correct by offset
+    if(correct_by_offset)
+      fitted_residuals = fitted_residuals |>
+        sweep(2, fit$data$offset |> exp(), FUN = "/")
+    
+    # Extract fitted values for the specified factor only, removing random effects by setting re_formula = ~0
+    # 'resp = factor' focuses on the selected response variable (factor)
+    fitted_values_ethnicity <- posterior_epred(fit, newdata = newdata, re_formula = re_formula,  offset=0)
+    
+    # Adjusted counts are obtained by adding the factor-specific fitted values and the normalised residuals
+    adjusted_counts = fitted_values_ethnicity + fitted_residuals
+    
+    # Summarise residuals into a tibble, prefixed to denote their source
+    fitted_residuals_tbl = 
+      fitted_residuals |> 
+      posterior_summary(robust = robust) |> 
+      as_tibble()
+    fitted_residuals_tbl |> colnames() = paste0("residuals___", fitted_residuals_tbl |> colnames())
+    
+    # Summarise the factor-only fitted values into a tibble, prefixed accordingly
+    fitted_values_ethnicity_tbl = 
+      fitted_values_ethnicity |> 
+      posterior_summary(robust = robust) |> 
+      as_tibble()
+    fitted_values_ethnicity_tbl |> colnames() = paste0("fitted___", fitted_values_ethnicity_tbl |> colnames())
+    
+    # Summarise the adjusted counts (factor + residuals) into a tibble, prefixed for clarity
+    adjusted_counts_tbl = 
+      adjusted_counts |> 
+      posterior_summary(robust = robust) |> 
+      as_tibble()
+    adjusted_counts_tbl |> colnames() = paste0("adjusted___", adjusted_counts_tbl |> colnames())
+    
+    # Combine all three resulting tables into one tibble
+    adjusted_counts_tbl |> 
+      bind_cols(fitted_residuals_tbl) |> 
+      bind_cols(fitted_values_ethnicity_tbl)
+  }
+  
   
   #-----------------------#
   # Pipeline
@@ -296,7 +341,7 @@ tar_script({
                           resolve_complete_confounders_of_non_interest(tissue_groups, sex, ethnicity_groups, is_old_individual) |> 
                           colData() |> 
                           droplevels() |> 
-                          model.matrix(~ tissue_groups + sex + ethnicity_groups + is_old_individual, data = _  ), 
+                          model.matrix(~ tissue_groups + sex___altered + ethnicity_groups___altered + is_old_individual___altered, data = _  ), 
                         minimum_counts = 100
           ) |> 
           
@@ -320,8 +365,8 @@ tar_script({
           # Set intercept
           mutate(
             ethnicity_groups = fct_relevel(ethnicity_groups, "European"),
-            assay_groups = fct_relevel(assay_groups, "10x Genomics 3"),
-            disease_groups = fct_relevel(disease_groups, "Normal"),
+            assay_groups___altered = fct_relevel(assay_groups___altered, "10x Genomics 3"),
+            disease_groups___altered = fct_relevel(disease_groups___altered, "Normal"),
             age_bin = fct_relevel(age_bin, "Adolescence")
           ) 
         
@@ -424,12 +469,12 @@ tar_script({
         formula <- bf(
           
           # Formula for counts
-          counts ~ 1 + offset(offset) + age_bin*sex + disease_groups + ethnicity_groups + assay_groups + 
-            (1 | dataset_id) + 
+          counts ~ 1 + offset(offset) + age_bin*sex + disease_groups___altered + ethnicity_groups + assay_groups___altered + 
+            (1 | dataset_id___altered) + 
             (1 + age_bin*sex + ethnicity_groups | tissue_groups),
           
           # Formula for dispersion
-          shape ~ 1 + disease_groups + assay_groups + ethnicity_groups + (1 | tissue_groups)  # Model 'shape' as a function of scaled 'disp'
+          shape ~ 1 + disease_groups___altered + assay_groups___altered + ethnicity_groups + (1 | tissue_groups)  # Model 'shape' as a function of scaled 'disp'
           
           # Using the externally, eBayes inferred overdispersion
           # shape ~ 1 + offset(log(1/dispersion))
@@ -602,6 +647,11 @@ tar_script({
         mutate(brms_fit_adjusted = map(brms_fit, ~ .x |> remove_unwanted_effect(
           newdata = .x$data |> mutate(assay_groups=NA, sex = NA, age_bin = NA, disease_groups = NA, dataset_id = NA), # age_bin*sex + disease_groups + ethnicity_groups + assay_groups
           robust = TRUE, 
+          re_formula = ~ 0
+        ))) |> 
+        mutate(brms_fit_adjusted_new = map(brms_fit, ~ .x |> remove_unwanted_effect_new(
+          newdata = .x$data |> mutate(assay_groups=NA, sex = NA, age_bin = NA, disease_groups = NA, dataset_id = NA), # age_bin*sex + disease_groups + ethnicity_groups + assay_groups
+          robust = FALSE, correct_by_offset = FALSE,
           re_formula = ~ 0
         ))) |> 
         select(-brms_fit),
