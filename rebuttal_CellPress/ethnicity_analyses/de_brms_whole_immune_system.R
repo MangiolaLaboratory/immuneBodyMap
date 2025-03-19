@@ -67,7 +67,7 @@ tar_script({
         workers = 500,
         tasks_max = 20,
         seconds_idle = 30,
-        crashes_error = 7,
+        crashes_max = 7,
         options_cluster = crew_options_slurm(
           memory_gigabytes_required = c(5, 10, 20, 40, 80, 160), 
           cpus_per_task = 2, 
@@ -80,7 +80,7 @@ tar_script({
         workers = 150,
         tasks_max = 20,
         seconds_idle = 30,
-        crashes_error = 5,
+        crashes_max = 5,
         options_cluster = crew_options_slurm(
           memory_gigabytes_required = c(80, 160), 
           cpus_per_task = 2, 
