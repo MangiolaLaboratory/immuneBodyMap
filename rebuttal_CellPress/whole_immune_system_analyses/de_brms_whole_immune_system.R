@@ -645,14 +645,19 @@ tar_script({
       effect_removed, 
       estimates_chunk |> 
         mutate(brms_fit_adjusted = map(brms_fit, ~ .x |> remove_unwanted_effect(
-          newdata = .x$data |> mutate(assay_groups=NA, sex = NA, age_bin = NA, disease_groups = NA, dataset_id = NA), # age_bin*sex + disease_groups + ethnicity_groups + assay_groups
+          newdata = .x$data |> mutate(assay_groups___altered=NA, sex = NA, age_bin = NA, disease_groups___altered = NA, dataset_id___altered = NA), # age_bin*sex + disease_groups + ethnicity_groups + assay_groups
           robust = TRUE, 
           re_formula = ~ 0
         ))) |> 
         mutate(brms_fit_adjusted_new = map(brms_fit, ~ .x |> remove_unwanted_effect_new(
-          newdata = .x$data |> mutate(assay_groups=NA, sex = NA, age_bin = NA, disease_groups = NA, dataset_id = NA), # age_bin*sex + disease_groups + ethnicity_groups + assay_groups
+          newdata = .x$data |> mutate(assay_groups___altered=NA, sex = NA, age_bin = NA, disease_groups___altered = NA, dataset_id___altered = NA), # age_bin*sex + disease_groups + ethnicity_groups + assay_groups
           robust = FALSE, correct_by_offset = FALSE,
           re_formula = ~ 0
+        ))) |> 
+        mutate(brms_fit_adjusted_tissue_new = map(brms_fit, ~ .x |> remove_unwanted_effect_new(
+          newdata = .x$data |> mutate(assay_groups___altered=NA, ethnicity_groups = NA, sex = NA, age_bin = NA, disease_groups___altered = NA, dataset_id___altered = NA), # age_bin*sex + disease_groups + ethnicity_groups + assay_groups
+          robust = FALSE, correct_by_offset = FALSE,
+          re_formula = ~ (1 | tissue_groups)
         ))) |> 
         select(-brms_fit),
       
