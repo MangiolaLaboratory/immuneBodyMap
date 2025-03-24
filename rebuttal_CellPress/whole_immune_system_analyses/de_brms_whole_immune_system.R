@@ -698,12 +698,12 @@ tar_script({
     tar_target(
       effect_removed, 
       estimates_chunk |> 
-        mutate(brms_fit_adjusted = map(brms_fit, ~ .x |> remove_unwanted_effect(
+        mutate(brms_fit_adjusted_etnicity = map(brms_fit, ~ .x |> remove_unwanted_effect(
           newdata = .x$data |> mutate(assay_groups___altered=NA, sex = NA, age_bin = NA, disease_groups___altered = NA, dataset_id___altered = NA), # age_bin*sex + disease_groups + ethnicity_groups + assay_groups
           robust = TRUE, 
           re_formula = ~ 0
         ))) |> 
-        mutate(brms_fit_adjusted_new = map(brms_fit, ~ .x |> remove_unwanted_effect_new(
+        mutate(brms_fit_adjusted_ethnicity_new = map(brms_fit, ~ .x |> remove_unwanted_effect_new(
           newdata = .x$data |> mutate(assay_groups___altered=NA, sex = NA, age_bin = NA, disease_groups___altered = NA, dataset_id___altered = NA), # age_bin*sex + disease_groups + ethnicity_groups + assay_groups
           robust = FALSE, correct_by_offset = FALSE,
           re_formula = ~ 0
@@ -726,7 +726,7 @@ tar_script({
     ),
    
    tar_target(
-     adjusted_assay,
+     adjusted_assay_etnicity,
      get_adjusted_matrix(effect_removed, brms_fit_adjusted),
      packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr", "stringr", "future.callr", "furrr", "tidySummarizedExperiment") ,
      resources = tar_resources(
@@ -735,7 +735,7 @@ tar_script({
    ),
    
    tar_target(
-     adjusted_assay,
+     adjusted_assay_etnicity_new,
      get_adjusted_matrix(effect_removed, brms_fit_adjusted_new),
      packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr", "stringr", "future.callr", "furrr", "tidySummarizedExperiment") ,
      resources = tar_resources(
@@ -744,7 +744,7 @@ tar_script({
    ),
    
    tar_target(
-     adjusted_assay,
+     adjusted_assay_tissue,
      get_adjusted_matrix(effect_removed, brms_fit_adjusted_tissue),
      packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr", "stringr", "future.callr", "furrr", "tidySummarizedExperiment") ,
      resources = tar_resources(
@@ -753,7 +753,7 @@ tar_script({
    ),
    
    tar_target(
-     adjusted_assay,
+     adjusted_assay_tissue_new,
      get_adjusted_matrix(effect_removed, brms_fit_adjusted_tissue_new),
      packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr", "stringr", "future.callr", "furrr", "tidySummarizedExperiment") ,
      resources = tar_resources(
