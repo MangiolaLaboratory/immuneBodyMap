@@ -656,8 +656,8 @@ tar_script({
         # evaluate result_directory for targets
         print(result_directory)
         
-        local_file_name = glue("{result_directory}/{formula_df$name}___{formula_df$cell_type_level}.rds")
-        local_file_name_FIT_FOR_PORTABILITY = glue("{result_directory}/{formula_df$name}___{formula_df$cell_type_level}_FIT_FOR_PORTABILITY.rds")
+        local_file_name = glue("{result_directory}/{formula_df$name}___{formula_df$cell_type_level}___disease_{formula_df$drop_disease}.rds")
+        local_file_name_FIT_FOR_PORTABILITY = glue("{result_directory}/{formula_df$name}___{formula_df$cell_type_level}___disease_{formula_df$drop_disease}_FIT_FOR_PORTABILITY.rds")
       
         # Save draws as monolythic
         attr(estimates, "fit")$save_object(file = local_file_name_FIT_FOR_PORTABILITY) 

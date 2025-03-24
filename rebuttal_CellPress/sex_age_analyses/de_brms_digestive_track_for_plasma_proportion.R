@@ -547,6 +547,46 @@ tar_script({
     
   }     
   
+  get_adjusted_matrix = function(summary_df){
+    
+    plan(callr, workers = as.numeric(Sys.getenv("SLURM_CPUS_PER_TASK", unset = 1)))
+    
+    m = 
+      summary_df |>
+      select(1, 2, 3, 4, brms_fit_adjusted) |> 
+      # filter(map_int(brms_fit_adjusted, nrow) == 4926 ) |> 
+      mutate(brms_fit_adjusted = future_map2(brms_fit_adjusted, cell_type_unified_ensemble, ~ {
+        library(tidySummarizedExperiment)
+        .x |> 
+          select(adjusted___Estimate) |> #, adjusted___Q2.5, adjusted___Q97.5) |> 
+          mutate(sample_id = pseudobulk_sample |> dplyr::filter(cell_type_unified_ensemble == .y) |> colnames())
+      }, 
+      .progress = TRUE
+      )) |>
+      unnest(brms_fit_adjusted) |> 
+      dplyr::filter(analysis == "observed_proportion") |> 
+      select(.feature, adjusted___Estimate, sample_id) |> 
+      pivot_wider(names_from = sample_id, values_from = adjusted___Estimate) |> 
+      tidybulk:::as_matrix(rownames = ".feature") |> 
+      as("sparseMatrix")  |> 
+      Matrix::Matrix(sparse = T)
+    
+    # Cap infinite
+    max_rm_infinite = 
+      m |> 
+      _[!m |> is.infinite()] |> 
+      quantile(0.999)
+    
+    m |> 
+      _[m > max_rm_infinite] = 
+      max_rm_infinite
+    
+    m |> 
+      _[m < 0] = 
+      0
+    
+    return(m)
+  }
   
   #-----------------------#
   # Pipeline
@@ -929,46 +969,7 @@ tar_script({
     
     tar_target(
       adjusted_assay,
-      {
-
-        plan(callr, workers = as.numeric(Sys.getenv("SLURM_CPUS_PER_TASK", unset = 1)))
-        
-        m = 
-          summary_df |>
-          select(1, 2, 3, 4, brms_fit_adjusted) |> 
-          # filter(map_int(brms_fit_adjusted, nrow) == 4926 ) |> 
-          mutate(brms_fit_adjusted = future_map2(brms_fit_adjusted, cell_type_unified_ensemble, ~ {
-            library(tidySummarizedExperiment)
-            .x |> 
-                                            select(adjusted___Estimate) |> #, adjusted___Q2.5, adjusted___Q97.5) |> 
-                                            mutate(sample_id = pseudobulk_sample |> dplyr::filter(cell_type_unified_ensemble == .y) |> colnames())
-            }, 
-                                          .progress = TRUE
-          )) |>
-          unnest(brms_fit_adjusted) |> 
-          dplyr::filter(analysis == "observed_proportion") |> 
-          select(.feature, adjusted___Estimate, sample_id) |> 
-          pivot_wider(names_from = sample_id, values_from = adjusted___Estimate) |> 
-          tidybulk:::as_matrix(rownames = ".feature") |> 
-          as("sparseMatrix")  |> 
-          Matrix::Matrix(sparse = T)
-        
-        # Cap infinite
-        max_rm_infinite = 
-          m |> 
-          _[!m |> is.infinite()] |> 
-          quantile(0.999)
-        
-        m |> 
-          _[m > max_rm_infinite] = 
-          max_rm_infinite
-        
-        m |> 
-          _[m < 0] = 
-          0
-        
-        return(m)
-      },
+      get_adjusted_matrix(summary_df),
       packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr", "stringr", "future.callr", "furrr", "tidySummarizedExperiment") ,
       resources = tar_resources(
         crew = tar_resources_crew("elastic_big_30_cores")

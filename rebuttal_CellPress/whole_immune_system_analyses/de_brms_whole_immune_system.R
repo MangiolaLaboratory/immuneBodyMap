@@ -87,6 +87,18 @@ tar_script({
           time_minutes = c(60*24, 60*24),
           verbose = T
         )
+      ),
+      crew_controller_slurm(
+        name = "elastic_big_30_cores",
+        workers = 150,
+        tasks_max = 20,
+        seconds_idle = 30,
+        crashes_max = 5,
+        options_cluster = crew_options_slurm(
+          memory_gigabytes_required = c(160), 
+          cpus_per_task = 30, 
+          verbose = T
+        )
       )
     )
     
@@ -252,6 +264,48 @@ tar_script({
       bind_cols(fitted_values_ethnicity_tbl)
   }
   
+  get_adjusted_matrix = function(summary_df, column_adjusted){
+    
+    column_adjusted = enquo(column_adjusted)
+    
+    plan(callr, workers = as.numeric(Sys.getenv("SLURM_CPUS_PER_TASK", unset = 1)))
+    
+    m = 
+      summary_df |>
+      select(1, 2, 3, 4, !!column_adjusted) |> 
+      # filter(map_int(!!column_adjusted, nrow) == 4926 ) |> 
+      mutate(!!column_adjusted := future_map2(!!column_adjusted, cell_type_unified_ensemble, ~ {
+        library(tidySummarizedExperiment)
+        .x |> 
+          select(adjusted___Estimate) |> #, adjusted___Q2.5, adjusted___Q97.5) |> 
+          mutate(sample_id = pseudobulk_sample |> dplyr::filter(cell_type_unified_ensemble == .y) |> colnames())
+      }, 
+      .progress = TRUE
+      )) |>
+      unnest(!!column_adjusted) |> 
+      dplyr::filter(analysis == "observed_proportion") |> 
+      select(.feature, adjusted___Estimate, sample_id) |> 
+      pivot_wider(names_from = sample_id, values_from = adjusted___Estimate) |> 
+      tidybulk:::as_matrix(rownames = ".feature") |> 
+      as("sparseMatrix")  |> 
+      Matrix::Matrix(sparse = T)
+    
+    # Cap infinite
+    max_rm_infinite = 
+      m |> 
+      _[!m |> is.infinite()] |> 
+      quantile(0.999)
+    
+    m |> 
+      _[m > max_rm_infinite] = 
+      max_rm_infinite
+    
+    m |> 
+      _[m < 0] = 
+      0
+    
+    return(m)
+  }
   
   #-----------------------#
   # Pipeline
@@ -654,6 +708,11 @@ tar_script({
           robust = FALSE, correct_by_offset = FALSE,
           re_formula = ~ 0
         ))) |> 
+        mutate(brms_fit_adjusted_tissue = map(brms_fit, ~ .x |> remove_unwanted_effect(
+          newdata = .x$data |> mutate(assay_groups=NA, sex = NA, age_bin = NA, disease_groups = NA, ethnicity_groups = NA), # age_bin*sex + disease_groups + ethnicity_groups + assay_groups
+          robust = TRUE, 
+          re_formula = ~ (1 | tissue_groups)
+        ))) |> 
         mutate(brms_fit_adjusted_tissue_new = map(brms_fit, ~ .x |> remove_unwanted_effect_new(
           newdata = .x$data |> mutate(assay_groups___altered=NA, ethnicity_groups = NA, sex = NA, age_bin = NA, disease_groups___altered = NA, dataset_id___altered = NA), # age_bin*sex + disease_groups + ethnicity_groups + assay_groups
           robust = FALSE, correct_by_offset = FALSE,
@@ -665,23 +724,42 @@ tar_script({
       packages = c( "brms", "glue", "dplyr", "purrr", "rstan"),
       resources = tar_resources(crew = tar_resources_crew("elastic"))
     ),
-    
-   # This target produces adjusted estimates from the Bayesian models, removing unwanted effects while retaining 
-   # the tissue group random effect, thus preserving variability associated with tissue-specific factors.
-    tar_target(
-      effect_removed_keep_tissue, 
-      estimates_chunk |> 
-        mutate(brms_fit_adjusted = map(brms_fit, ~ .x |> remove_unwanted_effect(
-          newdata = .x$data |> mutate(assay_groups=NA, sex = NA, age_bin = NA, disease_groups = NA, ethnicity_groups = NA), # age_bin*sex + disease_groups + ethnicity_groups + assay_groups
-          robust = TRUE, 
-          re_formula = ~ (1 | tissue_groups)
-        ))) |> 
-        select(-brms_fit),
-      
-      pattern = map(estimates_chunk),
-      packages = c( "brms", "glue", "dplyr", "purrr", "rstan"),
-      resources = tar_resources(crew = tar_resources_crew("elastic"))
-    )
+   
+   tar_target(
+     adjusted_assay,
+     get_adjusted_matrix(effect_removed, brms_fit_adjusted),
+     packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr", "stringr", "future.callr", "furrr", "tidySummarizedExperiment") ,
+     resources = tar_resources(
+       crew = tar_resources_crew("elastic_big_30_cores")
+     )
+   ),
+   
+   tar_target(
+     adjusted_assay,
+     get_adjusted_matrix(effect_removed, brms_fit_adjusted_new),
+     packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr", "stringr", "future.callr", "furrr", "tidySummarizedExperiment") ,
+     resources = tar_resources(
+       crew = tar_resources_crew("elastic_big_30_cores")
+     )
+   ),
+   
+   tar_target(
+     adjusted_assay,
+     get_adjusted_matrix(effect_removed, brms_fit_adjusted_tissue),
+     packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr", "stringr", "future.callr", "furrr", "tidySummarizedExperiment") ,
+     resources = tar_resources(
+       crew = tar_resources_crew("elastic_big_30_cores")
+     )
+   ),
+   
+   tar_target(
+     adjusted_assay,
+     get_adjusted_matrix(effect_removed, brms_fit_adjusted_tissue_new),
+     packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr", "stringr", "future.callr", "furrr", "tidySummarizedExperiment") ,
+     resources = tar_resources(
+       crew = tar_resources_crew("elastic_big_30_cores")
+     )
+   )
     
   )
   
