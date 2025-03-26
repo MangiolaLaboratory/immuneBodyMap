@@ -1,0 +1,80 @@
+---
+title: "Target Markdown"
+output: html_document
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+# Packages
+
+The code requires several R packages
+
+```{r, eval = FALSE}
+install.packages(c("biglm", "dplyr", "ggplot2", "readr", "targets", "tidyr"))
+```
+
+# Setup
+
+```{r}
+library(tidySummarizedExperiment)
+library(HDF5Array)
+library(HPCell)
+library(magrittr)
+library(tidyverse)
+library(tidybulk)
+```
+
+
+
+```{r}
+# Load tar scripts -----
+# result_directory = "/data/projects/punim1739/Stemformatics/chen_data/hpc_posterior/"
+## Script path -----
+
+setwd('/home/a1237163/lab/chen/HPC_posterior/V2_20250320')
+script_path = "_targets.R"
+res_folder_path = "_targets"
+
+source('/home/a1237163/lab/chen/HPC_posterior/make_tar_scripts_latest.r')
+
+```
+
+```{r}
+# RUN as background job -----
+
+setwd('/home/a1237163/lab/chen/HPC_posterior/V2_20250320')
+
+library(targets)
+
+tar_make(
+    # callr_function = NULL,
+    # reporter = "verbose_positives",
+    reporter = "summary"
+)
+  
+```
+
+# Output
+
+You can retrieve results from the `_targets/` data store using `tar_read()` or `tar_load()`.
+
+```{r, message = FALSE}
+tar_load(fit)
+```
+
+```{r}
+tar_read(hist)
+```
+
+The `targets` dependency graph helps your readers understand the steps of your pipeline at a high level.
+
+```{r}
+
+setwd('/home/a1237163/lab/chen/HPC_posterior/V2_20250320')
+
+library(targets)
+library(tidyverse)
+tar_watch()
+```
