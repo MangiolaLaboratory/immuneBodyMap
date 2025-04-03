@@ -13,8 +13,8 @@ tar_script({
   library(crew.cluster)
   
   # Set file path -----
-  hdf5_path = "/home/a1237163/lab/Mangiola_ImmuneAtlas/taskforce_shared_folder/pseudobulk_sample_is_immune"
-  metadata_path = "/home/a1237163/lab/Mangiola_ImmuneAtlas/taskforce_shared_folder/cell_metadata_1_0_6_sccomp_input_counts.rds"
+  hdf5_path = "/hpcfs/groups/phoenix-hpc-mangiola_laboratory/Mangiola_ImmuneAtlas/taskforce_shared_folder/pseudobulk_sample_is_immune"
+  metadata_path = "/hpcfs/groups/phoenix-hpc-mangiola_laboratory/Mangiola_ImmuneAtlas/taskforce_shared_folder/cell_metadata_1_0_6_sccomp_input_counts.rds"
 
   tar_option_set(
     
@@ -31,24 +31,11 @@ tar_script({
     format = "qs",
     
     debug = "estimates_chunk",
-    # deployment = "main", # set running locally for testing
     
     controller = crew_controller_group(
       
       crew_controller_slurm(
-        name = "test",
-        workers = 1,
-        options_cluster = crew_options_slurm(
-          script_lines = '#SBATCH -A saigencir003',
-          memory_gigabytes_required = c(5),
-          cpus_per_task = 2,
-          time_minutes = c(60*4),
-          verbose = T
-        )
-      ),
-      crew_controller_slurm(
-        name = "elastic",
-        
+        name = "elastic",        
         workers = 500,
         tasks_max = 20,
         seconds_idle = 30,
@@ -82,6 +69,7 @@ tar_script({
         seconds_idle = 30,
         crashes_max = 5,
         options_cluster = crew_options_slurm(
+          script_lines = '#SBATCH -A saigencir003',
           memory_gigabytes_required = c(160), 
           cpus_per_task = 50, 
           verbose = T
@@ -329,7 +317,7 @@ tar_script({
               distinct(sample_id,  age_days, age_bin) 
           )
         
-        # Filter common genes
+         # Filter common genes
         se = se[((assay(se, "gene_presence") > 0) |> rowSums() > (ncol(se) * 0.95)),,drop=FALSE ]
         
         # Filter samples that have enough genes > 0 but not too many
@@ -358,7 +346,7 @@ tar_script({
         ]
         
         message('TAR: pseudobulk_sample Phase2')
-        se <- 
+        se = 
           se |> 
           keep_abundant(design = 
                           se |> 
@@ -371,7 +359,7 @@ tar_script({
                           resolve_complete_confounders_of_non_interest(tissue_groups, sex, ethnicity_groups, is_old_individual) |> 
                           colData() |> 
                           droplevels() |> 
-                          model.matrix(~ tissue_groups + sex + ethnicity_groups + is_old_individual, data = _  ), 
+                          model.matrix(~ tissue_groups + sex___altered + ethnicity_groups___altered + is_old_individual___altered, data = _  ), 
                         minimum_counts = 100
           ) |> 
           
@@ -387,7 +375,7 @@ tar_script({
           filter(!age_bin |> is.na()) |> 
           
           # Eliminate complete confounders
-          resolve_complete_confounders_of_non_interest(assay_groups, dataset_id, disease_groups) |> 
+          tidybulk:::resolve_complete_confounders_of_non_interest(assay_groups, dataset_id, disease_groups) |> 
           
           # sibrary size factor is the reciproque of the multiplier (correction factor)
           mutate(offset = log(1/multiplier)) |> 
@@ -395,8 +383,8 @@ tar_script({
           # Set intercept
           mutate(
             ethnicity_groups = fct_relevel(ethnicity_groups, "European"),
-            assay_groups = fct_relevel(assay_groups, "10x Genomics 3"),
-            disease_groups = fct_relevel(disease_groups, "Normal"),
+            assay_groups___altered = fct_relevel(assay_groups___altered, "10x Genomics 3"),
+            disease_groups___altered = fct_relevel(disease_groups___altered, "Normal"),
             age_bin = fct_relevel(age_bin, "Adolescence")
           ) 
         
@@ -419,7 +407,6 @@ tar_script({
     
     # pseudobulk_sample_id ------
     # This target extracts unique sample ids from the pseudobulk sample  
-    
     tar_target(
       pseudobulk_sample_id,
       pseudobulk_sample |> colnames(),
@@ -520,16 +507,16 @@ tar_script({
         formula <- bf(
           
           # Formula for counts
-          counts ~ 1 + offset(offset) + age_bin*sex + disease_groups + ethnicity_groups + assay_groups + 
-            (1 | dataset_id) + 
+          counts ~ 1 + offset(offset) + age_bin*sex + disease_groups___altered + ethnicity_groups + assay_groups___altered + 
+            (1 | dataset_id___altered) + 
             (1 + age_bin*sex + ethnicity_groups | tissue_groups),
           
           # Formula for dispersion
-          shape ~ 1 + disease_groups + assay_groups + ethnicity_groups + (1 | tissue_groups)  # Model 'shape' as a function of scaled 'disp'
+          shape ~ 1 + disease_groups___altered + assay_groups___altered + ethnicity_groups + (1 | tissue_groups)  # Model 'shape' as a function of scaled 'disp'
           
           # Using the externally, eBayes inferred overdispersion
           # shape ~ 1 + offset(log(1/dispersion))
-        )
+         )
         
         # prior = c(
         #   prior(normal(i, 5), class = Intercept),
@@ -541,20 +528,66 @@ tar_script({
         #   eval()
 
         # prior = prior(normal(-0.0002056948, 0.07690437))
-
+        
+        # HPC pipeline: param V1:
+        # prior = c(
+        #   prior(student_t(4.45496, 0.008599254, 1.143344), class = "b"),
+        #   prior(student_t(18.16242, 0.07952513, 0.9926044), class = "b", dpar = "shape"),
+        #   prior(normal(5.441626, 2.25460683), class = "Intercept"),
+        #   prior(normal(0.1459487, 0.8347875), class = "Intercept", dpar = "shape"),
+        #   prior(student_t(4.7655009	, 0.887529, 0.8684176), class = "sd", lb = 0),
+        #   prior(student_t(53.08894, 0.9080073, 0.2870678), class = "sd", dpar = "shape", lb = 0),
+        #   prior(beta(0.5541155, 9.337894), class = "zi")
+        # ) 
+        
+        # HPC pipeline: param V2:
         prior = c(
-          prior(student_t(4.45496, 0.008599254, 1.143344), class = "b"),
-          prior(student_t(18.16242, 0.07952513, 0.9926044), class = "b", dpar = "shape"),
-          prior(normal(5.441626, 2.25460683), class = "Intercept"),
-          prior(normal(0.1459487, 0.8347875), class = "Intercept", dpar = "shape"),
-          prior(student_t(4.7655009	, 0.887529, 0.8684176), class = "sd", lb = 0),
-          prior(student_t(53.08894, 0.9080073, 0.2870678), class = "sd", dpar = "shape", lb = 0),
-          prior(beta(0.5541155, 9.337894), class = "zi")
-        ) 
+          prior(student_t(6.153327, 0.06161134, 0.9263627), class = "b"),
+          prior(student_t(40.51669, 0.07603337, 0.8252114), class = "b", dpar = "shape"),
+          prior(normal(6.057503, 2.438534), class = "Intercept"),
+          prior(normal(0.4260793, 1.470536), class = "Intercept", dpar = "shape"),
+          prior(student_t(52.19541	, 0.5703259, 0.4147664), class = "sd", lb = 0),
+          prior(normal(0.8670409, 0.1779553), class = "sd", dpar = "shape", lb = 0),
+          prior(beta(0.5381488, 10.3577433), class = "zi", lb = 0, ub = 1)
+        )
         
         chains = 2
-        inits <- list(Intercept = mean(log1p(data$counts / exp(data$offset))))
-        inits <- replicate(chains, inits, simplify = FALSE)
+        
+        Kc <- 39
+        Kc_shape <- 28
+        M_1 <- 1; N_1 <- 105
+        M_2 <- 19; N_2 <- 26
+        M_3 <- 1; N_3 <- 26
+        
+        inits <- lapply(1:chains, function(i) {
+          list(
+            # Fixed effects for count part
+            b = 0.06161134 + 0.9263627 * rt(Kc, 6.153327),
+            Intercept = rnorm(1, 6.057503, 2.438534),
+            
+            # Fixed effects for shape submodel
+            b_shape = 0.07603337 + 0.8252114 * rt(Kc_shape, 40.51669),
+            Intercept_shape = rnorm(1, 0.4260793, 1.470536),
+            
+            # Zero-inflation probability
+            zi = rbeta(1, 0.5381488, 10.3577433),
+            
+            # Group-level standard deviations and effects
+            sd_1 = abs(0.5703259 + 0.4147664 * rt(M_1, 52.19541)),      # count
+            z_1 = replicate(M_1, rnorm(N_1, mean = 0 , sd = 0.08547970), simplify = FALSE),
+            
+            sd_2 = abs(0.5703259 + 0.4147664 * rt(M_2, 52.19541)),      # zi
+            z_2 = matrix(rnorm(M_2 * N_2, mean = 0 , sd = 0.08547970), nrow = M_2, ncol = N_2),
+            L_2 = diag(M_2),                                            # no correlation (identity)
+            
+            sd_3 = abs(rnorm(M_3, 0.8670409, 0.1779553)),               # shape
+            z_3 = replicate(M_3, rnorm(N_3, mean = 0 , sd = 0.08547970), simplify = FALSE)
+          )
+        })
+        
+        # chains = 2
+        # inits <- list(Intercept = mean(log1p(data$counts / exp(data$offset))))
+        # inits <- replicate(chains, inits, simplify = FALSE)
         
         
         brm(
@@ -717,13 +750,21 @@ tar_script({
           
         ) %>% 
         
-        mutate(Rhat = map_dbl(brms_fit, 
+        mutate(Rhat_ethnicity = map_dbl(brms_fit, 
                               ~ summary(.x)$fixed |> 
                                 as_tibble(rownames = "par") |> 
                                 filter(par |> str_detect("ethnicity")) |> 
                                 pull(Rhat) |>
                                 max()
         )) |> 
+        
+        mutate(Rhat_tissue = map_dbl(brms_fit, 
+                                        ~ summary(.x)$random$tissue_groups |> 
+                                          as_tibble() |> 
+                                          pull(Rhat) |>
+                                          max()
+        )) %>% 
+        
         select(-brms_fit),
       
       pattern = map(estimates_chunk),
@@ -822,6 +863,7 @@ tar_script({
       resources = tar_resources(crew = tar_resources_crew("elastic"))
     ),
     
+    # adjusted_matrix -----
     tar_target(
       adjusted_assay_ethnicity,
       get_adjusted_matrix(effect_removed, brms_fit_adjusted_ethnicity_estimate),
