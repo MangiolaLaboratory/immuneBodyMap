@@ -497,6 +497,9 @@ get_adjusted_matrix = function(summary_df, column_adjusted){
             droplevels()
         }
         
+        # Manually revise data colnames to suit brms bug
+        colnames(data) = colnames(data) |> stringr::str_replace_all("_+", "_")
+        
         # # Check if dispersion estimation has failed
         # if(data |> pull(dispersion) |> unique() |> is.na()){
         #   warning("The dispersion calculation has failed. 1 is given as default prior.")
@@ -507,12 +510,12 @@ get_adjusted_matrix = function(summary_df, column_adjusted){
         formula <- bf(
           
           # Formula for counts
-          counts ~ 1 + offset(offset) + age_bin*sex + disease_groups___altered + ethnicity_groups + assay_groups___altered + 
-            (1 | dataset_id___altered) + 
+          counts ~ 1 + offset(offset) + age_bin*sex + disease_groups_altered + ethnicity_groups + assay_groups_altered + 
+            (1 | dataset_id_altered) + 
             (1 + age_bin*sex + ethnicity_groups | tissue_groups),
           
           # Formula for dispersion
-          shape ~ 1 + disease_groups___altered + assay_groups___altered + ethnicity_groups + (1 | tissue_groups)  # Model 'shape' as a function of scaled 'disp'
+          shape ~ 1 + disease_groups_altered + assay_groups_altered + ethnicity_groups + (1 | tissue_groups)  # Model 'shape' as a function of scaled 'disp'
           
           # Using the externally, eBayes inferred overdispersion
           # shape ~ 1 + offset(log(1/dispersion))
@@ -612,7 +615,7 @@ get_adjusted_matrix = function(summary_df, column_adjusted){
       # Drop data because it is withn the brms object
       select(-se), 
       pattern = map(se_df),
-      packages = c( "brms", "glue", "dplyr", "purrr", "SummarizedExperiment", "tidySummarizedExperiment"),
+      packages = c( "brms", "glue", "stringr", "dplyr", "purrr", "SummarizedExperiment", "tidySummarizedExperiment"),
       resources = tar_resources(crew = tar_resources_crew("elastic")),
       cue = tar_cue(mode = "never")
       
@@ -781,12 +784,12 @@ get_adjusted_matrix = function(summary_df, column_adjusted){
       effect_removed, 
       estimates_chunk |> 
         mutate(brms_fit_adjusted_ethnicity = map(brms_fit, ~ .x |> remove_unwanted_effect(
-          newdata = .x$data |> mutate(assay_groups___altered=NA, sex = NA, age_bin = NA, disease_groups___altered = NA, dataset_id___altered = NA), # age_bin*sex + disease_groups + ethnicity_groups + assay_groups
+          newdata = .x$data |> mutate(assay_groups_altered=NA, sex = NA, age_bin = NA, disease_groups_altered = NA, dataset_id_altered = NA), # age_bin*sex + disease_groups + ethnicity_groups + assay_groups
           robust = TRUE, 
           re_formula = ~ 0
         ))) |> 
         mutate(brms_fit_adjusted_ethnicity_new = map(brms_fit, ~ .x |> remove_unwanted_effect_new(
-          newdata = .x$data |> mutate(assay_groups___altered=NA, sex = NA, age_bin = NA, disease_groups___altered = NA, dataset_id___altered = NA), # age_bin*sex + disease_groups + ethnicity_groups + assay_groups
+          newdata = .x$data |> mutate(assay_groups_altered=NA, sex = NA, age_bin = NA, disease_groups_altered = NA, dataset_id_altered = NA), # age_bin*sex + disease_groups + ethnicity_groups + assay_groups
           robust = FALSE, correct_by_offset = FALSE,
           re_formula = ~ 0
         ))) |> 
@@ -796,7 +799,7 @@ get_adjusted_matrix = function(summary_df, column_adjusted){
           re_formula = ~ (1 | tissue_groups)
         ))) |> 
         mutate(brms_fit_adjusted_tissue_new = map(brms_fit, ~ .x |> remove_unwanted_effect_new(
-          newdata = .x$data |> mutate(assay_groups___altered=NA, ethnicity_groups = NA, sex = NA, age_bin = NA, disease_groups___altered = NA, dataset_id___altered = NA), # age_bin*sex + disease_groups + ethnicity_groups + assay_groups
+          newdata = .x$data |> mutate(assay_groups_altered=NA, ethnicity_groups = NA, sex = NA, age_bin = NA, disease_groups_altered = NA, dataset_id_altered = NA), # age_bin*sex + disease_groups + ethnicity_groups + assay_groups
           robust = FALSE, correct_by_offset = FALSE,
           re_formula = ~ (1 | tissue_groups)
         ))) |> 
