@@ -239,12 +239,12 @@ tar_script({
       bind_cols(fitted_values_ethnicity_tbl)
   }
   
-get_adjusted_matrix = function(summary_df, column_adjusted){
+get_adjusted_matrix = function(effect_removed_df, column_adjusted){
     
     column_adjusted = enquo(column_adjusted)
     
     m = 
-      summary_df |>
+      effect_removed_df |>
       unnest(!!column_adjusted) |> 
       # dplyr::filter(analysis == "observed_proportion") |> 
       select(.feature, adjusted___Estimate, sample_id) |> 
@@ -269,7 +269,7 @@ get_adjusted_matrix = function(summary_df, column_adjusted){
     
     return(m)
   }
-  
+
   #-----------------------#
   # Pipeline
   #-----------------------#
@@ -617,8 +617,8 @@ get_adjusted_matrix = function(summary_df, column_adjusted){
       pattern = map(se_df),
       packages = c( "brms", "glue", "stringr", "dplyr", "purrr", "SummarizedExperiment", "tidySummarizedExperiment"),
       resources = tar_resources(crew = tar_resources_crew("elastic")),
-      cue = tar_cue(mode = "never")
-      
+      cue = tar_cue(mode = "never"),
+      error = "null"
     ),
 
     ## summary ----- 
@@ -627,7 +627,7 @@ get_adjusted_matrix = function(summary_df, column_adjusted){
     tar_target(
       summary,
       estimates_chunk |>
-        mutate(summary = map(brms_fit, ~ .x |> hypothesis(
+        mutate(summary_ethnicity = map(brms_fit, ~ .x |> hypothesis(
           c(
             "Europeans" = "(ethnicity_groupsAfrican
     + ethnicity_groupsEastAsian
@@ -772,10 +772,11 @@ get_adjusted_matrix = function(summary_df, column_adjusted){
 
       pattern = map(estimates_chunk),
       packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr", "stringr"),
-      resources = tar_resources(crew = tar_resources_crew("elastic"))
+      resources = tar_resources(crew = tar_resources_crew("elastic")),
+      error = "null"
     ),
 
-   ## effect_removed -----
+    ## effect_removed -----
     # This target generates adjusted model estimates by removing unwanted effects from the fitted Bayesian models,
     # thereby isolating the effects of interest. Here, nuisance covariates are set to NA and removed from the predictions.
     # This target produces adjusted estimates from the Bayesian models, removing unwanted effects while retaining 
@@ -863,8 +864,26 @@ get_adjusted_matrix = function(summary_df, column_adjusted){
       
       pattern = map(estimates_chunk),
       packages = c( "brms", "glue", "dplyr", "purrr", "rstan"),
-      resources = tar_resources(crew = tar_resources_crew("elastic"))
+      resources = tar_resources(crew = tar_resources_crew("elastic")),
+      error = "null"
     ),
+   
+   ## param -----
+   tar_target(
+     param,
+     estimates_chunk %>%
+       mutate(
+         param = map(
+           brms_fit, 
+           ~ summary(.x$fit) |> as.data.frame()
+         ) 
+       )%>% 
+       select(-brms_fit),
+     pattern = map(estimates_chunk),
+     packages = c( "brms", "dplyr", "purrr", "rstan"),
+     resources = tar_resources(crew = tar_resources_crew("elastic")),
+     error = "null"
+   ),
    
    # adjusted_matrix -----
    tar_target(
