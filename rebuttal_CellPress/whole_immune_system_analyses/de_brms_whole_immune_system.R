@@ -11,7 +11,7 @@ tar_script({
   library(qs)
   library(crew)
   library(crew.cluster)
-
+  
   # Set file path -----
   hdf5_path = "/hpcfs/groups/phoenix-hpc-mangiola_laboratory/Mangiola_ImmuneAtlas/taskforce_shared_folder/pseudobulk_sample_is_immune"
   metadata_path = "/hpcfs/groups/phoenix-hpc-mangiola_laboratory/Mangiola_ImmuneAtlas/taskforce_shared_folder/cell_metadata_1_0_6_sccomp_input_counts.rds"
@@ -84,7 +84,7 @@ tar_script({
   #-----------------------#
   # Functions
   #-----------------------#  
-
+  
   #' Remove Unwanted Effects from a brmsfit Model
   #'
   #' This function calculates posterior residuals from a \code{brmsfit} model and combines them with 
@@ -239,7 +239,7 @@ tar_script({
       bind_cols(fitted_values_ethnicity_tbl)
   }
   
-get_adjusted_matrix = function(effect_removed_df, column_adjusted){
+  get_adjusted_matrix = function(effect_removed_df, column_adjusted){
     
     column_adjusted = enquo(column_adjusted)
     
@@ -269,7 +269,7 @@ get_adjusted_matrix = function(effect_removed_df, column_adjusted){
     
     return(m)
   }
-
+  
   #-----------------------#
   # Pipeline
   #-----------------------#
@@ -300,111 +300,113 @@ get_adjusted_matrix = function(effect_removed_df, column_adjusted){
       # pseudobulk_sample ------
       pseudobulk_sample,
       {
-        message('TAR: pseudobulk_sample START')
-        se = 
-          loadHDF5SummarizedExperiment(hdf5_path) |> 
-          filter(is_gene_shared) |> 
-          
-          #---------------------------------#
-          # Edit or add more filters here for analyses
-          #---------------------------------#
-          filter(is_immune & do_analyse) 
+        # message('TAR: pseudobulk_sample START')
+        # se = 
+        #   loadHDF5SummarizedExperiment(hdf5_path) |> 
+        #   filter(is_gene_shared) |> 
+        #   
+        #   #---------------------------------#
+        #   # Edit or add more filters here for analyses
+        #   #---------------------------------#
+        #   filter(is_immune & do_analyse) 
+        # 
+        # # TEMPORARY BECAUSE I FORGOT TO INTEGRATE AGE BINS
+        # se = se |> 
+        #   left_join(
+        #     readRDS(metadata_path) |> 
+        #       distinct(sample_id,  age_days, age_bin) 
+        #   )
+        # 
+        # # Filter common genes
+        # se = se[((assay(se, "gene_presence") > 0) |> rowSums() > (ncol(se) * 0.95)),,drop=FALSE ]
+        # 
+        # # Filter samples that have enough genes > 0 but not too many
+        # samples_with_right_number_of_detected_genes = 
+        #   (se |> assay() > 0) |> 
+        #   colSums() |> 
+        #   divide_by(nrow(se)) |> 
+        #   dplyr::between(0.3, 1)
+        # 
+        # se = se[,samples_with_right_number_of_detected_genes] 
+        # 
+        # # Compute mean library size
+        # mean_library_size <- se |>
+        #   assay("counts") |>
+        #   _[nrow(se) |> seq_len() |> sample(size = 2000), ] |> 
+        #   colSums() |>
+        #   mean()
+        # 
+        # # Optional: retrieve the sample name (column name in the SummarizedExperiment)
+        # reference_sample <- colnames(se)[
+        #   se |>
+        #     assay("counts") |>
+        #     colSums() |>
+        #     {\(x) abs(x - mean_library_size)}() |>  # Calculate absolute difference from the mean
+        #     which.min()                             # Identify the smallest difference
+        # ]
+        # 
+        # message('TAR: pseudobulk_sample Phase2')
+        # se = 
+        #   se |> 
+        #   keep_abundant(design = 
+        #                   se |> 
+        #                   
+        #                   # Discretise the age for the following operation
+        #                   mutate(is_old_individual = age_days > 50*365) |> 
+        #                   
+        #                   # This is to resolve some confounders to preserve the genes.
+        #                   # In this case we care about data variability, not the actual meaning of the variables
+        #                   resolve_complete_confounders_of_non_interest(tissue_groups, sex, ethnicity_groups, is_old_individual) |> 
+        #                   colData() |> 
+        #                   droplevels() |> 
+        #                   model.matrix(~ tissue_groups + sex___altered + ethnicity_groups___altered + is_old_individual___altered, data = _  ), 
+        #                 minimum_counts = 100
+        #   ) |> 
+        #   
+        #   # Get scaling factor
+        #   scale_abundance(method = "TMMwsp", reference_sample = reference_sample) |> 
+        #   
+        #   # Drop sex unknown as causes problem during fit
+        #   mutate(
+        #     sex = if_else(sex |> is.na(), "unknown", sex),
+        #     ethnicity_groups = if_else(ethnicity_groups |> is.na(), "Other/Unknown", ethnicity_groups)
+        #   ) |> 
+        #   filter(sex != "unknown") |> 
+        #   filter(!age_bin |> is.na()) |> 
+        #   
+        #   # Eliminate complete confounders
+        #   tidybulk:::resolve_complete_confounders_of_non_interest(assay_groups, dataset_id, disease_groups) |> 
+        #   
+        #   # sibrary size factor is the reciproque of the multiplier (correction factor)
+        #   mutate(offset = log(1/multiplier)) |> 
+        #   
+        #   # Set intercept
+        #   mutate(
+        #     ethnicity_groups = fct_relevel(ethnicity_groups, "European"),
+        #     assay_groups___altered = fct_relevel(assay_groups___altered, "10x Genomics 3"),
+        #     disease_groups___altered = fct_relevel(disease_groups___altered, "Normal"),
+        #     age_bin = fct_relevel(age_bin, "Adolescence")
+        #   ) 
+        # 
+        # # # Add dispersion
+        # # rowData(se)  = 
+        # #   rowData(se) |> 
+        # #   as_tibble(rownames = ".feature") |> 
+        # #   left_join(glmGamPoi_overdispersions |> enframe(name = ".feature", value = "dispersion")) |> 
+        # #   data.frame(row.names = ".feature") |> DataFrame()
+        # 
+        # message('TAR: pseudobulk_sample COMPLETE')
+        # se
         
-        # TEMPORARY BECAUSE I FORGOT TO INTEGRATE AGE BINS
-        se = se |> 
-          left_join(
-            readRDS(metadata_path) |> 
-              distinct(sample_id,  age_days, age_bin) 
-          )
-        
-        # Filter common genes
-        se = se[((assay(se, "gene_presence") > 0) |> rowSums() > (ncol(se) * 0.95)),,drop=FALSE ]
-        
-        # Filter samples that have enough genes > 0 but not too many
-        samples_with_right_number_of_detected_genes = 
-          (se |> assay() > 0) |> 
-          colSums() |> 
-          divide_by(nrow(se)) |> 
-          dplyr::between(0.3, 1)
-        
-        se = se[,samples_with_right_number_of_detected_genes] 
-        
-        # Compute mean library size
-        mean_library_size <- se |>
-          assay("counts") |>
-          _[nrow(se) |> seq_len() |> sample(size = 2000), ] |> 
-          colSums() |>
-          mean()
-        
-        # Optional: retrieve the sample name (column name in the SummarizedExperiment)
-        reference_sample <- colnames(se)[
-          se |>
-            assay("counts") |>
-            colSums() |>
-            {\(x) abs(x - mean_library_size)}() |>  # Calculate absolute difference from the mean
-            which.min()                             # Identify the smallest difference
-        ]
-        
-        message('TAR: pseudobulk_sample Phase2')
-        se = 
-          se |> 
-          keep_abundant(design = 
-                          se |> 
-                          
-                          # Discretise the age for the following operation
-                          mutate(is_old_individual = age_days > 50*365) |> 
-                          
-                          # This is to resolve some confounders to preserve the genes.
-                          # In this case we care about data variability, not the actual meaning of the variables
-                          resolve_complete_confounders_of_non_interest(tissue_groups, sex, ethnicity_groups, is_old_individual) |> 
-                          colData() |> 
-                          droplevels() |> 
-                          model.matrix(~ tissue_groups + sex___altered + ethnicity_groups___altered + is_old_individual___altered, data = _  ), 
-                        minimum_counts = 100
-          ) |> 
-          
-          # Get scaling factor
-          scale_abundance(method = "TMMwsp", reference_sample = reference_sample) |> 
-          
-          # Drop sex unknown as causes problem during fit
-          mutate(
-            sex = if_else(sex |> is.na(), "unknown", sex),
-            ethnicity_groups = if_else(ethnicity_groups |> is.na(), "Other/Unknown", ethnicity_groups)
-          ) |> 
-          filter(sex != "unknown") |> 
-          filter(!age_bin |> is.na()) |> 
-          
-          # Eliminate complete confounders
-          tidybulk:::resolve_complete_confounders_of_non_interest(assay_groups, dataset_id, disease_groups) |> 
-          
-          # sibrary size factor is the reciproque of the multiplier (correction factor)
-          mutate(offset = log(1/multiplier)) |> 
-          
-          # Set intercept
-          mutate(
-            ethnicity_groups = fct_relevel(ethnicity_groups, "European"),
-            assay_groups___altered = fct_relevel(assay_groups___altered, "10x Genomics 3"),
-            disease_groups___altered = fct_relevel(disease_groups___altered, "Normal"),
-            age_bin = fct_relevel(age_bin, "Adolescence")
-          ) 
-        
-        # # Add dispersion
-        # rowData(se)  = 
-        #   rowData(se) |> 
-        #   as_tibble(rownames = ".feature") |> 
-        #   left_join(glmGamPoi_overdispersions |> enframe(name = ".feature", value = "dispersion")) |> 
-        #   data.frame(row.names = ".feature") |> DataFrame()
-        
-        message('TAR: pseudobulk_sample COMPLETE')
-        se
-        
+        # load process data to save time when testing
+        loadHDF5SummarizedExperiment('/hpcfs/groups/phoenix-hpc-mangiola_laboratory/Mangiola_ImmuneAtlas/taskforce_shared_folder/pseduobulk_sample_tar_load_altered/')
       }, 
       packages = c("tidybulk", "HDF5Array", "tidySummarizedExperiment", "magrittr", "tibble", "forcats"),
-      resources = tar_resources(crew = tar_resources_crew("elastic_big")),
+      resources = tar_resources(crew = tar_resources_crew("elastic_big_30_cores")),
       memory = "persistent", 
       error = "stop"
     ),
-
+    
     # pseudobulk_sample_id ------
     # This target extracts unique sample ids from the pseudobulk sample  
     tar_target(
@@ -422,11 +424,7 @@ get_adjusted_matrix = function(effect_removed_df, column_adjusted){
       pseudobulk_sample |> 
         distinct(.feature)|>
         # testing genes that ran for long time
-        # filter(.feature %in% c(
-        #   "ENSG00000175274", "ENSG00000213221", "ENSG00000101405", "ENSG00000003756",
-        #   "ENSG00000236859", "ENSG00000104825", "ENSG00000203497", "ENSG00000143110",
-        #   "ENSG00000077454", "ENSG00000104231"
-        # )) |>
+        # filter(.feature %in% readRDS('/hpcfs/groups/phoenix-hpc-mangiola_laboratory/Mangiola_ImmuneAtlas/ning_data/ethnicity_umap_selected_genes.rds')) |>
         # head(1) %>% 
         group_by(.feature) |> 
         tar_group(), 
@@ -519,20 +517,27 @@ get_adjusted_matrix = function(effect_removed_df, column_adjusted){
           
           # Using the externally, eBayes inferred overdispersion
           # shape ~ 1 + offset(log(1/dispersion))
-         )
+        )
         
-        # prior = c(
-        #   prior(normal(i, 5), class = Intercept),
-        #   prior(normal(0, 2), class = Intercept, dpar = shape),
-        #   prior(normal(0, 5), class = b),
-        #   prior(normal(0, 2), class = b, dpar = shape)
-        # ) |> 
-        #   substitute(env = list(i = mean(log1p(data$counts / exp(data$offset))))) |> 
-        #   eval()
-
+        # prior Version 0
+        prior = c(
+          prior(normal(i, 5), class = Intercept),
+          prior(normal(0, 2), class = Intercept, dpar = shape),
+          prior(normal(0, 5), class = b),
+          prior(normal(0, 2), class = b, dpar = shape)
+          # prior(beta(0.5381488, 10.3577433), class = "zi", lb = 0, ub = 1) # addition zi from V2
+        ) |>
+          substitute(env = list(i = mean(log1p(data$counts / exp(data$offset))))) |>
+          eval()
+        # 
+        # chains = 2
+        # inits <- list(Intercept = mean(log1p(data$counts / exp(data$offset))))
+        # inits <- replicate(chains, inits, simplify = FALSE)
+        
+        # test:
         # prior = prior(normal(-0.0002056948, 0.07690437))
         
-        # HPC pipeline: param V1:
+        # HPC pipeline: param V1: learned from version 0
         # prior = c(
         #   prior(student_t(4.45496, 0.008599254, 1.143344), class = "b"),
         #   prior(student_t(18.16242, 0.07952513, 0.9926044), class = "b", dpar = "shape"),
@@ -543,55 +548,126 @@ get_adjusted_matrix = function(effect_removed_df, column_adjusted){
         #   prior(beta(0.5541155, 9.337894), class = "zi")
         # ) 
         
-        # HPC pipeline: param V2:
-        prior = c(
-          prior(student_t(6.153327, 0.06161134, 0.9263627), class = "b"),
-          prior(student_t(40.51669, 0.07603337, 0.8252114), class = "b", dpar = "shape"),
-          prior(normal(6.057503, 2.438534), class = "Intercept"),
-          prior(normal(0.4260793, 1.470536), class = "Intercept", dpar = "shape"),
-          prior(student_t(52.19541	, 0.5703259, 0.4147664), class = "sd", lb = 0),
-          prior(normal(0.8670409, 0.1779553), class = "sd", dpar = "shape", lb = 0),
-          prior(beta(0.5381488, 10.3577433), class = "zi", lb = 0, ub = 1)
-        )
+        # HPC pipeline: param V2: updated from v1 and set inits
+        # prior = c(
+        #   prior(student_t(6.153327, 0.06161134, 0.9263627), class = "b"),
+        #   prior(student_t(40.51669, 0.07603337, 0.8252114), class = "b", dpar = "shape"),
+        #   prior(normal(6.057503, 2.438534), class = "Intercept"),
+        #   prior(normal(0.4260793, 1.470536), class = "Intercept", dpar = "shape"),
+        #   prior(student_t(52.19541	, 0.5703259, 0.4147664), class = "sd", lb = 0),
+        #   prior(normal(0.8670409, 0.1779553), class = "sd", dpar = "shape", lb = 0),
+        #   prior(beta(0.5381488, 10.3577433), class = "zi", lb = 0, ub = 1)
+        # )
+        # 
+        # chains = 2
+        # 
+        # Kc <- 39
+        # Kc_shape <- 28
+        # M_1 <- 1; N_1 <- 105
+        # M_2 <- 19; N_2 <- 26
+        # M_3 <- 1; N_3 <- 26
+        # 
+        # inits <- lapply(1:chains, function(i) {
+        #   list(
+        #     # Fixed effects for count part
+        #     b = 0.06161134 + 0.9263627 * rt(Kc, 6.153327),
+        #     Intercept = rnorm(1, 6.057503, 2.438534),
+        #     
+        #     # Fixed effects for shape submodel
+        #     b_shape = 0.07603337 + 0.8252114 * rt(Kc_shape, 40.51669),
+        #     Intercept_shape = rnorm(1, 0.4260793, 1.470536),
+        #     
+        #     # Zero-inflation probability
+        #     zi = rbeta(1, 0.5381488, 10.3577433),
+        #     
+        #     # Group-level standard deviations and effects
+        #     sd_1 = abs(0.5703259 + 0.4147664 * rt(M_1, 52.19541)),      # count
+        #     z_1 = replicate(M_1, rnorm(N_1, mean = 0 , sd = 0.08547970), simplify = FALSE),
+        #     
+        #     sd_2 = abs(0.5703259 + 0.4147664 * rt(M_2, 52.19541)),      # zi
+        #     z_2 = matrix(rnorm(M_2 * N_2, mean = 0 , sd = 0.08547970), nrow = M_2, ncol = N_2),
+        #     L_2 = diag(M_2),                                            # no correlation (identity)
+        #     
+        #     sd_3 = abs(rnorm(M_3, 0.8670409, 0.1779553)),               # shape
+        #     z_3 = replicate(M_3, rnorm(N_3, mean = 0 , sd = 0.08547970), simplify = FALSE)
+        #   )
+        # })
+        
+        # HPC pipeline: param V3: cap df in v2 and dynamically set mu of intercept
+        # prior = c(
+        #   # prior(student_t(3, 0.06161134, 0.9263627), class = "b"),
+        #   # prior(student_t(3, 0.07603337, 0.8252114), class = "b", dpar = "shape"),
+        #   prior(normal(i, 2.438534), class = "Intercept"),
+        #   prior(normal(0.4260793, 1.470536), class = "Intercept", dpar = "shape"),
+        #   prior(normal(0, 5), class = b),
+        #   prior(normal(0, 2), class = b, dpar = shape),
+        #   # prior(student_t(3	, 0.5703259, 0.4147664), class = "sd", lb = 0),
+        #   # prior(normal(0.8670409, 0.1779553), class = "sd", dpar = "shape", lb = 0),
+        #   prior(beta(0.5381488, 10.3577433), class = "zi", lb = 0, ub = 1)
+        #   ) |>
+        #   substitute(env = list(i = mean(log1p(data$counts / exp(data$offset))))) |>
+        #   eval()
         
         chains = 2
-        
-        Kc <- 39
-        Kc_shape <- 28
-        M_1 <- 1; N_1 <- 105
-        M_2 <- 19; N_2 <- 26
-        M_3 <- 1; N_3 <- 26
-        
+
+        # dynamically extract param from stan data
+        # code used from brm
+        bterms <- brmsterms(
+          formula = brms:::validate_formula(
+            formula, data = data, family = zero_inflated_negbinomial(),
+            autocor = NULL, sparse = NULL, cov_ranef = NULL
+          )
+        )
+        bframe <- brms:::brmsframe(bterms, data)
+        sdata <- brms:::.standata(
+          bframe, data = data, prior = prior,
+          data2 = NULL, stanvars = NULL, threads = NULL
+        )
+
+        Kc <- sdata$Kc
+        Kc_shape <- sdata$Kc_shape
+        M_1 <- sdata$M_1; N_1 <- sdata$N_1
+        M_2 <- sdata$M_2; N_2 <- sdata$N_2
+        M_3 <- sdata$M_3; N_3 <- sdata$N_3
+
         inits <- lapply(1:chains, function(i) {
           list(
+
+            #### revert v0 prior
             # Fixed effects for count part
-            b = 0.06161134 + 0.9263627 * rt(Kc, 6.153327),
-            Intercept = rnorm(1, 6.057503, 2.438534),
-            
+            b = rnorm(Kc, 0, 5),
+            # dynamically set mu for intercept
+            Intercept = rnorm(1, mean(log1p(data$counts / exp(data$offset))), 5),
+
             # Fixed effects for shape submodel
-            b_shape = 0.07603337 + 0.8252114 * rt(Kc_shape, 40.51669),
-            Intercept_shape = rnorm(1, 0.4260793, 1.470536),
-            
+            b_shape = rnorm(Kc_shape, 0, 2),
+            Intercept_shape = rnorm(1, 0, 2)
+
+
+            # # Fixed effects for count part
+            # b = 0.06161134 + 0.9263627 * rt(Kc, 3),
+            # # dynamically set mu for intercept
+            # Intercept = rnorm(1, mean(log1p(data$counts / exp(data$offset))), 2.438534),
+            #
+            # # Fixed effects for shape submodel
+            # b_shape = 0.07603337 + 0.8252114 * rt(Kc_shape, 3),
+            # Intercept_shape = rnorm(1, 0.4260793, 1.470536)
+
             # Zero-inflation probability
-            zi = rbeta(1, 0.5381488, 10.3577433),
-            
-            # Group-level standard deviations and effects
-            sd_1 = abs(0.5703259 + 0.4147664 * rt(M_1, 52.19541)),      # count
-            z_1 = replicate(M_1, rnorm(N_1, mean = 0 , sd = 0.08547970), simplify = FALSE),
-            
-            sd_2 = abs(0.5703259 + 0.4147664 * rt(M_2, 52.19541)),      # zi
-            z_2 = matrix(rnorm(M_2 * N_2, mean = 0 , sd = 0.08547970), nrow = M_2, ncol = N_2),
-            L_2 = diag(M_2),                                            # no correlation (identity)
-            
-            sd_3 = abs(rnorm(M_3, 0.8670409, 0.1779553)),               # shape
-            z_3 = replicate(M_3, rnorm(N_3, mean = 0 , sd = 0.08547970), simplify = FALSE)
+            # zi = rbeta(1, 0.5381488, 10.3577433)
+            #
+            # # Group-level standard deviations and effects
+            # sd_1 = abs(0.5703259 + 0.4147664 * rt(M_1, 3)),      # count
+            # z_1 = replicate(M_1, rnorm(N_1, mean = 0 , sd = 0.08547970), simplify = FALSE),
+            #
+            # sd_2 = abs(0.5703259 + 0.4147664 * rt(M_2, 3)),      # zi
+            # z_2 = matrix(rnorm(M_2 * N_2, mean = 0 , sd = 0.08547970), nrow = M_2, ncol = N_2),
+            # L_2 = diag(M_2),                                            # no correlation (identity)
+            #
+            # sd_3 = abs(rnorm(M_3, 0.8670409, 0.1779553)),               # shape
+            # z_3 = replicate(M_3, rnorm(N_3, mean = 0 , sd = 0.08547970), simplify = FALSE)
           )
         })
-        
-        # chains = 2
-        # inits <- list(Intercept = mean(log1p(data$counts / exp(data$offset))))
-        # inits <- replicate(chains, inits, simplify = FALSE)
-        
         
         brm(
           formula = formula,
@@ -607,20 +683,21 @@ get_adjusted_matrix = function(effect_removed_df, column_adjusted){
           #save_model = glue("{external_directory}~/temp.rds"),
           #algorithm = "pathfinder",
           init = inits,
-          iter = 400  # Increase iterations for better convergence
+          iter = 400,  # Increase iterations for better convergence
+          sample_prior = TRUE
         )
         
       })) |> 
         
-      # Drop data because it is withn the brms object
-      select(-se), 
+        # Drop data because it is withn the brms object
+        select(-se), 
       pattern = map(se_df),
       packages = c( "brms", "glue", "stringr", "dplyr", "purrr", "SummarizedExperiment", "tidySummarizedExperiment"),
       resources = tar_resources(crew = tar_resources_crew("elastic")),
       cue = tar_cue(mode = "never"),
       error = "null"
     ),
-
+    
     ## summary ----- 
     # This target summarises the fitted Bayesian models by performing hypothesis tests for ethnicity contrasts 
     # and extracting convergence diagnostics (Rhat) for the ethnicity parameters.
@@ -662,70 +739,70 @@ get_adjusted_matrix = function(effect_removed_df, column_adjusted){
      + `ethnicity_groupsJapanese`
      - 5 * ethnicity_groupsHispanicDLatinAmerican
      ) / 5 = 0",
-
-      "Japanese" = "(
+            
+            "Japanese" = "(
        ethnicity_groupsAfrican
      + ethnicity_groupsHispanicDLatinAmerican
      + ethnicity_groupsSouthAsian
      + ethnicity_groupsEastAsian
      - 5 * `ethnicity_groupsJapanese`
      ) / 5 = 0"
-      ),
-   #        c(
-   #          "African" = "(ethnicity_groupsEuropean
-   #  + ethnicity_groupsEastAsian
-   #  + ethnicity_groupsHispanicDLatinAmerican
-   #  + ethnicity_groupsSouthAsian
-   #  + `ethnicity_groupsJapanese`) / 5 = 0",
-   #          
-   #          "Europeans" = "(
-   #   ethnicity_groupsEastAsian
-   # + ethnicity_groupsHispanicDLatinAmerican
-   # + ethnicity_groupsSouthAsian
-   # + `ethnicity_groupsJapanese`
-   # - 5 * ethnicity_groupsEuropean
-   # ) / 5 = 0",
-   #          
-   #          "EastAsian" = "(
-   #   ethnicity_groupsEuropean
-   # + ethnicity_groupsHispanicDLatinAmerican
-   # + ethnicity_groupsSouthAsian
-   # + `ethnicity_groupsJapanese`
-   # - 5 * ethnicity_groupsEastAsian
-   # ) / 5 = 0",
-   #          
-   #          "SouthAsian" = "(
-   #   ethnicity_groupsEuropean
-   # + ethnicity_groupsHispanicDLatinAmerican
-   # + ethnicity_groupsEastAsian
-   # + `ethnicity_groupsJapanese`
-   # - 5 * ethnicity_groupsSouthAsian
-   # ) / 5 = 0",
-   #          
-   #          "HispanicDLatinAmerican" = "(
-   #   ethnicity_groupsEuropean
-   # + ethnicity_groupsEastAsian
-   # + ethnicity_groupsSouthAsian
-   # + `ethnicity_groupsJapanese`
-   # - 5 * ethnicity_groupsHispanicDLatinAmerican
-   # ) / 5 = 0",
-   #          
-   #          "Japanese" = "(
-   #   ethnicity_groupsEuropean
-   # + ethnicity_groupsHispanicDLatinAmerican
-   # + ethnicity_groupsSouthAsian
-   # + ethnicity_groupsEastAsian
-   # - 5 * `ethnicity_groupsJapanese`
-   # ) / 5 = 0"
-   #        ),
-
-      # Median instead and mad of mean and sd
-      robust=TRUE,
-      alpha = 0.1
-      )
+          ),
+          #        c(
+          #          "African" = "(ethnicity_groupsEuropean
+          #  + ethnicity_groupsEastAsian
+          #  + ethnicity_groupsHispanicDLatinAmerican
+          #  + ethnicity_groupsSouthAsian
+          #  + `ethnicity_groupsJapanese`) / 5 = 0",
+          #          
+          #          "Europeans" = "(
+          #   ethnicity_groupsEastAsian
+          # + ethnicity_groupsHispanicDLatinAmerican
+          # + ethnicity_groupsSouthAsian
+          # + `ethnicity_groupsJapanese`
+          # - 5 * ethnicity_groupsEuropean
+          # ) / 5 = 0",
+          #          
+          #          "EastAsian" = "(
+          #   ethnicity_groupsEuropean
+          # + ethnicity_groupsHispanicDLatinAmerican
+          # + ethnicity_groupsSouthAsian
+          # + `ethnicity_groupsJapanese`
+          # - 5 * ethnicity_groupsEastAsian
+          # ) / 5 = 0",
+          #          
+          #          "SouthAsian" = "(
+          #   ethnicity_groupsEuropean
+          # + ethnicity_groupsHispanicDLatinAmerican
+          # + ethnicity_groupsEastAsian
+          # + `ethnicity_groupsJapanese`
+          # - 5 * ethnicity_groupsSouthAsian
+          # ) / 5 = 0",
+          #          
+          #          "HispanicDLatinAmerican" = "(
+          #   ethnicity_groupsEuropean
+          # + ethnicity_groupsEastAsian
+          # + ethnicity_groupsSouthAsian
+          # + `ethnicity_groupsJapanese`
+          # - 5 * ethnicity_groupsHispanicDLatinAmerican
+          # ) / 5 = 0",
+          #          
+          #          "Japanese" = "(
+          #   ethnicity_groupsEuropean
+          # + ethnicity_groupsHispanicDLatinAmerican
+          # + ethnicity_groupsSouthAsian
+          # + ethnicity_groupsEastAsian
+          # - 5 * `ethnicity_groupsJapanese`
+          # ) / 5 = 0"
+          #        ),
+          
+          # Median instead and mad of mean and sd
+          robust=TRUE,
+          alpha = 0.1
+        )
         )) |>
         
-      mutate(
+        mutate(
           
           summary_tissue = map(
             brms_fit,  function(x) {
@@ -754,28 +831,28 @@ get_adjusted_matrix = function(effect_removed_df, column_adjusted){
         ) %>% 
         
         mutate(Rhat_ethnicity = map_dbl(brms_fit, 
-                              ~ summary(.x)$fixed |> 
-                                as_tibble(rownames = "par") |> 
-                                filter(par |> str_detect("ethnicity")) |> 
-                                pull(Rhat) |>
-                                max()
+                                        ~ summary(.x)$fixed |> 
+                                          as_tibble(rownames = "par") |> 
+                                          filter(par |> str_detect("ethnicity")) |> 
+                                          pull(Rhat) |>
+                                          max()
         )) |> 
         
         mutate(Rhat_tissue = map_dbl(brms_fit, 
-                                        ~ summary(.x)$random$tissue_groups |> 
-                                          as_tibble() |> 
-                                          pull(Rhat) |>
-                                          max()
+                                     ~ summary(.x)$random$tissue_groups |> 
+                                       as_tibble() |> 
+                                       pull(Rhat) |>
+                                       max()
         )) %>%  
-
+        
         select(-brms_fit),
-
+      
       pattern = map(estimates_chunk),
       packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr", "stringr"),
       resources = tar_resources(crew = tar_resources_crew("elastic")),
       error = "null"
     ),
-
+    
     ## effect_removed -----
     # This target generates adjusted model estimates by removing unwanted effects from the fitted Bayesian models,
     # thereby isolating the effects of interest. Here, nuisance covariates are set to NA and removed from the predictions.
@@ -867,26 +944,26 @@ get_adjusted_matrix = function(effect_removed_df, column_adjusted){
       resources = tar_resources(crew = tar_resources_crew("elastic")),
       error = "null"
     ),
-   
-   ## param -----
-   tar_target(
-     param,
-     estimates_chunk %>%
-       mutate(
-         param = map(
-           brms_fit, 
-           ~ summary(.x$fit) |> as.data.frame()
-         ) 
-       )%>% 
-       select(-brms_fit),
-     pattern = map(estimates_chunk),
-     packages = c( "brms", "dplyr", "purrr", "rstan"),
-     resources = tar_resources(crew = tar_resources_crew("elastic")),
-     error = "null"
-   ),
-   
-   # adjusted_matrix -----
-   tar_target(
+    
+    ## param -----
+    tar_target(
+      param,
+      estimates_chunk %>%
+        mutate(
+          param = map(
+            brms_fit, 
+            ~ summary(.x$fit) |> as.data.frame()
+          ) 
+        )%>% 
+        select(-brms_fit),
+      pattern = map(estimates_chunk),
+      packages = c( "brms", "dplyr", "purrr", "rstan"),
+      resources = tar_resources(crew = tar_resources_crew("elastic")),
+      error = "null"
+    ),
+    
+    # adjusted_matrix -----
+    tar_target(
       adjusted_assay_ethnicity,
       get_adjusted_matrix(effect_removed, brms_fit_adjusted_ethnicity_estimate),
       packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr", "stringr", "tidySummarizedExperiment") ,
