@@ -1,38 +1,6 @@
-
-library(tidySummarizedExperiment)
-library(HPCell)
-library(magrittr)
-library(tidyverse)
-# devtools::load_all("~/PostDoc/tidybulk/")
-
-# # Dispersion 2 days calculation
-# job::job({
-#   library(tictoc)
-#   tic()
-#   glmGamPoi_subsample = 
-#     pseudobulk_sample |> 
-#     glmGamPoi::glm_gp(
-#       on_disk = T,
-#       subsample = TRUE,
-#       design = 
-#         pseudobulk_sample |> 
-#         tidybulk::resolve_complete_confounders_of_non_interest(dataset_id, assay_groups, tissue_groups, disease_groups) |> 
-#         colData() |> 
-#         droplevels() |> 
-#         model.matrix(~ dataset_id + assay_groups + disease_groups, data = _  ) , 
-#       verbose = TRUE,
-#       use_assay = "counts"
-#     ) 
-#   toc()
-# })
-# 
-# # Save
-# glmGamPoi_overdispersions  = readRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/glmGamPoi_all_samples_no_subsampling_cellNexus_1_0_6.rds")$overdispersions
-# glmGamPoi_overdispersions[glmGamPoi_overdispersions>1e5] = max(glmGamPoi_overdispersions[glmGamPoi_overdispersions<1e5])
-
-
-result_directory = "/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_6"
 library(targets)
+
+# SET Script ------
 
 tar_script({
   
@@ -43,6 +11,10 @@ tar_script({
   library(qs)
   library(crew)
   library(crew.cluster)
+
+  # Set file path -----
+  hdf5_path = "/hpcfs/groups/phoenix-hpc-mangiola_laboratory/Mangiola_ImmuneAtlas/taskforce_shared_folder/pseudobulk_sample_is_immune"
+  metadata_path = "/hpcfs/groups/phoenix-hpc-mangiola_laboratory/Mangiola_ImmuneAtlas/taskforce_shared_folder/cell_metadata_1_0_6_sccomp_input_counts.rds"
   
   tar_option_set(
     
@@ -69,6 +41,7 @@ tar_script({
         seconds_idle = 30,
         crashes_max = 7,
         options_cluster = crew_options_slurm(
+          script_lines = '#SBATCH -A saigencir003',
           memory_gigabytes_required = c(5, 10, 20, 40, 80, 160), 
           cpus_per_task = 2, 
           time_minutes = c(60*4, 60*4, 60*4, 60*4, 60*24, 60*24),
@@ -82,6 +55,7 @@ tar_script({
         seconds_idle = 30,
         crashes_max = 5,
         options_cluster = crew_options_slurm(
+          script_lines = '#SBATCH -A saigencir003',
           memory_gigabytes_required = c(80, 160), 
           cpus_per_task = 2, 
           time_minutes = c(60*24, 60*24),
@@ -95,6 +69,7 @@ tar_script({
         seconds_idle = 30,
         crashes_max = 5,
         options_cluster = crew_options_slurm(
+          script_lines = '#SBATCH -A saigencir003',
           memory_gigabytes_required = c(160), 
           cpus_per_task = 30, 
           verbose = T
@@ -264,26 +239,14 @@ tar_script({
       bind_cols(fitted_values_ethnicity_tbl)
   }
   
-  get_adjusted_matrix = function(summary_df, column_adjusted){
+get_adjusted_matrix = function(summary_df, column_adjusted){
     
     column_adjusted = enquo(column_adjusted)
     
-    plan(callr, workers = as.numeric(Sys.getenv("SLURM_CPUS_PER_TASK", unset = 1)))
-    
     m = 
       summary_df |>
-      select(1, 2, 3, 4, !!column_adjusted) |> 
-      # filter(map_int(!!column_adjusted, nrow) == 4926 ) |> 
-      mutate(!!column_adjusted := future_map2(!!column_adjusted, cell_type_unified_ensemble, ~ {
-        library(tidySummarizedExperiment)
-        .x |> 
-          select(adjusted___Estimate) |> #, adjusted___Q2.5, adjusted___Q97.5) |> 
-          mutate(sample_id = pseudobulk_sample |> dplyr::filter(cell_type_unified_ensemble == .y) |> colnames())
-      }, 
-      .progress = TRUE
-      )) |>
       unnest(!!column_adjusted) |> 
-      dplyr::filter(analysis == "observed_proportion") |> 
+      # dplyr::filter(analysis == "observed_proportion") |> 
       select(.feature, adjusted___Estimate, sample_id) |> 
       pivot_wider(names_from = sample_id, values_from = adjusted___Estimate) |> 
       tidybulk:::as_matrix(rownames = ".feature") |> 
@@ -334,11 +297,12 @@ tar_script({
     # filters for common genes and samples with an appropriate number of detected genes, computes the mean library size, 
     # selects a reference sample, and performs normalisation and scaling.
     tar_target(
+      # pseudobulk_sample ------
       pseudobulk_sample,
       {
-        
+        message('TAR: pseudobulk_sample START')
         se = 
-          loadHDF5SummarizedExperiment("/vast/projects/cellxgene_curated/cellNexus/pseudobulk_sample_is_immune") |> 
+          loadHDF5SummarizedExperiment(hdf5_path) |> 
           filter(is_gene_shared) |> 
           
           #---------------------------------#
@@ -349,7 +313,7 @@ tar_script({
         # TEMPORARY BECAUSE I FORGOT TO INTEGRATE AGE BINS
         se = se |> 
           left_join(
-            readRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_6/cell_metadata_1_0_6_sccomp_input_counts.rds") |> 
+            readRDS(metadata_path) |> 
               distinct(sample_id,  age_days, age_bin) 
           )
         
@@ -381,7 +345,7 @@ tar_script({
             which.min()                             # Identify the smallest difference
         ]
         
-        
+        message('TAR: pseudobulk_sample Phase2')
         se = 
           se |> 
           keep_abundant(design = 
@@ -431,6 +395,7 @@ tar_script({
         #   left_join(glmGamPoi_overdispersions |> enframe(name = ".feature", value = "dispersion")) |> 
         #   data.frame(row.names = ".feature") |> DataFrame()
         
+        message('TAR: pseudobulk_sample COMPLETE')
         se
         
       }, 
@@ -439,13 +404,30 @@ tar_script({
       memory = "persistent", 
       error = "stop"
     ),
+
+    # pseudobulk_sample_id ------
+    # This target extracts unique sample ids from the pseudobulk sample  
+    tar_target(
+      pseudobulk_sample_id,
+      pseudobulk_sample |> colnames(),
+      packages = c( "tidySummarizedExperiment", "targets", "purrr", "dplyr"),
+      resources = tar_resources(crew = tar_resources_crew("elastic"))
+    ),
     
+    # feature_df ------
     # This target extracts unique features from the pseudobulk sample and groups them into 
     # chunks for parallel processing.
     tar_target(
       feature_df, 
       pseudobulk_sample |> 
-        distinct(.feature)|> 
+        distinct(.feature)|>
+        # testing genes that ran for long time
+        # filter(.feature %in% c(
+        #   "ENSG00000175274", "ENSG00000213221", "ENSG00000101405", "ENSG00000003756",
+        #   "ENSG00000236859", "ENSG00000104825", "ENSG00000203497", "ENSG00000143110",
+        #   "ENSG00000077454", "ENSG00000104231"
+        # )) |>
+        # head(1) %>% 
         group_by(.feature) |> 
         tar_group(), 
       iteration = "group",
@@ -453,6 +435,7 @@ tar_script({
       resources = tar_resources(crew = tar_resources_crew("elastic"))
     ),
     
+    # se_df -----
     # This target creates a list-column of SummarizedExperiment objects,
     # with each object corresponding to a distinct feature.
     tar_target(
@@ -465,6 +448,7 @@ tar_script({
       resources = tar_resources(crew = tar_resources_crew("elastic"))
     ),
     
+    # estimates_chunk ------
     # This target fits Bayesian models on chunks of the data. It processes each feature's data, handles missing values,
     # defines the model specification with priors, and runs the Bayesian inference using the brm function.
     tar_target(
@@ -513,6 +497,9 @@ tar_script({
             droplevels()
         }
         
+        # Manually revise data colnames to suit brms bug
+        colnames(data) = colnames(data) |> stringr::str_replace_all("_+", "_")
+        
         # # Check if dispersion estimation has failed
         # if(data |> pull(dispersion) |> unique() |> is.na()){
         #   warning("The dispersion calculation has failed. 1 is given as default prior.")
@@ -523,29 +510,87 @@ tar_script({
         formula <- bf(
           
           # Formula for counts
-          counts ~ 1 + offset(offset) + age_bin*sex + disease_groups___altered + ethnicity_groups + assay_groups___altered + 
-            (1 | dataset_id___altered) + 
+          counts ~ 1 + offset(offset) + age_bin*sex + disease_groups_altered + ethnicity_groups + assay_groups_altered + 
+            (1 | dataset_id_altered) + 
             (1 + age_bin*sex + ethnicity_groups | tissue_groups),
           
           # Formula for dispersion
-          shape ~ 1 + disease_groups___altered + assay_groups___altered + ethnicity_groups + (1 | tissue_groups)  # Model 'shape' as a function of scaled 'disp'
+          shape ~ 1 + disease_groups_altered + assay_groups_altered + ethnicity_groups + (1 | tissue_groups)  # Model 'shape' as a function of scaled 'disp'
           
           # Using the externally, eBayes inferred overdispersion
           # shape ~ 1 + offset(log(1/dispersion))
          )
         
+        # prior = c(
+        #   prior(normal(i, 5), class = Intercept),
+        #   prior(normal(0, 2), class = Intercept, dpar = shape),
+        #   prior(normal(0, 5), class = b),
+        #   prior(normal(0, 2), class = b, dpar = shape)
+        # ) |> 
+        #   substitute(env = list(i = mean(log1p(data$counts / exp(data$offset))))) |> 
+        #   eval()
+
+        # prior = prior(normal(-0.0002056948, 0.07690437))
+        
+        # HPC pipeline: param V1:
+        # prior = c(
+        #   prior(student_t(4.45496, 0.008599254, 1.143344), class = "b"),
+        #   prior(student_t(18.16242, 0.07952513, 0.9926044), class = "b", dpar = "shape"),
+        #   prior(normal(5.441626, 2.25460683), class = "Intercept"),
+        #   prior(normal(0.1459487, 0.8347875), class = "Intercept", dpar = "shape"),
+        #   prior(student_t(4.7655009	, 0.887529, 0.8684176), class = "sd", lb = 0),
+        #   prior(student_t(53.08894, 0.9080073, 0.2870678), class = "sd", dpar = "shape", lb = 0),
+        #   prior(beta(0.5541155, 9.337894), class = "zi")
+        # ) 
+        
+        # HPC pipeline: param V2:
         prior = c(
-          prior(normal(i, 5), class = Intercept),
-          prior(normal(0, 2), class = Intercept, dpar = shape),
-          prior(normal(0, 5), class = b),
-          prior(normal(0, 2), class = b, dpar = shape)
-        ) |> 
-          substitute(env = list(i = mean(log1p(data$counts / exp(data$offset))))) |> 
-          eval()
+          prior(student_t(6.153327, 0.06161134, 0.9263627), class = "b"),
+          prior(student_t(40.51669, 0.07603337, 0.8252114), class = "b", dpar = "shape"),
+          prior(normal(6.057503, 2.438534), class = "Intercept"),
+          prior(normal(0.4260793, 1.470536), class = "Intercept", dpar = "shape"),
+          prior(student_t(52.19541	, 0.5703259, 0.4147664), class = "sd", lb = 0),
+          prior(normal(0.8670409, 0.1779553), class = "sd", dpar = "shape", lb = 0),
+          prior(beta(0.5381488, 10.3577433), class = "zi", lb = 0, ub = 1)
+        )
         
         chains = 2
-        inits <- list(Intercept = mean(log1p(data$counts / exp(data$offset))))
-        inits <- replicate(chains, inits, simplify = FALSE)
+        
+        Kc <- 39
+        Kc_shape <- 28
+        M_1 <- 1; N_1 <- 105
+        M_2 <- 19; N_2 <- 26
+        M_3 <- 1; N_3 <- 26
+        
+        inits <- lapply(1:chains, function(i) {
+          list(
+            # Fixed effects for count part
+            b = 0.06161134 + 0.9263627 * rt(Kc, 6.153327),
+            Intercept = rnorm(1, 6.057503, 2.438534),
+            
+            # Fixed effects for shape submodel
+            b_shape = 0.07603337 + 0.8252114 * rt(Kc_shape, 40.51669),
+            Intercept_shape = rnorm(1, 0.4260793, 1.470536),
+            
+            # Zero-inflation probability
+            zi = rbeta(1, 0.5381488, 10.3577433),
+            
+            # Group-level standard deviations and effects
+            sd_1 = abs(0.5703259 + 0.4147664 * rt(M_1, 52.19541)),      # count
+            z_1 = replicate(M_1, rnorm(N_1, mean = 0 , sd = 0.08547970), simplify = FALSE),
+            
+            sd_2 = abs(0.5703259 + 0.4147664 * rt(M_2, 52.19541)),      # zi
+            z_2 = matrix(rnorm(M_2 * N_2, mean = 0 , sd = 0.08547970), nrow = M_2, ncol = N_2),
+            L_2 = diag(M_2),                                            # no correlation (identity)
+            
+            sd_3 = abs(rnorm(M_3, 0.8670409, 0.1779553)),               # shape
+            z_3 = replicate(M_3, rnorm(N_3, mean = 0 , sd = 0.08547970), simplify = FALSE)
+          )
+        })
+        
+        # chains = 2
+        # inits <- list(Intercept = mean(log1p(data$counts / exp(data$offset))))
+        # inits <- replicate(chains, inits, simplify = FALSE)
         
         
         brm(
@@ -554,7 +599,7 @@ tar_script({
           family = zero_inflated_negbinomial(),
           prior = prior,
           chains = chains,
-          cores = as.numeric(Sys.getenv("SLURM_CPUS_PER_TASK", unset = 1)), #, threads = 2,
+          cores = pmax(as.numeric(parallelly::availableCores()), 2), #, threads = 2,
           warmup = 300, 
           refresh = 10,
           backend = "cmdstanr", 
@@ -570,12 +615,13 @@ tar_script({
       # Drop data because it is withn the brms object
       select(-se), 
       pattern = map(se_df),
-      packages = c( "brms", "glue", "dplyr", "purrr", "SummarizedExperiment", "tidySummarizedExperiment"),
+      packages = c( "brms", "glue", "stringr", "dplyr", "purrr", "SummarizedExperiment", "tidySummarizedExperiment"),
       resources = tar_resources(crew = tar_resources_crew("elastic")),
       cue = tar_cue(mode = "never")
       
     ),
-     
+
+    ## summary ----- 
     # This target summarises the fitted Bayesian models by performing hypothesis tests for ethnicity contrasts 
     # and extracting convergence diagnostics (Rhat) for the ethnicity parameters.
     tar_target(
@@ -679,32 +725,71 @@ tar_script({
       )
         )) |>
         
-      mutate(Rhat = map_dbl(brms_fit, 
-                            ~ summary(.x)$fixed |> 
-                              as_tibble(rownames = "par") |> 
-                              filter(par |> str_detect("ethnicity")) |> 
-                              pull(Rhat) |>
-                              max()
-                          )) |> 
+      mutate(
+          
+          summary_tissue = map(
+            brms_fit,  function(x) {
+              
+              params = x$fit %>% summary() |> _[[1]] |> rownames()
+              params = params[grepl("^r_tissue_groups\\[.*?,Intercept\\]$", params)] %>% sub("^r_", "", .) %>% paste0("`", . , "`")
+              tissue_names <- sub("`tissue_groups\\[(.*),Intercept\\]`", "\\1", params)
+              
+              equations <- sapply(seq_along(params), function(i) {
+                this_tissue <- tissue_names[i]
+                this_param <- params[i]
+                other_params <- params[-i]
+                avg_expr <- paste0("(", paste(other_params, collapse = " + "), ")/", length(other_params))
+                eq <- paste0(this_param, " - ", avg_expr, " = 0")
+                eq
+              })
+              names(equations) <- tissue_names
+              
+              return(
+                x |> hypothesis(equations, class = "r", robust=TRUE, alpha = 0.1)
+              )
+              
+            }
+          )
+          
+        ) %>% 
+        
+        mutate(Rhat_ethnicity = map_dbl(brms_fit, 
+                              ~ summary(.x)$fixed |> 
+                                as_tibble(rownames = "par") |> 
+                                filter(par |> str_detect("ethnicity")) |> 
+                                pull(Rhat) |>
+                                max()
+        )) |> 
+        
+        mutate(Rhat_tissue = map_dbl(brms_fit, 
+                                        ~ summary(.x)$random$tissue_groups |> 
+                                          as_tibble() |> 
+                                          pull(Rhat) |>
+                                          max()
+        )) %>%  
+
         select(-brms_fit),
 
       pattern = map(estimates_chunk),
       packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr", "stringr"),
       resources = tar_resources(crew = tar_resources_crew("elastic"))
     ),
-    
-   # This target generates adjusted model estimates by removing unwanted effects from the fitted Bayesian models,
-   # thereby isolating the effects of interest. Here, nuisance covariates are set to NA and removed from the predictions.
+
+   ## effect_removed -----
+    # This target generates adjusted model estimates by removing unwanted effects from the fitted Bayesian models,
+    # thereby isolating the effects of interest. Here, nuisance covariates are set to NA and removed from the predictions.
+    # This target produces adjusted estimates from the Bayesian models, removing unwanted effects while retaining 
+    # the tissue group random effect, thus preserving variability associated with tissue-specific factors.
     tar_target(
       effect_removed, 
       estimates_chunk |> 
-        mutate(brms_fit_adjusted_etnicity = map(brms_fit, ~ .x |> remove_unwanted_effect(
-          newdata = .x$data |> mutate(assay_groups___altered=NA, sex = NA, age_bin = NA, disease_groups___altered = NA, dataset_id___altered = NA), # age_bin*sex + disease_groups + ethnicity_groups + assay_groups
+        mutate(brms_fit_adjusted_ethnicity = map(brms_fit, ~ .x |> remove_unwanted_effect(
+          newdata = .x$data |> mutate(assay_groups_altered=NA, sex = NA, age_bin = NA, disease_groups_altered = NA, dataset_id_altered = NA), # age_bin*sex + disease_groups + ethnicity_groups + assay_groups
           robust = TRUE, 
           re_formula = ~ 0
         ))) |> 
         mutate(brms_fit_adjusted_ethnicity_new = map(brms_fit, ~ .x |> remove_unwanted_effect_new(
-          newdata = .x$data |> mutate(assay_groups___altered=NA, sex = NA, age_bin = NA, disease_groups___altered = NA, dataset_id___altered = NA), # age_bin*sex + disease_groups + ethnicity_groups + assay_groups
+          newdata = .x$data |> mutate(assay_groups_altered=NA, sex = NA, age_bin = NA, disease_groups_altered = NA, dataset_id_altered = NA), # age_bin*sex + disease_groups + ethnicity_groups + assay_groups
           robust = FALSE, correct_by_offset = FALSE,
           re_formula = ~ 0
         ))) |> 
@@ -714,10 +799,66 @@ tar_script({
           re_formula = ~ (1 | tissue_groups)
         ))) |> 
         mutate(brms_fit_adjusted_tissue_new = map(brms_fit, ~ .x |> remove_unwanted_effect_new(
-          newdata = .x$data |> mutate(assay_groups___altered=NA, ethnicity_groups = NA, sex = NA, age_bin = NA, disease_groups___altered = NA, dataset_id___altered = NA), # age_bin*sex + disease_groups + ethnicity_groups + assay_groups
+          newdata = .x$data |> mutate(assay_groups_altered=NA, ethnicity_groups = NA, sex = NA, age_bin = NA, disease_groups_altered = NA, dataset_id_altered = NA), # age_bin*sex + disease_groups + ethnicity_groups + assay_groups
           robust = FALSE, correct_by_offset = FALSE,
           re_formula = ~ (1 | tissue_groups)
         ))) |> 
+        mutate(brms_fit_adjusted_ethnicity_estimate = map(brms_fit_adjusted_ethnicity, ~ {
+          
+          df = .x |> as_tibble()
+          if (nrow(df) == length(pseudobulk_sample_id)){
+            return(
+              df |>
+                select(adjusted___Estimate) |> #, adjusted___Q2.5, adjusted___Q97.5) |> 
+                mutate(sample_id = pseudobulk_sample_id)
+            )
+          }else{
+            return(NULL)
+          }
+          
+        })) |> 
+        mutate(brms_fit_adjusted_ethnicity_new_estimate = map(brms_fit_adjusted_ethnicity_new, ~ {
+          
+          df = .x |> as_tibble()
+          if (nrow(df) == length(pseudobulk_sample_id)){
+            return(
+              df |>
+                select(adjusted___Estimate) |> #, adjusted___Q2.5, adjusted___Q97.5) |> 
+                mutate(sample_id = pseudobulk_sample_id)
+            )
+          }else{
+            return(NULL)
+          }
+          
+        })) |> 
+        mutate(brms_fit_adjusted_tissue_estimate = map(brms_fit_adjusted_tissue, ~ {
+          
+          df = .x |> as_tibble()
+          if (nrow(df) == length(pseudobulk_sample_id)){
+            return(
+              df |>
+                select(adjusted___Estimate) |> #, adjusted___Q2.5, adjusted___Q97.5) |> 
+                mutate(sample_id = pseudobulk_sample_id)
+            )
+          }else{
+            return(NULL)
+          }
+          
+        })) |>
+        mutate(brms_fit_adjusted_tissue_new_estimate = map(brms_fit_adjusted_tissue_new, ~ {
+          
+          df = .x |> as_tibble()
+          if (nrow(df) == length(pseudobulk_sample_id)){
+            return(
+              df |>
+                select(adjusted___Estimate) |> #, adjusted___Q2.5, adjusted___Q97.5) |> 
+                mutate(sample_id = pseudobulk_sample_id)
+            )
+          }else{
+            return(NULL)
+          }
+          
+        })) |>
         select(-brms_fit),
       
       pattern = map(estimates_chunk),
@@ -725,383 +866,45 @@ tar_script({
       resources = tar_resources(crew = tar_resources_crew("elastic"))
     ),
    
+   # adjusted_matrix -----
    tar_target(
-     adjusted_assay_etnicity,
-     get_adjusted_matrix(effect_removed, brms_fit_adjusted),
-     packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr", "stringr", "future.callr", "furrr", "tidySummarizedExperiment") ,
-     resources = tar_resources(
-       crew = tar_resources_crew("elastic_big_30_cores")
-     )
-   ),
-   
-   tar_target(
-     adjusted_assay_etnicity_new,
-     get_adjusted_matrix(effect_removed, brms_fit_adjusted_new),
-     packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr", "stringr", "future.callr", "furrr", "tidySummarizedExperiment") ,
-     resources = tar_resources(
-       crew = tar_resources_crew("elastic_big_30_cores")
-     )
-   ),
-   
-   tar_target(
-     adjusted_assay_tissue,
-     get_adjusted_matrix(effect_removed, brms_fit_adjusted_tissue),
-     packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr", "stringr", "future.callr", "furrr", "tidySummarizedExperiment") ,
-     resources = tar_resources(
-       crew = tar_resources_crew("elastic_big_30_cores")
-     )
-   ),
-   
-   tar_target(
-     adjusted_assay_tissue_new,
-     get_adjusted_matrix(effect_removed, brms_fit_adjusted_tissue_new),
-     packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr", "stringr", "future.callr", "furrr", "tidySummarizedExperiment") ,
-     resources = tar_resources(
-       crew = tar_resources_crew("elastic_big_30_cores")
-     )
-   )
+      adjusted_assay_ethnicity,
+      get_adjusted_matrix(effect_removed, brms_fit_adjusted_ethnicity_estimate),
+      packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr", "stringr", "tidySummarizedExperiment") ,
+      resources = tar_resources(
+        crew = tar_resources_crew("elastic_big_30_cores")
+      )
+    ),
     
-  )
+    tar_target(
+      adjusted_assay_ethnicity_new,
+      get_adjusted_matrix(effect_removed, brms_fit_adjusted_ethnicity_new_estimate),
+      packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr", "stringr", "tidySummarizedExperiment") ,
+      resources = tar_resources(
+        crew = tar_resources_crew("elastic_big_30_cores")
+      )
+    ),
+    
+    tar_target(
+      adjusted_assay_tissue,
+      get_adjusted_matrix(effect_removed, brms_fit_adjusted_tissue_estimate),
+      packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr", "stringr", "tidySummarizedExperiment") ,
+      resources = tar_resources(
+        crew = tar_resources_crew("elastic_big_30_cores")
+      )
+    ),
+    
+    tar_target(
+      adjusted_assay_tissue_new,
+      get_adjusted_matrix(effect_removed, brms_fit_adjusted_tissue_new_estimate),
+      packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr", "stringr", "tidySummarizedExperiment") ,
+      resources = tar_resources(
+        crew = tar_resources_crew("elastic_big_30_cores")
+      )
+    )
+    
+  ) # end ) of all target list
   
   
-}, ask = FALSE, script = glue::glue("/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_6/_targets.R"))
-
-
-job::job({
-  
-  tar_make(
-    # callr_function = NULL,
-    reporter = "summary",
-    script = glue::glue("/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_6/_targets.R"),
-    store = glue::glue("/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_6/_targets")
-  )
-  
-})
-
-
-
-# Get genes with wrong intercept
-meta_to_speed_up = 
-  tar_meta(starts_with("estimates_chunk_"), store = glue::glue("/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_6/_targets")) |> 
-  filter(name |> str_detect("keep_tissue", negate = T)) |> 
-  filter(
-    error |> is.na(), 
-    !data |> is.na() 
-  )
-
-names_to_drop = 
-  
-  # FOR INCOMPLETE PIPELINE
-  meta_to_speed_up |> 
-  pull(name) |> 
-  enframe() |> 
-  mutate(keep = 
-    map_lgl(value, 
-      ~ .x |> tar_read_raw(
-      meta = meta_to_speed_up, 
-      store = glue::glue("/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_6/_targets")
-      ) |> 
-        pull(brms_fit) |> 
-        _[[1]] |>
-        summary() %$%
-        fixed |> 
-        rownames() |> 
-        str_detect("Afric") |> 
-        any(), 
-      .progress = TRUE
-    ))
-
-pseudobulk_sample = tar_read(pseudobulk_sample, store = glue::glue("/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_6/_targets"))
-
-lib_size = pseudobulk_sample |> assay() |> colSums()
-plot(log(lib_size), log(colData(pseudobulk_sample)$multiplier))
-
-# FOR INCOMPLETE PIPELINE
-meta_to_speed_up = 
-  tar_meta(starts_with("effect_removed_"), store = glue::glue("/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_6/_targets")) |> 
-  filter(name |> str_detect("keep_tissue", negate = T)) |> 
-  filter(
-    error |> is.na(), 
-    !data |> is.na() 
-  )
-
-effect_removed = 
-  
-  # FOR INCOMPLETE PIPELINE
-  meta_to_speed_up |> 
-  pull(name) |> 
-  map_dfr(
-    tar_read_raw,
-    meta = meta_to_speed_up, 
-    store = glue::glue("/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_6/_targets"), 
-    .progress = TRUE
-  ) |> 
-
-  # FOR COMPLETE PIPELINE
-  # tar_read(
-  #   effect_removed,
-  #   store = glue::glue("/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_6/_targets")
-  # )  |>
-  filter(map_int(brms_fit_adjusted, nrow) == 5230 ) |> 
-  mutate(brms_fit_adjusted = map(brms_fit_adjusted, ~ .x |> 
-                                   select(adjusted___Estimate) |> #, adjusted___Q2.5, adjusted___Q97.5) |> 
-                                   mutate(sample_id = colnames(pseudobulk_sample)), 
-                                 .progress = TRUE
-                                )) |>
-  unnest(brms_fit_adjusted)
-
-m = 
-  effect_removed |> 
-  pivot_wider(names_from = sample_id, values_from = adjusted___Estimate) |> 
-  select(-tar_group) |> 
-  tidybulk:::as_matrix(rownames = ".feature") |> 
-  as("sparseMatrix")  |> 
-  Matrix::Matrix(sparse = T)
-
-pseudobulk_sample = pseudobulk_sample[rownames(m),, drop=FALSE ] 
-assay(pseudobulk_sample, "counts_adjusted_ethnicity") = m
-pseudobulk_sample = pseudobulk_sample[((assay(pseudobulk_sample, "gene_presence") > 0) |> rowSums() > (ncol(pseudobulk_sample) * 0.8)),,drop=FALSE ]
-
-# Cap infinite
-max_rm_infinite = 
-  pseudobulk_sample |> 
-  assay("counts_adjusted_ethnicity") |> 
-  _[!pseudobulk_sample |> assay("counts_adjusted_ethnicity") |> is.infinite()] |> 
-  quantile(0.999)
-  
-pseudobulk_sample |> 
-  assay("counts_adjusted_ethnicity") |> 
-  _[pseudobulk_sample |> assay("counts_adjusted_ethnicity") > max_rm_infinite] = 
-  max_rm_infinite
-
-pseudobulk_sample |> 
-  assay("counts_adjusted_ethnicity") |> 
-  _[pseudobulk_sample |> assay("counts_adjusted_ethnicity") < 0] = 
-  0
-
-# FOR INCOMPLETE PIPELINE
-meta_to_speed_up = 
-  tar_meta(starts_with("summary_"), store = glue::glue("/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_6/_targets")) |> 
-  filter(name |> str_detect("keep_tissue", negate = T)) |> 
-  filter(
-    error |> is.na(), 
-    !data |> is.na() 
-  )
-
-summaries = 
-  
-  # FOR INCOMPLETE PIPELINE
-  meta_to_speed_up |> 
-  pull(name) |> 
-  map_dfr(
-    tar_read_raw,
-    meta = meta_to_speed_up, 
-    store = glue::glue("/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_6/_targets"), 
-    .progress = TRUE
-  ) |> 
-  
-  # # For complete pipelines
-  # tar_read(
-  #   summary,
-  #   store =  glue::glue("/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_6/_targets")
-  # ) |>
-  
-  mutate(summary = map(summary, ~ .x %$% hypothesis |> as_tibble())) |>
-  unnest(summary) |>
-  filter(Rhat |> dplyr::between(0.90, 1.1)) |> 
-  filter(Star == "*") |>
-  filter(.feature %in% rownames(pseudobulk_sample)) |> 
-  mutate(closest_to_zero = pmin(abs(CI.Lower), abs(CI.Upper))) |>
-  add_count(.feature) |> 
-  filter(n < 5) |> 
-  with_groups(Hypothesis, ~ .x |> arrange(desc(closest_to_zero)) |> dplyr::slice(1:50))
-
-# Save the unknown ethnicities
-pseudobulk_sample |> 
-  select(-contains("PC"), -contains("tSNE"), -contains("UMAP")) |> 
-  filter(ethnicity_groups == "Other/Unknown") |> 
-  as("SingleCellExperiment") |> 
-  zellkonverter::writeH5AD(file = "~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/pseudobulk_sample_for_PCA_adjusted_ethnicity_unknown_ethnicity_1_0_6.h5ad", compression = "gzip")
-system("~/bin/rclone copy ~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/pseudobulk_sample_for_PCA_adjusted_ethnicity_unknown_ethnicity_1_0_6.h5ad box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/removal_unwanted_effects/")
-
-
-pseudobulk_sample_for_PCA = pseudobulk_sample
-
-pseudobulk_sample_for_PCA = 
-  pseudobulk_sample_for_PCA |> 
-  select(-contains("PC"), -contains("tSNE"), -contains("UMAP")) |> 
-   _[summaries |> pull(.feature) |> unique(), , drop=FALSE] |> 
-  filter(ethnicity_groups != "Other/Unknown") |> 
-  tidybulk::reduce_dimensions(method = "PCA", .abundance = counts_adjusted_ethnicity, .dims = 20 ) |> 
-  tidybulk::reduce_dimensions(method = "tSNE", .abundance = counts_adjusted_ethnicity, initial_dims = 10, .dims = 2)  |> 
-  tidybulk::reduce_dimensions(method = "UMAP", .abundance = counts_adjusted_ethnicity, pca = 10, .dims = 2, calculate_for_pca_dimensions = NULL)  
-
-pseudobulk_sample_for_PCA  = pseudobulk_sample_for_PCA |> filter(PC1 < 60)
-pseudobulk_sample_for_PCA  = pseudobulk_sample_for_PCA |> filter(PC4 > -20)
-
-pseudobulk_sample_for_PCA |> 
-  as("SingleCellExperiment") |> 
-  zellkonverter::writeH5AD(file = "~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/pseudobulk_sample_for_PCA_adjusted_ethnicity_1_0_6.h5ad", compression = "gzip")
-system("~/bin/rclone copy ~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/pseudobulk_sample_for_PCA_adjusted_ethnicity_1_0_6.h5ad box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/removal_unwanted_effects/")
-
-# pseudobulk_sample_for_PCA = 
-#   zellkonverter::readH5AD(
-#     file = "~/PostDoc/immuneHealthyBodyMap/HCA_pipeline/pseudobulk_sample_for_PCA_adjusted_ethnicity.h5ad",
-#     use_hdf5 = TRUE, 
-#     reader = "R"
-#   )
-
-
-colData(pseudobulk_sample)$sum = pseudobulk_sample |> assay("counts_adjusted_ethnicity") |> colSums()
-
-pseudobulk_sample_for_PCA |> 
-  pivot_sample() |> 
-  left_join(cellNexus::get_metadata() |> distinct(sample_id, self_reported_ethnicity), copy = T) |>
-  ggplot(aes(tSNE1, tSNE2, fill = ethnicity_groups)) +
-  geom_point(shape = 21,  size = 0.8, stroke = 0) 
-
-pseudobulk_sample_for_PCA |> 
-  pivot_sample() |> 
-  left_join(cellNexus::get_metadata() |> distinct(sample_id, self_reported_ethnicity), copy = T) |>
-  ggplot(aes(UMAP1, UMAP2, fill = ethnicity_groups)) +
-  geom_point(shape = 21,  size = 0.8, stroke = 0) 
-
-
-pseudobulk_sample_for_PCA |> 
-  pivot_sample() |> 
-  select(contains("PCA"), everything()) |> 
-GGally::ggpairs(columns = 19:38, ggplot2::aes(colour=`ethnicity_groups`))
-
-
-library(plotly)
-library(tidyomics)
-pseudobulk_sample_for_PCA |>
-  pivot_sample() |> 
-  plot_ly(
-    x = ~`tSNE1`,
-    y = ~`tSNE2`,
-    z = ~`tSNE3`,
-    color = ~ ethnicity_groups
-  ) %>%
-  add_markers(size = I(10))
-
-
-# tSNE coloured by PCA
-pseudobulk_sample_for_PCA |> 
-  pivot_sample() |> 
-  select(sample_id, contains("PC"), contains("tSNE")) |> 
-  pivot_longer(contains("PC"), names_to = "PC_number", values_to = "PC_value") |> 
-  filter(PC_number %in% paste0("PC", 1:10)) |> 
-  mutate(
-    PC_value = if_else(PC_value > quantile(PC_value, 0.9), quantile(PC_value, 0.9),PC_value ),
-    PC_value = if_else(PC_value < quantile(PC_value, 0.1), quantile(PC_value, 0.1),PC_value )
-  ) |> 
-  ggplot(aes(tSNE1, tSNE2, color = PC_value)) +
-  geom_point(size = 0.3) +
-  facet_wrap(~ PC_number) +
-  scale_color_distiller(palette = "Spectral") +
-  guides(color = "none") +
-  theme_bw()
-
-# x |> saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1/estimates_chunk_062dd2621e3cb7e1.rds")
-# system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_1/estimates_chunk_062dd2621e3cb7e1.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/removal_unwanted_effects/")
-
-tar_meta( store = glue::glue("/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_6/_targets")) |> 
-  arrange(desc(time)) |>
-  filter(!error |> is.na()) |>
-  select(name, error)
-
-tar_workspace(
-  summary_6f59d31740151e3c, 
-  store = "/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_6/_targets",
-  script = "/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_6/_targets.R"
-)
-
-
-
-library(tidybayes)
-library(brms)
-library(magrittr)
-library(ggallin)
-
-
-
-
-fit = tar_read_raw("estimates_chunk_1ae83911a81cabae", store = "/vast/scratch/users/mangiola.s/DE_pseudobulk_sample_cellNexus_1_0_6/_targets", branches = 1) |> 
-  pull(brms_fit) |> 
-  _[[1]] 
-
-fit |> fitted() |> head()
-
-fit |> 
-  
-  # Remove unwanted effects
-  remove_unwanted_effect("ethnicity_groups", robust = TRUE) |> 
-  mutate(o = fit$data$offset ) |> 
- # filter(residuals___Estimate<1e20) |> 
-  
-  # Plot
-  ggplot(aes(o,adjusted___Estimate)) + 
- geom_errorbar(aes(ymin = residuals___Q2.5, ymax = residuals___Q97.5), alpha = 0.01) +
-  geom_point(shape = ".") + 
-  scale_y_continuous(trans = pseudolog10_trans) +
-  #scale_y_log10() + scale_x_log10() + 
-  geom_hline(yintercept = 0, colour = "red") 
-
-pp_check(fit) + scale_x_continuous(trans = pseudolog10_trans) 
-
-
-fit2 = fit |> update(
-  threads = 4, 
-  cores = 2,
-  prior = c(
-    prior(normal(6, 5), class = Intercept),
-    prior(normal(0, 2), class = Intercept, dpar = shape),
-    prior(normal(0, 5), class = b),
-    prior(normal(0, 2), class = b, dpar = shape)
-  ) 
- 
-)
-
-check_brms <- function(model,             # brms model
-                       integer = FALSE,   # integer response? (TRUE/FALSE)
-                       plot = TRUE,       # make plot?
-                       ...                # further arguments for DHARMa::plotResiduals 
-) {
-  
-  mdata <- brms::standata(model)
-  
-  dharma.obj <- DHARMa::createDHARMa(
-    simulatedResponse = t(brms::posterior_predict(model)),
-    observedResponse = model$data$counts, 
-    fittedPredictedResponse = apply(
-      t(brms::posterior_epred(model, re.form = NA)),
-      1,
-      mean),
-    integerResponse = integer)
-  
-  if (isTRUE(plot)) {
-    plot(dharma.obj, ...)
-  }
-  
-  invisible(dharma.obj)
-  
-}
-
-check_brms(fit, integer = T)
-
-# 1 c NA   
-# 2 estimates_chunk_77429ffc4ef9e584 NA   
-# 3 estimates_chunk_7cbe0084f123ee96 NA   
-# 4 estimates_chunk_b1bd8ace2583e01e NA   
-# 5 estimates_chunk_5ef9151358ee4d99 NA   
-# 6 estimates_chunk_ec9ec278f52ec218 NA   
-# 7 estimates_chunk_c0bf30ef83e8e21d NA   
-# 8 estimates_chunk_34ae3b7786cdde9a NA   
-# 9 estimates_chunk_e150400caf575755 NA   
-# 10 estimates_chunk_f0801034799af6ad NA 
-# 10 estimates_chunk_f0801034799af6ad NA 
-# 10 estimates_chunk_f0801034799af6ad NA 
-# 10 estimates_chunk_f0801034799af6ad NA 
-
+}, ask = FALSE, script = glue::glue(script_path))
 
