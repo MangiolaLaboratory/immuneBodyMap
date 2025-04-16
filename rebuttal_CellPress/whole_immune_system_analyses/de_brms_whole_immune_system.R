@@ -13,9 +13,15 @@ tar_script({
   library(crew.cluster)
   
   # Set file path -----
-  hdf5_path = "/hpcfs/groups/phoenix-hpc-mangiola_laboratory/Mangiola_ImmuneAtlas/taskforce_shared_folder/pseudobulk_sample_is_immune"
-  metadata_path = "/hpcfs/groups/phoenix-hpc-mangiola_laboratory/Mangiola_ImmuneAtlas/taskforce_shared_folder/cell_metadata_1_0_6_sccomp_input_counts.rds"
+  ## Phoenix HPC setting -----
+  # hdf5_path = "/hpcfs/groups/phoenix-hpc-mangiola_laboratory/Mangiola_ImmuneAtlas/taskforce_shared_folder/pseudobulk_sample_is_immune"
+  # metadata_path = "/hpcfs/groups/phoenix-hpc-mangiola_laboratory/Mangiola_ImmuneAtlas/taskforce_shared_folder/cell_metadata_1_0_6_sccomp_input_counts.rds"
   
+  ## Pawsey setting -----
+  hdf5_path = "/scratch/pawsey1192/zhanchen/Mangiola_ImmuneAtlas/taskforce_shared_folder/pseudobulk_sample_is_immune"
+  metadata_path = "/scratch/pawsey1192/zhanchen/Mangiola_ImmuneAtlas/taskforce_shared_folder/cell_metadata_1_0_6_sccomp_input_counts.rds"
+ 
+
   tar_option_set(
     
     
@@ -41,10 +47,12 @@ tar_script({
         seconds_idle = 30,
         crashes_max = 7,
         options_cluster = crew_options_slurm(
-          script_lines = '#SBATCH -A saigencir003',
+          # script_lines = '#SBATCH -A saigencir003',
+          script_lines = '#SBATCH --account=pawsey1192 \n#SBATCH --time=1-00:00:00 \nsource /software/projects/pawsey1192/zhanchen/miniconda3/bin/activate R_443',
           memory_gigabytes_required = c(5, 10, 20, 40, 80, 160), 
           cpus_per_task = 2, 
-          time_minutes = c(60*4, 60*4, 60*4, 60*4, 60*24, 60*24),
+          partition = 'work', # for pawsey
+          # time_minutes = c(60*4, 60*4, 60*4, 60*4, 60*24, 60*24), 
           verbose = T
         )
       ),
@@ -55,10 +63,12 @@ tar_script({
         seconds_idle = 30,
         crashes_max = 5,
         options_cluster = crew_options_slurm(
-          script_lines = '#SBATCH -A saigencir003',
+          # script_lines = '#SBATCH -A saigencir003',
+          script_lines = '#SBATCH --account=pawsey1192 \n#SBATCH --time=1-00:00:00 \nsource /software/projects/pawsey1192/zhanchen/miniconda3/bin/activate R_443',
           memory_gigabytes_required = c(80, 160), 
           cpus_per_task = 2, 
-          time_minutes = c(60*24, 60*24),
+          partition = 'work', # for pawsey
+          # time_minutes = c(60*24, 60*24),
           verbose = T
         )
       ),
@@ -69,9 +79,11 @@ tar_script({
         seconds_idle = 30,
         crashes_max = 5,
         options_cluster = crew_options_slurm(
-          script_lines = '#SBATCH -A saigencir003',
+          # script_lines = '#SBATCH -A saigencir003',
+          script_lines = '#SBATCH --account=pawsey1192 \n#SBATCH --time=1-00:00:00 \nsource /software/projects/pawsey1192/zhanchen/miniconda3/bin/activate R_443',
           memory_gigabytes_required = c(160), 
           cpus_per_task = 30, 
+          partition = 'work', # for pawsey
           verbose = T
         )
       )
@@ -304,38 +316,38 @@ tar_script({
         # se = 
         #   loadHDF5SummarizedExperiment(hdf5_path) |> 
         #   filter(is_gene_shared) |> 
-        #   
+          
         #   #---------------------------------#
         #   # Edit or add more filters here for analyses
         #   #---------------------------------#
         #   filter(is_immune & do_analyse) 
-        # 
+        
         # # TEMPORARY BECAUSE I FORGOT TO INTEGRATE AGE BINS
         # se = se |> 
         #   left_join(
         #     readRDS(metadata_path) |> 
         #       distinct(sample_id,  age_days, age_bin) 
         #   )
-        # 
+        
         # # Filter common genes
         # se = se[((assay(se, "gene_presence") > 0) |> rowSums() > (ncol(se) * 0.95)),,drop=FALSE ]
-        # 
+        
         # # Filter samples that have enough genes > 0 but not too many
         # samples_with_right_number_of_detected_genes = 
         #   (se |> assay() > 0) |> 
         #   colSums() |> 
         #   divide_by(nrow(se)) |> 
         #   dplyr::between(0.3, 1)
-        # 
+        
         # se = se[,samples_with_right_number_of_detected_genes] 
-        # 
+        
         # # Compute mean library size
         # mean_library_size <- se |>
         #   assay("counts") |>
         #   _[nrow(se) |> seq_len() |> sample(size = 2000), ] |> 
         #   colSums() |>
         #   mean()
-        # 
+        
         # # Optional: retrieve the sample name (column name in the SummarizedExperiment)
         # reference_sample <- colnames(se)[
         #   se |>
@@ -344,16 +356,16 @@ tar_script({
         #     {\(x) abs(x - mean_library_size)}() |>  # Calculate absolute difference from the mean
         #     which.min()                             # Identify the smallest difference
         # ]
-        # 
+        
         # message('TAR: pseudobulk_sample Phase2')
         # se = 
         #   se |> 
         #   keep_abundant(design = 
         #                   se |> 
-        #                   
+                          
         #                   # Discretise the age for the following operation
         #                   mutate(is_old_individual = age_days > 50*365) |> 
-        #                   
+                          
         #                   # This is to resolve some confounders to preserve the genes.
         #                   # In this case we care about data variability, not the actual meaning of the variables
         #                   resolve_complete_confounders_of_non_interest(tissue_groups, sex, ethnicity_groups, is_old_individual) |> 
@@ -362,10 +374,10 @@ tar_script({
         #                   model.matrix(~ tissue_groups + sex___altered + ethnicity_groups___altered + is_old_individual___altered, data = _  ), 
         #                 minimum_counts = 100
         #   ) |> 
-        #   
+          
         #   # Get scaling factor
         #   scale_abundance(method = "TMMwsp", reference_sample = reference_sample) |> 
-        #   
+          
         #   # Drop sex unknown as causes problem during fit
         #   mutate(
         #     sex = if_else(sex |> is.na(), "unknown", sex),
@@ -373,13 +385,13 @@ tar_script({
         #   ) |> 
         #   filter(sex != "unknown") |> 
         #   filter(!age_bin |> is.na()) |> 
-        #   
+          
         #   # Eliminate complete confounders
         #   tidybulk:::resolve_complete_confounders_of_non_interest(assay_groups, dataset_id, disease_groups) |> 
-        #   
+          
         #   # sibrary size factor is the reciproque of the multiplier (correction factor)
         #   mutate(offset = log(1/multiplier)) |> 
-        #   
+          
         #   # Set intercept
         #   mutate(
         #     ethnicity_groups = fct_relevel(ethnicity_groups, "European"),
@@ -387,19 +399,20 @@ tar_script({
         #     disease_groups___altered = fct_relevel(disease_groups___altered, "Normal"),
         #     age_bin = fct_relevel(age_bin, "Adolescence")
         #   ) 
-        # 
+        
         # # # Add dispersion
         # # rowData(se)  = 
         # #   rowData(se) |> 
         # #   as_tibble(rownames = ".feature") |> 
         # #   left_join(glmGamPoi_overdispersions |> enframe(name = ".feature", value = "dispersion")) |> 
         # #   data.frame(row.names = ".feature") |> DataFrame()
-        # 
+        
         # message('TAR: pseudobulk_sample COMPLETE')
         # se
         
         # load process data to save time when testing
-        loadHDF5SummarizedExperiment('/hpcfs/groups/phoenix-hpc-mangiola_laboratory/Mangiola_ImmuneAtlas/taskforce_shared_folder/pseduobulk_sample_tar_load_altered/')
+        # loadHDF5SummarizedExperiment('/hpcfs/groups/phoenix-hpc-mangiola_laboratory/Mangiola_ImmuneAtlas/taskforce_shared_folder/pseduobulk_sample_tar_load_altered/')
+        loadHDF5SummarizedExperiment('/scratch/pawsey1192/zhanchen/Mangiola_ImmuneAtlas/taskforce_shared_folder/pseduobulk_sample_tar_load_altered/')
       }, 
       packages = c("tidybulk", "HDF5Array", "tidySummarizedExperiment", "magrittr", "tibble", "forcats"),
       resources = tar_resources(crew = tar_resources_crew("elastic_big_30_cores")),
@@ -425,7 +438,7 @@ tar_script({
         distinct(.feature)|>
         # testing genes that ran for long time
         # filter(.feature %in% readRDS('/hpcfs/groups/phoenix-hpc-mangiola_laboratory/Mangiola_ImmuneAtlas/ning_data/ethnicity_umap_selected_genes.rds')) |>
-        # head(1) %>% 
+        slice_sample(n=1500) %>% 
         group_by(.feature) |> 
         tar_group(), 
       iteration = "group",
@@ -520,16 +533,16 @@ tar_script({
         )
         
         # prior Version 0
-        prior = c(
-          prior(normal(i, 5), class = Intercept),
-          prior(normal(0, 2), class = Intercept, dpar = shape),
-          prior(normal(0, 5), class = b),
-          prior(normal(0, 2), class = b, dpar = shape)
-          # prior(beta(0.5381488, 10.3577433), class = "zi", lb = 0, ub = 1) # addition zi from V2
-        ) |>
-          substitute(env = list(i = mean(log1p(data$counts / exp(data$offset))))) |>
-          eval()
-        # 
+        # prior = c(
+        #   prior(normal(i, 5), class = Intercept),
+        #   prior(normal(0, 2), class = Intercept, dpar = shape),
+        #   prior(normal(0, 5), class = b),
+        #   prior(normal(0, 2), class = b, dpar = shape)
+        #   # prior(beta(0.5381488, 10.3577433), class = "zi", lb = 0, ub = 1) # addition zi from V2
+        # ) |>
+        #   substitute(env = list(i = mean(log1p(data$counts / exp(data$offset))))) |>
+        #   eval()
+        
         # chains = 2
         # inits <- list(Intercept = mean(log1p(data$counts / exp(data$offset))))
         # inits <- replicate(chains, inits, simplify = FALSE)
@@ -612,68 +625,71 @@ tar_script({
 
         # dynamically extract param from stan data
         # code used from brm
-        bterms <- brmsterms(
-          formula = brms:::validate_formula(
-            formula, data = data, family = zero_inflated_negbinomial(),
-            autocor = NULL, sparse = NULL, cov_ranef = NULL
-          )
-        )
-        bframe <- brms:::brmsframe(bterms, data)
-        sdata <- brms:::.standata(
-          bframe, data = data, prior = prior,
-          data2 = NULL, stanvars = NULL, threads = NULL
-        )
+        # bterms <- brmsterms(
+        #   formula = brms:::validate_formula(
+        #     formula, data = data, family = zero_inflated_negbinomial(),
+        #     autocor = NULL, sparse = NULL, cov_ranef = NULL
+        #   )
+        # )
+        # bframe <- brms:::brmsframe(bterms, data)
+        # sdata <- brms:::.standata(
+        #   bframe, data = data, prior = prior,
+        #   data2 = NULL, stanvars = NULL, threads = NULL
+        # )
 
-        Kc <- sdata$Kc
-        Kc_shape <- sdata$Kc_shape
-        M_1 <- sdata$M_1; N_1 <- sdata$N_1
-        M_2 <- sdata$M_2; N_2 <- sdata$N_2
-        M_3 <- sdata$M_3; N_3 <- sdata$N_3
+        # Kc <- sdata$Kc
+        # Kc_shape <- sdata$Kc_shape
+        # M_1 <- sdata$M_1; N_1 <- sdata$N_1
+        # M_2 <- sdata$M_2; N_2 <- sdata$N_2
+        # M_3 <- sdata$M_3; N_3 <- sdata$N_3
 
-        inits <- lapply(1:chains, function(i) {
-          list(
+        # inits <- lapply(1:chains, function(i) {
+        #   list(
 
-            #### revert v0 prior
-            # Fixed effects for count part
-            b = rnorm(Kc, 0, 5),
-            # dynamically set mu for intercept
-            Intercept = rnorm(1, mean(log1p(data$counts / exp(data$offset))), 5),
+        #     #### revert v0 prior
+        #     # Fixed effects for count part
+        #     b = rnorm(Kc, 0, 5),
+        #     # dynamically set mu for intercept
+        #     Intercept = rnorm(1, mean(log1p(data$counts / exp(data$offset))), 5),
 
-            # Fixed effects for shape submodel
-            b_shape = rnorm(Kc_shape, 0, 2),
-            Intercept_shape = rnorm(1, 0, 2)
+        #     # Fixed effects for shape submodel
+        #     b_shape = rnorm(Kc_shape, 0, 2),
+        #     Intercept_shape = rnorm(1, 0, 2)
 
 
-            # # Fixed effects for count part
-            # b = 0.06161134 + 0.9263627 * rt(Kc, 3),
-            # # dynamically set mu for intercept
-            # Intercept = rnorm(1, mean(log1p(data$counts / exp(data$offset))), 2.438534),
-            #
-            # # Fixed effects for shape submodel
-            # b_shape = 0.07603337 + 0.8252114 * rt(Kc_shape, 3),
-            # Intercept_shape = rnorm(1, 0.4260793, 1.470536)
+        #     # # Fixed effects for count part
+        #     # b = 0.06161134 + 0.9263627 * rt(Kc, 3),
+        #     # # dynamically set mu for intercept
+        #     # Intercept = rnorm(1, mean(log1p(data$counts / exp(data$offset))), 2.438534),
+        #     #
+        #     # # Fixed effects for shape submodel
+        #     # b_shape = 0.07603337 + 0.8252114 * rt(Kc_shape, 3),
+        #     # Intercept_shape = rnorm(1, 0.4260793, 1.470536)
 
-            # Zero-inflation probability
-            # zi = rbeta(1, 0.5381488, 10.3577433)
-            #
-            # # Group-level standard deviations and effects
-            # sd_1 = abs(0.5703259 + 0.4147664 * rt(M_1, 3)),      # count
-            # z_1 = replicate(M_1, rnorm(N_1, mean = 0 , sd = 0.08547970), simplify = FALSE),
-            #
-            # sd_2 = abs(0.5703259 + 0.4147664 * rt(M_2, 3)),      # zi
-            # z_2 = matrix(rnorm(M_2 * N_2, mean = 0 , sd = 0.08547970), nrow = M_2, ncol = N_2),
-            # L_2 = diag(M_2),                                            # no correlation (identity)
-            #
-            # sd_3 = abs(rnorm(M_3, 0.8670409, 0.1779553)),               # shape
-            # z_3 = replicate(M_3, rnorm(N_3, mean = 0 , sd = 0.08547970), simplify = FALSE)
-          )
-        })
+        #     # Zero-inflation probability
+        #     # zi = rbeta(1, 0.5381488, 10.3577433)
+        #     #
+        #     # # Group-level standard deviations and effects
+        #     # sd_1 = abs(0.5703259 + 0.4147664 * rt(M_1, 3)),      # count
+        #     # z_1 = replicate(M_1, rnorm(N_1, mean = 0 , sd = 0.08547970), simplify = FALSE),
+        #     #
+        #     # sd_2 = abs(0.5703259 + 0.4147664 * rt(M_2, 3)),      # zi
+        #     # z_2 = matrix(rnorm(M_2 * N_2, mean = 0 , sd = 0.08547970), nrow = M_2, ncol = N_2),
+        #     # L_2 = diag(M_2),                                            # no correlation (identity)
+        #     #
+        #     # sd_3 = abs(rnorm(M_3, 0.8670409, 0.1779553)),               # shape
+        #     # z_3 = replicate(M_3, rnorm(N_3, mean = 0 , sd = 0.08547970), simplify = FALSE)
+        #   )
+        # })
+        
+        # script to set path of cmdstan on pawsey
+        # cmdstanr::set_cmdstan_path("/scratch/pawsey1192/zhanchen/.cmdstan/cmdstan-2.36.0")
         
         brm(
           formula = formula,
           data = data,
           family = zero_inflated_negbinomial(),
-          prior = prior,
+          # prior = prior,
           chains = chains,
           cores = pmax(as.numeric(parallelly::availableCores()), 2), #, threads = 2,
           warmup = 300, 
@@ -682,8 +698,8 @@ tar_script({
           #sparse = TRUE,
           #save_model = glue("{external_directory}~/temp.rds"),
           #algorithm = "pathfinder",
-          init = inits,
-          iter = 400,  # Increase iterations for better convergence
+          # init = inits,
+          iter = 800,  # Increase iterations for better convergence
           sample_prior = TRUE
         )
         
