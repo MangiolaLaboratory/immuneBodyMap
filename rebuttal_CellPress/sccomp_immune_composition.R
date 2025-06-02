@@ -28,7 +28,7 @@ job::job({
       storage = "worker", 
       retrieval = "worker", 
       workspace_on_error = TRUE, workspaces = "estimates",
-      format = "qs", 
+      #format = "qs", 
       
 
       #-----------------------#
@@ -73,9 +73,6 @@ job::job({
     #-----------------------#
     # FUNCTIONS
     #-----------------------#
-    
-    
-    
     
     edit_covariates = function(tbl){
       
@@ -580,7 +577,11 @@ job::job({
         # ETHNICITY
         left_join(ethnicity_grouped, copy=TRUE) |> 
         
-        dplyr::select(sample_id, donor_id, dataset_id, title, collection_id, age_days, age_bin, sex, ethnicity_groups, tissue_groups, tissue, assay_groups, cell_type_unified_ensemble, cell_type, disease_groups) |> 
+        dplyr::select(
+          sample_id, donor_id, dataset_id, title, collection_id, age_days, age_bin, sex, 
+          ethnicity_groups, tissue_groups, tissue, assay_groups, cell_type_unified_ensemble,
+          cell_type, disease_groups, is_immune
+        ) |> 
         as_tibble() |> 
         
         # Center based on adolescence
@@ -611,16 +612,28 @@ job::job({
         !tissue_groups |> is.na()
         ) |> 
         
+        # NON immune cells
+        mutate(cell_type_unified_ensemble = if_else(is_immune, cell_type_unified_ensemble, "non_immune")) |> 
+        mutate(
+          across(
+            matches("^L[0-9]"),        # select columns whose names start L0, L1, … L9
+            ~ if_else(is_immune, as.character(.), "non_immune")
+          )
+        ) |> 
+        
         # IMMUNE CELLS
-        filter(is_immune) |> 
-        filter(cell_type_unified_ensemble %in% c("cd8 naive", "cd16 mono", "cd4 tcm", "cd4 th17 em", "granulocyte", "cd4 th1/th17 em", "treg", "b memory", "b naive", "nk", "plasma", "cd4 th2 em", "mast", "cd4 th1 em", "cd8 tem", "mait", "tgd", "cdc", "cd4 fh em", "cd4 naive", "nkt", "macrophage", "cytotoxic", "cd8 tcm", "cd14 mono", "pdc", "ilc")) |> 
+        # filter(is_immune) |> 
+        filter(cell_type_unified_ensemble %in% c("non_immune", "cd8 naive", "cd16 mono", "cd4 tcm", "cd4 th17 em", "granulocyte", "cd4 th1/th17 em", "treg", "b memory", "b naive", "nk", "plasma", "cd4 th2 em", "mast", "cd4 th1 em", "cd8 tem", "mait", "tgd", "cdc", "cd4 fh em", "cd4 naive", "nkt", "macrophage", "cytotoxic", "cd8 tcm", "cd14 mono", "pdc", "ilc")) |> 
         
         edit_covariates() |> 
         
         # Here we drop those samples with a low cell type entropy. E.g. one cell type only.
         anti_join(drop_sample_df, copy = TRUE) |> 
         
-        dplyr::count(sample_id, donor_id, dataset_id, title, collection_id, age_days, age_bin, age_days_scaled, sex, ethnicity_groups, tissue_groups, tissue, assay_groups, cell_type_unified_ensemble, disease_groups) |> 
+        dplyr::count(
+          sample_id, donor_id, dataset_id, title, collection_id, age_days, age_bin, age_days_scaled, 
+          sex, ethnicity_groups, tissue_groups, tissue, assay_groups, cell_type_unified_ensemble, is_immune,
+          disease_groups) |> 
         mutate(n = as.integer(n)) |> 
         as_tibble() |> 
         
@@ -663,7 +676,7 @@ job::job({
     list(
       tar_target(
         result_directory,
-        "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10", 
+        "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2", 
         deployment = "main"
       ),
       tar_target(
@@ -779,19 +792,49 @@ job::job({
           "~ age_bin + disease_groups___altered",
           "estimates_age_bins_disease", 
         ) |> 
-          expand_grid(cell_type_level = glue("L{0:3}") |> as.character(), drop_disease = c(TRUE, FALSE)) |> 
+          expand_grid(
+            cell_type_level = glue("L{0:3}") |> as.character(), 
+            drop_disease = c(TRUE, FALSE),
+            immune_only = c(TRUE,FALSE)
+          ) |> 
+          
+          # Keep NON immune for one model only
+          filter(immune_only | name == "estimates_age_bins") |> 
+          
           mutate(counts = list(input_relative)) |> 
+          
+          # Filter immune if needed
+          mutate(counts = map2(counts, immune_only,  ~ { 
+            if(.y) .x |> filter(is_immune) 
+            else .x |> 
+              nest(data = -c(sample_id, tissue_groups)) |> 
+              filter(map_lgl(data, ~ .x |> filter(cell_type_unified_ensemble=="non_immune") |> nrow() > 0)) |>  
+              mutate(non_immune_count = map_int(data, ~ .x |> filter(cell_type_unified_ensemble=="non_immune") |> pull(n))) |> 
+              mutate(total_count = map_int(data, ~ .x |> pull(n) |> sum())) |> 
+              mutate(proportion_non_immune = non_immune_count/total_count) |> 
+              filter(proportion_non_immune > 2/3) |> 
+              filter(!tissue_groups %in% c(
+                "bone marrow",
+                "lymphatic system",
+                "spleen",
+                "thymus", 
+                "blood"
+              )) |> 
+              unnest(data)
+          } )) |> 
+          
+          # Drop Disease if needed
           mutate(counts = map2(counts, drop_disease, 
-                               ~ {if(.y) 
-                                 .x |> filter(disease_groups___altered == "Normal") 
-                                 else 
-                                   .x
-                               })) |> 
+                               ~ {
+                                 if(.y) .x |> filter(disease_groups___altered == "Normal")
+                                 else .x 
+                                })) |> 
           mutate(
             formula_composition = if_else(drop_disease, formula_composition |> str_remove_all("\\+ disease_groups___altered"), formula_composition),
             formula_variability = if_else(drop_disease, formula_variability |> str_remove_all("\\+ disease_groups___altered"), formula_variability)
           ) |> 
-          group_by(name, cell_type_level, drop_disease) |> 
+          mutate(local_file_name = glue("{name}___{cell_type_level}___disease_{!drop_disease}___immune_only_{immune_only}")) |> 
+          group_by(local_file_name) |> 
           tar_group(), 
         iteration = "group",
         packages = c("tibble", "glue", "targets", "dplyr", "tidyr", "purrr", "stringr")
@@ -833,6 +876,10 @@ job::job({
         resources = tar_resources(crew = tar_resources_crew("slurm_1_80")),
         error = "continue", 
         packages = "sccomp"
+        #, 
+        
+        # TEMPORARY
+        # cue = tar_cue(mode = "never")
       ),
       tar_target(
         saved_and_tranferred,
@@ -840,8 +887,8 @@ job::job({
           # evaluate result_directory for targets
           print(result_directory)
           
-          local_file_name = glue("{result_directory}/{formula_df$name}___{formula_df$cell_type_level}___disease_{!formula_df$drop_disease}.rds")
-          local_file_name_FIT_FOR_PORTABILITY = glue("{result_directory}/{formula_df$name}___{formula_df$cell_type_level}___disease_{!formula_df$drop_disease}_FIT_FOR_PORTABILITY.rds")
+          local_file_name = glue("{result_directory}/{formula_df$local_file_name}.rds")
+          local_file_name_FIT_FOR_PORTABILITY = glue("{result_directory}/{formula_df$local_file_name}_FIT_FOR_PORTABILITY.rds")
           
           # Save draws as monolythic
           attr(estimates, "fit")$save_object(file = local_file_name_FIT_FOR_PORTABILITY) 
@@ -854,7 +901,7 @@ job::job({
           estimates |>  sccomp_test() |> saveRDS(local_file_name)
           
           check_rclone_installation()
-          system(glue("~/bin/rclone copy {local_file_name} box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/sccomp_estimates_1_0_10/"))
+          system(glue("~/bin/rclone copy {local_file_name} box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/sccomp_on_cellNexus_1_0_10_2/"))
           
         }, 
         pattern = map(formula_df, estimates), 
@@ -866,13 +913,13 @@ job::job({
     )
   }, 
   ask = FALSE, 
-  script = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10/_targets.R"
+  script = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets.R"
   )
   
   tar_make(
     #callr_function = NULL,
-    script = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10/_targets.R", 
-    store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10/_targets", 
+    script = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets.R", 
+    store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets", 
     reporter = "verbose" #, callr_function = NULL
   )
   
@@ -882,7 +929,7 @@ job::job({
 
 
 
-tar_meta(store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10/_targets") |> 
+tar_meta(store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets") |> 
   arrange(desc(time)) |>
   filter(!error |> is.na()) |> 
   dplyr::select(name, error)
@@ -903,15 +950,15 @@ library(duckdb)
 
 library(targets)
 
-x = tar_read(input_relative, store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10/_targets")
+x = tar_read(input_relative, store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets")
 
 
-tar_workspace(input_relative, 
-              script = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10/_targets.R", 
-              store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10/_targets"
+tar_workspace(estimates_671548a99f13ad3a, 
+              script = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets.R", 
+              store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets"
               )
 
-tar_meta(starts_with("estimates_"), store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10/_targets")
+tar_meta(starts_with("estimates_"), store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets")
 
 # Age proportion prediciton
 estimates_age_bins |> 
@@ -926,32 +973,32 @@ estimates_age_bins |>
     ordered = TRUE
   )) |> 
   mutate(age_bin_numeric = age_bin |> as.integer())  |> 
-  saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10/prediction_age_bins.rds")
+  saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/prediction_age_bins.rds")
 
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10/prediction_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/prediction_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
 
-tar_read(formula_df, store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10/_targets")
+tar_read(formula_df, store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets")
 
 
 # For Hong
-estimate_age_bins = readRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10/estimates_age_bins___L3.rds")
+estimate_age_bins = readRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/estimates_age_bins___L3.rds")
 estimate_age_bins = estimate_age_bins |> dplyr::select(-count_data)
 attr(estimate_age_bins, "fit") = NULL
-estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10/estimates_age_bins_effect_tibble_only.rds")
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10/estimates_age_bins_effect_tibble_only.rds box_adelaide:/immune_map_disease/")
+estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/estimates_age_bins_effect_tibble_only.rds")
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/estimates_age_bins_effect_tibble_only.rds box_adelaide:/immune_map_disease/")
 
 # Save fit
 library(magrittr)
-estimate_age_bins = readRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10/estimates_age_bins.rds")
-estimate_age_bins |> attr("fit") %$% save_object(file = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10/estimates_age_bins_FIT_FOR_PORTABILITY.rds") 
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10/estimates_age_bins_FIT_FOR_PORTABILITY.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
-estimate_age_bins |> attr("fit") = readRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10/estimates_age_bins_FIT_FOR_PORTABILITY.rds")
-estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10/estimates_age_bins.rds")
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10/estimates_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
+estimate_age_bins = readRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/estimates_age_bins.rds")
+estimate_age_bins |> attr("fit") %$% save_object(file = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/estimates_age_bins_FIT_FOR_PORTABILITY.rds") 
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/estimates_age_bins_FIT_FOR_PORTABILITY.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
+estimate_age_bins |> attr("fit") = readRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/estimates_age_bins_FIT_FOR_PORTABILITY.rds")
+estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/estimates_age_bins.rds")
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/estimates_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
 
 
-# estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10/estimates_age_bins.rds")
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10/21_11_2024_sccomp_archive_before_factor_ordering/estimates_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
+# estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/estimates_age_bins.rds")
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/21_11_2024_sccomp_archive_before_factor_ordering/estimates_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
 
 # Benchmark
 tic()
