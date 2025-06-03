@@ -27,8 +27,9 @@ job::job({
       garbage_collection = 100, 
       storage = "worker", 
       retrieval = "worker", 
-      workspace_on_error = TRUE, workspaces = "estimates",
-      #format = "qs", 
+      workspace_on_error = TRUE, 
+      # workspaces = "estimates",
+      # format = "qs", 
       
 
       #-----------------------#
@@ -614,12 +615,6 @@ job::job({
         
         # NON immune cells
         mutate(cell_type_unified_ensemble = if_else(is_immune, cell_type_unified_ensemble, "non_immune")) |> 
-        mutate(
-          across(
-            matches("^L[0-9]"),        # select columns whose names start L0, L1, … L9
-            ~ if_else(is_immune, as.character(.), "non_immune")
-          )
-        ) |> 
         
         # IMMUNE CELLS
         # filter(is_immune) |> 
@@ -641,6 +636,12 @@ job::job({
         left_join(
           caq_celltype_level_map,
           by = join_by(cell_type_unified_ensemble == cell_type_unified_harmonised)
+        ) |> 
+        mutate(
+          across(
+            matches("^L[0-9]"),        # select columns whose names start L0, L1, … L9
+            ~ if_else(is_immune, as.character(.), "non_immune")
+          )
         ) |> 
         
         # Add imputed ethnicities, and assign original if not present (cmposition and DE might have different samples because of filtering)
@@ -917,7 +918,7 @@ job::job({
   )
   
   tar_make(
-    #callr_function = NULL,
+    # callr_function = NULL,
     script = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets.R", 
     store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets", 
     reporter = "verbose" #, callr_function = NULL
@@ -926,6 +927,7 @@ job::job({
 })
 
 
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/estimates_age_bins___L3___disease_TRUE___immune_only_TRUE.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/sccomp_on_cellNexus_1_0_10_2/")
 
 
 
@@ -953,7 +955,7 @@ library(targets)
 x = tar_read(input_relative, store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets")
 
 
-tar_workspace(estimates_671548a99f13ad3a, 
+tar_workspace(estimates_ae6e35523d730ab3, 
               script = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets.R", 
               store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets"
               )
