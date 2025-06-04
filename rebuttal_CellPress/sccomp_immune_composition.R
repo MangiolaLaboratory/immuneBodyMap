@@ -572,6 +572,7 @@ job::job({
           age_years >= 70 ~ "Senior_70",
           TRUE ~ NA_character_
         )) |> 
+        mutate(age_decade = ceiling(age_years/10) |> as.character()) |> 
         
         # left_join(age_bin_table, copy=TRUE) |> 
         
@@ -579,7 +580,7 @@ job::job({
         left_join(ethnicity_grouped, copy=TRUE) |> 
         
         dplyr::select(
-          sample_id, donor_id, dataset_id, title, collection_id, age_days, age_bin, sex, 
+          sample_id, donor_id, dataset_id, title, collection_id, age_days, age_bin, age_decade, sex, 
           ethnicity_groups, tissue_groups, tissue, assay_groups, cell_type_unified_ensemble,
           cell_type, disease_groups, is_immune
         ) |> 
@@ -626,7 +627,7 @@ job::job({
         anti_join(drop_sample_df, copy = TRUE) |> 
         
         dplyr::count(
-          sample_id, donor_id, dataset_id, title, collection_id, age_days, age_bin, age_days_scaled, 
+          sample_id, donor_id, dataset_id, title, collection_id, age_days, age_bin, age_days_scaled, age_decade,
           sex, ethnicity_groups, tissue_groups, tissue, assay_groups, cell_type_unified_ensemble, is_immune,
           disease_groups) |> 
         mutate(n = as.integer(n)) |> 
@@ -659,7 +660,8 @@ job::job({
           ethnicity_groups_imputed = fct_relevel(ethnicity_groups_imputed, "European"),
           assay_groups___altered = fct_relevel(assay_groups___altered, "10x Genomics 3"),
           disease_groups___altered = fct_relevel(disease_groups___altered, "Normal"),
-          age_bin = fct_relevel(age_bin, "Senior_50")
+          age_bin = fct_relevel(age_bin, "Senior_50"),
+          age_decade = fct_relevel(age_decade, "50")
         ) 
       
     }
@@ -771,6 +773,13 @@ job::job({
           (1 + age_bin + sex + age_bin:sex + ethnicity_groups_imputed | tissue_groups)",  
           "~ age_bin + disease_groups___altered",
           "estimates_age_bins", 
+          
+          # discrete decade
+          "~ 1 + age_decade + disease_groups___altered + sex + age_decade:sex + ethnicity_groups_imputed + assay_groups___altered + 
+          (1 | dataset_id___altered) + 
+          (1 + age_decade + sex + age_decade:sex + ethnicity_groups_imputed | tissue_groups)",  
+          "~ disease_groups___altered",
+          "estimates_age_decade", 
           
           # discrete + interaction ethnicity sex
           "~ 1 + age_bin + disease_groups___altered + sex + age_bin:sex + ethnicity_groups_imputed * sex + assay_groups___altered + 
