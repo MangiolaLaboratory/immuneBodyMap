@@ -778,7 +778,7 @@ job::job({
           "~ 1 + age_decade + disease_groups___altered + sex + age_decade:sex + ethnicity_groups_imputed + assay_groups___altered + 
           (1 | dataset_id___altered) + 
           (1 + age_decade + sex + age_decade:sex + ethnicity_groups_imputed | tissue_groups)",  
-          "~ disease_groups___altered",
+          "~ age_decade + disease_groups___altered",
           "estimates_age_decade", 
           
           # discrete + interaction ethnicity sex
@@ -844,6 +844,11 @@ job::job({
             formula_variability = if_else(drop_disease, formula_variability |> str_remove_all("\\+ disease_groups___altered"), formula_variability)
           ) |> 
           mutate(local_file_name = glue("{name}___{cell_type_level}___disease_{!drop_disease}___immune_only_{immune_only}")) |> 
+          
+          # TEMPORARY
+          # FILTER FOR JUST ONE MODEL
+          filter(name == "estimates_age_bins") |> 
+          
           group_by(local_file_name) |> 
           tar_group(), 
         iteration = "group",
@@ -873,6 +878,7 @@ job::job({
             prior_mean = list(intercept = c(0, 0.8), coefficients = c(0, 3)),
             prior_overdispersion_mean_association = list(intercept = c(3.6539176, 0.5), slope = c(-0.5255242, 0.1), standard_deviation = c(20, 40)),
             output_directory = "/vast/scratch/users/mangiola.s/my_draws", 
+            
             max_sampling_iterations = 5000,  
             
             # # TEMPORARY DEBUG
@@ -886,10 +892,9 @@ job::job({
         resources = tar_resources(crew = tar_resources_crew("slurm_1_80")),
         error = "continue", 
         packages = "sccomp"
-        #, 
         
         # TEMPORARY
-        # cue = tar_cue(mode = "never")
+        #, cue = tar_cue(mode = "never")
       ),
       tar_target(
         saved_and_tranferred,
@@ -964,7 +969,7 @@ library(targets)
 x = tar_read(input_relative, store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets")
 
 
-tar_workspace(estimates_7a6ffe51cdd2e5d2, 
+tar_workspace(estimates_07d900f9e7d5864a, 
               script = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets.R", 
               store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets"
               )
