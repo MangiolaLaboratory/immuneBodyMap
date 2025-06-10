@@ -856,16 +856,16 @@ job::job({
           
           # With L0 I have to summarise further because I have counts already
           with_groups(
-            c(sample_id,age_days_scaled,age_bin, sex, disease_groups___altered,ethnicity_groups_imputed, assay_groups___altered, dataset_id___altered, tissue_groups, all_of(formula_df$cell_type_level)),
+            c(sample_id,age_days_scaled,age_bin, age_decade, sex, disease_groups___altered,ethnicity_groups_imputed, assay_groups___altered, dataset_id___altered, tissue_groups, all_of(formula_df$cell_type_level)),
             ~ .x |> summarise(n = sum(n))
           ) |>
           # 
           sccomp_estimate(
             formula_composition = formula_df$formula_composition |> as.formula(),
             formula_variability = formula_df$formula_variability |> as.formula(),        # Differential variability
-            sample_column = "sample_id", 
-            cell_group_column = formula_df$cell_type_level, # A level of the hierarchy
-            abundance_column = "n",
+            sample = "sample_id", 
+            cell_group = formula_df$cell_type_level, # A level of the hierarchy
+            abundance = "n",
             cores = as.numeric(Sys.getenv("SLURM_CPUS_PER_TASK", unset = 1)),
             mcmc_seed = 42,
             verbose = T, 
@@ -964,7 +964,7 @@ library(targets)
 x = tar_read(input_relative, store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets")
 
 
-tar_workspace(estimates_ae6e35523d730ab3, 
+tar_workspace(estimates_7a6ffe51cdd2e5d2, 
               script = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets.R", 
               store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets"
               )
