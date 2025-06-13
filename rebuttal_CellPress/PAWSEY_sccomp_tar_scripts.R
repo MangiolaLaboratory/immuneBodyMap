@@ -517,7 +517,7 @@ tar_script({
     )
     
     temp_path = '/scratch/pawsey1192/zhanchen/HPC_sccomp/sccomp_on_cellNexus_1_0_10_2/temp'
-    system(glue("rclone copy UofA_Box:/minh_immune_map_disease/disease_data_grouped_further.csv {temp_path}/"))
+    # system(glue("rclone copy UofA_Box:/minh_immune_map_disease/disease_data_grouped_further.csv {temp_path}/"))
     
     disease_data_grouped = 
       disease_data_grouped |> 
@@ -660,17 +660,17 @@ tar_script({
         assay_groups___altered = fct_relevel(assay_groups___altered, "10x Genomics 3"),
         disease_groups___altered = fct_relevel(disease_groups___altered, "Normal"),
         age_bin = fct_relevel(age_bin, "Senior_50"),
-        age_decade = fct_relevel(age_decade, "50")
+        age_decade = fct_relevel(age_decade, "5.0")
       ) 
     
   }
   
-  check_rclone_installation = function(){
-    rclone_path <- Sys.which("rclone")    
-    if (rclone_path == "") {
-      stop("rclone is not installed or not found in the system PATH.")
-    }
-  }
+  # check_rclone_installation = function(){
+  #   rclone_path <- Sys.which("rclone")    
+  #   if (rclone_path == "") {
+  #     stop("rclone is not installed or not found in the system PATH.")
+  #   }
+  # }
   
   #-----------------------#
   # Pipeline
@@ -678,8 +678,8 @@ tar_script({
   list(
     tar_target(
       result_directory,
-      "/scratch/pawsey1192/zhanchen/HPC_sccomp/sccomp_on_cellNexus_1_0_10_2", 
-      deployment = "main"
+      "/scratch/pawsey1192/zhanchen/HPC_sccomp/sccomp_on_cellNexus_1_0_10_2"
+      # deployment = "main"
     ),
     tar_target(
       drop_samples,
@@ -687,8 +687,8 @@ tar_script({
         # evaluate result_directory for targets
         print(result_directory)
         
-        check_rclone_installation()
-        system(glue("rclone copy UofA_Box:/Mangiola_ImmuneAtlas/dharmesh_shared_mix/drop_samples.csv {result_directory}/"))
+        # check_rclone_installation()
+        # system(glue("rclone copy UofA_Box:/Mangiola_ImmuneAtlas/dharmesh_shared_mix/drop_samples.csv {result_directory}/"))
         
         read_csv(glue("{result_directory}/drop_samples.csv"))
         
@@ -697,9 +697,9 @@ tar_script({
     tar_target(
       ethnicity_imputed,
       {
-        check_rclone_installation()
+        # check_rclone_installation()
         temp_path = '/scratch/pawsey1192/zhanchen/HPC_sccomp/sccomp_on_cellNexus_1_0_10_2/temp'
-        system(glue("rclone copy UofA_Box:/Mangiola_ImmuneAtlas/reports/ning/data/All_pseudobulk_1_0_6_ethnicity_imputed_colData.csv {temp_path}/"))
+        # system(glue("rclone copy UofA_Box:/Mangiola_ImmuneAtlas/reports/ning/data/All_pseudobulk_1_0_6_ethnicity_imputed_colData.csv {temp_path}/"))
         
         read_csv(glue("{temp_path}/All_pseudobulk_1_0_6_ethnicity_imputed_colData.csv")) |> 
           select(sample_id, ethnicity_groups, ethnicity_groups_imputed = finalEthnicity_groups) |> 
@@ -710,9 +710,9 @@ tar_script({
     tar_target(
       caq_celltype_level_map,
       {
-        check_rclone_installation()
+        # check_rclone_installation()
         temp_path = '/scratch/pawsey1192/zhanchen/HPC_sccomp/sccomp_on_cellNexus_1_0_10_2/temp'
-        system(glue("rclone copy UofA_Box:/Mangiola_ImmuneAtlas/reannotation_consensus/caq_celltype_level_map.csv {temp_path}/"))
+        # system(glue("rclone copy UofA_Box:/Mangiola_ImmuneAtlas/reannotation_consensus/caq_celltype_level_map.csv {temp_path}/"))
         read_csv(glue("{temp_path}/caq_celltype_level_map.csv"))
         
       }, packages = c("glue", "readr")
@@ -748,8 +748,8 @@ tar_script({
         input_relative |> 
           saveRDS(file_name)
         
-        check_rclone_installation()
-        system(glue("rclone copy {file_name} UofA_Box:/Mangiola_ImmuneAtlas/taskforce_shared_folder/"))
+        # check_rclone_installation()
+        # system(glue("rclone copy {file_name} UofA_Box:/Mangiola_ImmuneAtlas/taskforce_shared_folder/"))
         
       }, 
       packages = "glue"
@@ -855,16 +855,15 @@ tar_script({
         
         # With L0 I have to summarise further because I have counts already
         with_groups(
-          c(sample_id,age_days_scaled,age_bin, sex, disease_groups___altered,ethnicity_groups_imputed, assay_groups___altered, dataset_id___altered, tissue_groups, all_of(formula_df$cell_type_level)),
-          ~ .x |> summarise(n = sum(n))
+          c(sample_id,age_days_scaled,age_bin, age_decade, sex, disease_groups___altered,ethnicity_groups_imputed, assay_groups___altered, dataset_id___altered, tissue_groups, all_of(formula_df$cell_type_level)),  ~ .x |> summarise(n = sum(n))
         ) |>
         # 
         sccomp_estimate(
           formula_composition = formula_df$formula_composition |> as.formula(),
           formula_variability = formula_df$formula_variability |> as.formula(),        # Differential variability
-          sample_column = "sample_id", 
-          cell_group_column = formula_df$cell_type_level, # A level of the hierarchy
-          abundance_column = "n",
+          sample = "sample_id", 
+          cell_group = formula_df$cell_type_level, # A level of the hierarchy
+          abundance = "n",
           cores = as.numeric(Sys.getenv("SLURM_CPUS_PER_TASK", unset = 1)),
           mcmc_seed = 42,
           verbose = T, 
