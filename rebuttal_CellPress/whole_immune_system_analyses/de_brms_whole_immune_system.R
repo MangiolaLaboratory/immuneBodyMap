@@ -803,6 +803,39 @@ tar_script({
 
   }
   
+  offset_calcuation = function(se, method = 'TMMwsp', reference_sample){
+    
+    # Check if package is installed, otherwise install
+    tidybulk:::check_and_install_packages("edgeR")
+    
+    # Drop genes with NAs, as edgeR::calcNormFactors does not accept them
+    my_counts_filtered = se %>% assays() %>% as.list() %>% .[[1]] %>% na.omit()
+    # Calcuate library size
+    library_size_filtered = my_counts_filtered %>% colSums(na.rm  = TRUE)
+    
+    # Calculate TMM
+    nf <-
+      edgeR::calcNormFactors(
+        my_counts_filtered,
+        refColumn = reference_sample,
+        method = method
+      )
+    
+    # Calculate multiplier
+    multiplier = library_size_filtered[reference_sample] * nf[reference_sample] %>% divide_by(library_size_filtered * nf)
+    
+    # Calcuate offset
+    offset = log(1/multiplier)
+    
+    # Add to sample info
+    colData(se)$normalisation_factor = nf
+    colData(se)$multiplier = multiplier
+    colData(se)$offset = offset
+    
+    return(se)
+    
+  }
+  
   #-----------------------#
   # Pipeline
   #-----------------------#
@@ -1047,7 +1080,8 @@ tar_script({
           ) |> 
           
           # Get scaling factor
-          scale_abundance(method = "TMMwsp", reference_sample = reference_sample) |> 
+          # scale_abundance(method = "TMMwsp", reference_sample = reference_sample) |> 
+          offset_calcuation(method = "TMMwsp", reference_sample = reference_sample) |>
           
           # Drop sex unknown as causes problem during fit
           mutate(
