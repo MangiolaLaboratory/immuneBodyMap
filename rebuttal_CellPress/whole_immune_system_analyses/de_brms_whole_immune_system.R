@@ -536,7 +536,7 @@ tar_script({
       enframe(name ="tissue_groups") |>
       distinct() |>
       unnest(value) |>
-      rename(tissue = value) |>
+      dplyr::rename(tissue = value) |>
       mutate()
 
     ethnicity_grouped <- tribble(
@@ -737,7 +737,7 @@ tar_script({
       disease_data_grouped |>
       left_join(
         readr::read_csv("/hpcfs/groups/phoenix-hpc-mangiola_laboratory/Mangiola_ImmuneAtlas/disease_data_grouped_further.csv") |>
-          rename(disease_groups_further = disease_groups)
+          dplyr::rename(disease_groups_further = disease_groups)
       ) |>
       mutate(disease_groups = if_else(!disease_groups_further |> is.na(), disease_groups_further, disease_groups)) |>
       select(disease,  disease_groups)
