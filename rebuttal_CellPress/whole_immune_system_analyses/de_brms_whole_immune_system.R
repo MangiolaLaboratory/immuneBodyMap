@@ -36,7 +36,7 @@ tar_script({
   
   ## Pawsey setting -----
   hdf5_path = "/scratch/pawsey1192/zhanchen/Mangiola_ImmuneAtlas/taskforce_shared_folder/pseudobulk_sample_cell_type"
-  target_cell_type = "cd4 fh em" 
+  target_cell_type = "cd4 fh em"
 
   tar_option_set(
     
