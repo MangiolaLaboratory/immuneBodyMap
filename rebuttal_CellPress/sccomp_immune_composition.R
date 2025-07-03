@@ -320,8 +320,7 @@ job::job({
         enframe(name ="tissue_groups") |> 
         distinct() |> 
         unnest(value) |> 
-        rename(tissue = value) |> 
-        mutate()
+        rename(tissue = value) 
       
       ethnicity_grouped <- tribble(
         ~self_reported_ethnicity, ~ethnicity_groups,
@@ -572,7 +571,7 @@ job::job({
           age_years >= 70 ~ "Senior_70",
           TRUE ~ NA_character_
         )) |> 
-        mutate(age_decade = ceiling(age_years/10) |> as.character()) |> 
+        mutate(age_decade = ceiling(age_years/10) |> as.integer() |> as.character()) |> 
         
         # left_join(age_bin_table, copy=TRUE) |> 
         
@@ -661,7 +660,7 @@ job::job({
           assay_groups___altered = fct_relevel(assay_groups___altered, "10x Genomics 3"),
           disease_groups___altered = fct_relevel(disease_groups___altered, "Normal"),
           age_bin = fct_relevel(age_bin, "Senior_50"),
-          age_decade = fct_relevel(age_decade, "50")
+          age_decade = fct_relevel(age_decade, "5")
         ) 
       
     }
@@ -847,7 +846,7 @@ job::job({
           
           # TEMPORARY
           # FILTER FOR JUST ONE MODEL
-          filter(name == "estimates_age_bins") |> 
+          filter(name %in% c("estimates_age_decade")) |> 
           
           group_by(local_file_name) |> 
           tar_group(), 
@@ -969,7 +968,7 @@ library(targets)
 x = tar_read(input_relative, store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets")
 
 
-tar_workspace(estimates_07d900f9e7d5864a, 
+tar_workspace(estimates_290259492ab903fd, 
               script = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets.R", 
               store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets"
               )
