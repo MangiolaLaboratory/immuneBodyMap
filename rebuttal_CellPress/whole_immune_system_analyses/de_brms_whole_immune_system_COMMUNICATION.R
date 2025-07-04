@@ -503,157 +503,7 @@ job::job({
         resources = tar_resources(crew = tar_resources_crew("elastic_8_cores")),
         
       ),
-      #  tar_target(
-      #   # pseudobulk_sample 
-      #   pseudobulk_sample,
-      #   {
-      #     message('TAR: pseudobulk_sample START')
-      #     se = 
-      #       loadHDF5SummarizedExperiment(hdf5_path) |> 
-      #       filter(is_gene_shared) |> 
-      #       
-      #       #---#
-      #       # Edit or add more filters here for analyses
-      #       #---#
-      #       filter(is_immune & do_analyse) 
-      #     
-      #     # TEMPORARY BECAUSE I FORGOT TO INTEGRATE AGE BINS
-      #     se = se |> 
-      #       left_join(
-      #         readRDS(metadata_path) |> 
-      #           distinct(sample_id,  age_days, age_bin) 
-      #       )
-      #     
-      #     # Filter common genes
-      #     se = se[((assay(se, "gene_presence") > 0) |> rowSums() > (ncol(se) * 0.95)),,drop=FALSE ]
-      #     
-      #     # Filter samples that have enough genes > 0 but not too many
-      #     samples_with_right_number_of_detected_genes = 
-      #       (se |> assay() > 0) |> 
-      #       colSums() |> 
-      #       divide_by(nrow(se)) |> 
-      #       dplyr::between(0.3, 1)
-      #     
-      #     se = se[,samples_with_right_number_of_detected_genes] 
-      #     
-      #     # Compute mean library size
-      #     mean_library_size <- se |>
-      #       assay("counts") |>
-      #       _[nrow(se) |> seq_len() |> sample(size = 2000), ] |> 
-      #       colSums() |>
-      #       mean()
-      #     
-      #     # Optional: retrieve the sample name (column name in the SummarizedExperiment)
-      #     reference_sample <- colnames(se)[
-      #       se |>
-      #         assay("counts") |>
-      #         colSums() |>
-      #         {\(x) abs(x - mean_library_size)}() |>  # Calculate absolute difference from the mean
-      #         which.min()                             # Identify the smallest difference
-      #     ]
-      #     
-      #     message('TAR: pseudobulk_sample Phase2')
-      #     se = 
-      #       se |> 
-      #       keep_abundant(design = 
-      #                       se |> 
-      #                       
-      #                       # Discretise the age for the following operation
-      #                       mutate(is_old_individual = age_days > 50*365) |> 
-      #                       
-      #                       # This is to resolve some confounders to preserve the genes.
-      #                       # In this case we care about data variability, not the actual meaning of the variables
-      #                       resolve_complete_confounders_of_non_interest(tissue_groups, sex, ethnicity_groups, is_old_individual) |> 
-      #                       colData() |> 
-      #                       droplevels() |> 
-      #                       model.matrix(~ tissue_groups + sex___altered + ethnicity_groups___altered + is_old_individual___altered, data = _  ), 
-      #                     minimum_counts = 100
-      #       ) |> 
-      #       
-      #       # Get scaling factor
-      #       scale_abundance(method = "TMMwsp", reference_sample = reference_sample) |> 
-      #       
-      #       # Drop sex unknown as causes problem during fit
-      #       mutate(
-      #         sex = if_else(sex |> is.na(), "unknown", sex),
-      #         ethnicity_groups = if_else(ethnicity_groups |> is.na(), "Other/Unknown", ethnicity_groups)
-      #       ) |> 
-      #       filter(sex != "unknown") |> 
-      #       filter(!age_bin |> is.na()) |> 
-      #       
-      #       # Eliminate complete confounders
-      #       tidybulk:::resolve_complete_confounders_of_non_interest(assay_groups, dataset_id, disease_groups) |> 
-      #       
-      #       # sibrary size factor is the reciproque of the multiplier (correction factor)
-      #       mutate(offset = log(1/multiplier)) |> 
-      #       
-      #       # Set intercept
-      #       mutate(
-      #         ethnicity_groups = fct_relevel(ethnicity_groups, "European"),
-      #         assay_groups___altered = fct_relevel(assay_groups___altered, "10x Genomics 3"),
-      #         disease_groups___altered = fct_relevel(disease_groups___altered, "Normal"),
-      #         age_bin = fct_relevel(age_bin, "Adolescence")
-      #       ) 
-      #     
-      #     # # Add dispersion
-      #     # rowData(se)  = 
-      #     #   rowData(se) |> 
-      #     #   as_tibble(rownames = ".feature") |> 
-      #     #   left_join(glmGamPoi_overdispersions |> enframe(name = ".feature", value = "dispersion")) |> 
-      #     #   data.frame(row.names = ".feature") |> DataFrame()
-      #     
-      #     message('TAR: pseudobulk_sample COMPLETE')
-      #     se
-      #     
-      #   }, 
-      #   packages = c("tidybulk", "HDF5Array", "tidySummarizedExperiment", "magrittr", "tibble", "forcats"),
-      #   resources = tar_resources(crew = tar_resources_crew("elastic_big")),
-      #   memory = "persistent", 
-      #   error = "stop"
-      # ),
-      # 
-      # # pseudobulk_sample_id 
-      # # This target extracts unique sample ids from the pseudobulk sample  
-      # tar_target(
-      #   pseudobulk_sample_id,
-      #   pseudobulk_sample |> colnames(),
-      #   packages = c( "tidySummarizedExperiment", "targets", "purrr", "dplyr"),
-      #   resources = tar_resources(crew = tar_resources_crew("elastic"))
-      # ),
-      
-      # # feature_df 
-      # # This target extracts unique features from the pseudobulk sample and groups them into 
-      # # chunks for parallel processing.
-      # tar_target(
-      #   feature_df, 
-      #   cellchat |> 
-      #     distinct(.feature, )|>
-      #     # testing genes that ran for long time
-      #     # filter(.feature %in% c(
-      #     #   "ENSG00000175274", "ENSG00000213221", "ENSG00000101405", "ENSG00000003756",
-      #     #   "ENSG00000236859", "ENSG00000104825", "ENSG00000203497", "ENSG00000143110",
-      #     #   "ENSG00000077454", "ENSG00000104231"
-      #     # )) |>
-      #     # head(1) %>% 
-      #     group_by(.feature) |> 
-      #     tar_group(), 
-      #   iteration = "group",
-      #   packages = c( "tidySummarizedExperiment", "targets", "purrr", "dplyr"),
-      #   resources = tar_resources(crew = tar_resources_crew("elastic"))
-      # ),
-      # 
-      # # se_df 
-      # # This target creates a list-column of SummarizedExperiment objects,
-      # # with each object corresponding to a distinct feature.
-      # tar_target(
-      #   se_df, 
-      #   feature_df |> mutate(se = map(.feature, ~ 
-      #                                   pseudobulk_sample[.x, , drop=FALSE]
-      #   ))  , 
-      #   pattern = map(feature_df),
-      #   packages = c( "brms", "glue"),
-      #   resources = tar_resources(crew = tar_resources_crew("elastic"))
-      # ),
+    
       
       # estimates_chunk 
       # This target fits Bayesian models on chunks of the data. It processes each feature's data, handles missing values,
@@ -783,13 +633,13 @@ job::job({
                 if(.x |> is.null()) return(NULL)
                 
                 .x |> 
-                  brms::posterior_summary() |> 
-                  as_tibble(rownames = "parameter")
+                  posterior::summarise_draws() |> 
+                  rename(parameter = variable)
               }
             )) |> 
             select(-brms_fit),
          pattern = map(estimates_chunk),
-         packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "tibble", "purrr"),
+         packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "tibble", "purrr", "posterior"),
          resources = tar_resources(crew = tar_resources_crew("elastic"))
           
         ),
@@ -806,161 +656,6 @@ job::job({
       )
   
       
-      
-     #  ## summary 
-     #  # This target summarises the fitted Bayesian models by performing hypothesis tests for ethnicity contrasts 
-     #  # and extracting convergence diagnostics (Rhat) for the ethnicity parameters.
-     #  tar_target(
-     #    summary,
-     #    estimates_chunk |>
-     #      mutate(summary = map(brms_fit, ~ .x |> hypothesis(
-     #        c(
-     #          "Europeans" = "(ethnicity_groupsAfrican
-     #  + ethnicity_groupsEastAsian
-     #  + ethnicity_groupsHispanicDLatinAmerican
-     #  + ethnicity_groupsSouthAsian
-     #  + `ethnicity_groupsJapanese`) / 5 = 0",
-     #          "EastAsian" = "(
-     #     ethnicity_groupsAfrican
-     #   + ethnicity_groupsHispanicDLatinAmerican
-     #   + ethnicity_groupsSouthAsian
-     #   + `ethnicity_groupsJapanese`
-     #   - 5 * ethnicity_groupsEastAsian
-     #   ) / 5 = 0",
-     #          "SouthAsian" = "(
-     #     ethnicity_groupsAfrican
-     #   + ethnicity_groupsHispanicDLatinAmerican
-     #   + ethnicity_groupsEastAsian
-     #   + `ethnicity_groupsJapanese`
-     #   - 5 * ethnicity_groupsSouthAsian
-     #   ) / 5 = 0",
-     #          "African" = "(
-     #     ethnicity_groupsEastAsian
-     #   + ethnicity_groupsHispanicDLatinAmerican
-     #   + ethnicity_groupsSouthAsian
-     #   + `ethnicity_groupsJapanese`
-     #   - 5 * ethnicity_groupsAfrican
-     #   ) / 5 = 0",
-     #          "HispanicDLatinAmerican" = "(
-     #     ethnicity_groupsAfrican
-     #   + ethnicity_groupsEastAsian
-     #   + ethnicity_groupsSouthAsian
-     #   + `ethnicity_groupsJapanese`
-     #   - 5 * ethnicity_groupsHispanicDLatinAmerican
-     #   ) / 5 = 0",
-     # 
-     #    "Japanese" = "(
-     #     ethnicity_groupsAfrican
-     #   + ethnicity_groupsHispanicDLatinAmerican
-     #   + ethnicity_groupsSouthAsian
-     #   + ethnicity_groupsEastAsian
-     #   - 5 * `ethnicity_groupsJapanese`
-     #   ) / 5 = 0"
-     #    ),
-     # #        c(
-     # #          "African" = "(ethnicity_groupsEuropean
-     # #  + ethnicity_groupsEastAsian
-     # #  + ethnicity_groupsHispanicDLatinAmerican
-     # #  + ethnicity_groupsSouthAsian
-     # #  + `ethnicity_groupsJapanese`) / 5 = 0",
-     # #          
-     # #          "Europeans" = "(
-     # #   ethnicity_groupsEastAsian
-     # # + ethnicity_groupsHispanicDLatinAmerican
-     # # + ethnicity_groupsSouthAsian
-     # # + `ethnicity_groupsJapanese`
-     # # - 5 * ethnicity_groupsEuropean
-     # # ) / 5 = 0",
-     # #          
-     # #          "EastAsian" = "(
-     # #   ethnicity_groupsEuropean
-     # # + ethnicity_groupsHispanicDLatinAmerican
-     # # + ethnicity_groupsSouthAsian
-     # # + `ethnicity_groupsJapanese`
-     # # - 5 * ethnicity_groupsEastAsian
-     # # ) / 5 = 0",
-     # #          
-     # #          "SouthAsian" = "(
-     # #   ethnicity_groupsEuropean
-     # # + ethnicity_groupsHispanicDLatinAmerican
-     # # + ethnicity_groupsEastAsian
-     # # + `ethnicity_groupsJapanese`
-     # # - 5 * ethnicity_groupsSouthAsian
-     # # ) / 5 = 0",
-     # #          
-     # #          "HispanicDLatinAmerican" = "(
-     # #   ethnicity_groupsEuropean
-     # # + ethnicity_groupsEastAsian
-     # # + ethnicity_groupsSouthAsian
-     # # + `ethnicity_groupsJapanese`
-     # # - 5 * ethnicity_groupsHispanicDLatinAmerican
-     # # ) / 5 = 0",
-     # #          
-     # #          "Japanese" = "(
-     # #   ethnicity_groupsEuropean
-     # # + ethnicity_groupsHispanicDLatinAmerican
-     # # + ethnicity_groupsSouthAsian
-     # # + ethnicity_groupsEastAsian
-     # # - 5 * `ethnicity_groupsJapanese`
-     # # ) / 5 = 0"
-     # #        ),
-     # 
-     #    # Median instead and mad of mean and sd
-     #    robust=TRUE,
-     #    alpha = 0.1
-     #    )
-     #      )) |>
-     #      
-     #    mutate(
-     #        
-     #        summary_tissue = map(
-     #          brms_fit,  function(x) {
-     #            
-     #            params = x$fit %>% summary() |> _[[1]] |> rownames()
-     #            params = params[grepl("^r_tissue_groups\\[.*?,Intercept\\]$", params)] %>% sub("^r_", "", .) %>% paste0("`", . , "`")
-     #            tissue_names <- sub("`tissue_groups\\[(.*),Intercept\\]`", "\\1", params)
-     #            
-     #            equations <- sapply(seq_along(params), function(i) {
-     #              this_tissue <- tissue_names[i]
-     #              this_param <- params[i]
-     #              other_params <- params[-i]
-     #              avg_expr <- paste0("(", paste(other_params, collapse = " + "), ")/", length(other_params))
-     #              eq <- paste0(this_param, " - ", avg_expr, " = 0")
-     #              eq
-     #            })
-     #            names(equations) <- tissue_names
-     #            
-     #            return(
-     #              x |> hypothesis(equations, class = "r", robust=TRUE, alpha = 0.1)
-     #            )
-     #            
-     #          }
-     #        )
-     #        
-     #      ) %>% 
-     #      
-     #      mutate(Rhat_ethnicity = map_dbl(brms_fit, 
-     #                            ~ summary(.x)$fixed |> 
-     #                              as_tibble(rownames = "par") |> 
-     #                              filter(par |> str_detect("ethnicity")) |> 
-     #                              pull(Rhat) |>
-     #                              max()
-     #      )) |> 
-     #      
-     #      mutate(Rhat_tissue = map_dbl(brms_fit, 
-     #                                      ~ summary(.x)$random$tissue_groups |> 
-     #                                        as_tibble() |> 
-     #                                        pull(Rhat) |>
-     #                                        max()
-     #      )) %>%  
-     # 
-     #      select(-brms_fit),
-     # 
-     #    pattern = map(estimates_chunk),
-     #    packages = c( "brms", "glue", "dplyr", "purrr", "rstan", "magrittr", "stringr"),
-     #    resources = tar_resources(crew = tar_resources_crew("elastic"))
-     #  ),
-     # 
      # ## effect_removed 
      #  # This target generates adjusted model estimates by removing unwanted effects from the fitted Bayesian models,
      #  # thereby isolating the effects of interest. Here, nuisance covariates are set to NA and removed from the predictions.
@@ -1114,8 +809,63 @@ tar_workspace(
 )
 
 tar_read(
+  hypothesis_age_monotonic,
+  store ="/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/cellchat_brms_1_6_12/_targets", 
+  branches = 1
+)
+
+tar_read(
   estimates_chunk,
-  store ="/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/cellchat_brms_1_6_12/_targets", branches = 1
+  store ="/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/cellchat_brms_1_6_12/_targets", 
+  branches = 1
 )
 
 tar_poll(store ="/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/cellchat_brms_1_6_12/_targets")
+
+summary_and_convergence = 
+  tar_read(
+    summaries,
+    store ="/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/cellchat_brms_1_6_12/_targets"
+  ) |> 
+  unnest(summary) |> 
+  select(source, target, pathway_name, parameter, mean, median, rhat)
+
+x = tar_read(
+  hypothesis_age_monotonic,
+  store ="/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/cellchat_brms_1_6_12/_targets"
+  #, branches = 1
+) |> 
+  filter(map_int(hypothesis_age_monotonic, nrow) > 0) |>
+  unnest(hypothesis_age_monotonic) |> 
+  mutate(star = sign(ci_lower) == sign(ci_upper)) 
+  
+data_for_plot =  x |> 
+  left_join(summary_and_convergence |>   filter(parameter == "b_Intercept") |> rename(intercept = mean) ) |> 
+  
+  # convergence
+  left_join(
+    summary_and_convergence |> 
+      mutate(converged = rhat |> between(0.95, 1.05)) |> 
+      filter(parameter |> str_detect("age"), parameter |> str_detect("sex", negate = TRUE), parameter |> str_detect("^b_|^r_")) |> 
+      summarise(converged = all(converged), .by = c(source, target, pathway_name))
+  ) |> 
+  mutate(
+    direction = if_else(source=="plasma", "out", "in"),
+    other_cell_type  = if_else(source=="plasma", target, source)
+  ) |> 
+  filter(!other_cell_type %in% c("immune", "blood")) |> 
+  filter(converged) |> 
+  mutate(tissue = if_else(star, tissue, NA))
+
+plotly::ggplotly(
+
+
+  data_for_plot |> 
+    filter(star) |> 
+  ggplot(aes(intercept, estimate, label = glue("{pathway_name} {tissue}"))) +
+    geom_point(color = "grey", shape = ".", data =  data_for_plot |> filter(!star)) +
+    
+  geom_point(aes(color = tissue), size = 0.5) +
+    geom_hline(yintercept = 0) +
+    facet_wrap(~other_cell_type)
+)
