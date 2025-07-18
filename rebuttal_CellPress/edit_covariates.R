@@ -243,7 +243,7 @@ edit_covariates = function(tbl){
       enframe(name ="tissue_groups") |>
       distinct() |>
       unnest(value) |>
-      rename(tissue = value) 
+      dplyr::rename(tissue = value) 
 
     ethnicity_grouped <- tribble(
       ~self_reported_ethnicity, ~ethnicity_groups,
@@ -443,7 +443,7 @@ edit_covariates = function(tbl){
       disease_data_grouped |>
       left_join(
         readr::read_csv("/home/zhanchen/From_scratch/Mangiola_ImmuneAtlas/disease_data_grouped_further.csv") |>
-          rename(disease_groups_further = disease_groups)
+          dplyr::rename(disease_groups_further = disease_groups)
       ) |>
       mutate(disease_groups = if_else(!disease_groups_further |> is.na(), disease_groups_further, disease_groups)) |>
       select(disease,  disease_groups)
