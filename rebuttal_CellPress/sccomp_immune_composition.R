@@ -1,5 +1,4 @@
 
-library(targets)
 
 job::job({
   
@@ -31,7 +30,7 @@ job::job({
       # workspaces = "estimates",
       # format = "qs", 
       
-
+      
       #-----------------------#
       # SLURM
       #-----------------------#
@@ -64,7 +63,7 @@ job::job({
           )
         )
       ),
-      debug = "input_relative",
+      debug = "input_relative_sample",
       
       resources = tar_resources(crew = tar_resources_crew("slurm_1_80")) 
       #, # Set the target you want to debug.
@@ -558,7 +557,6 @@ job::job({
         mutate(sex = if_else(sex |> is.na(), "unknown", sex)) |> 
         
         # Age
-        filter(age_days > 365) |> 
         mutate(age_years = age_days / 365) |> 
         mutate(age_bin = dplyr::case_when(
           age_years < 3 ~ "Infancy",
@@ -579,7 +577,7 @@ job::job({
         left_join(ethnicity_grouped, copy=TRUE) |> 
         
         dplyr::select(
-          sample_id, donor_id, dataset_id, title, collection_id, age_days, age_bin, age_decade, sex, 
+          cell_id, sample_id, donor_id, dataset_id, title, collection_id, age_days, age_bin, age_decade, sex, 
           ethnicity_groups, tissue_groups, tissue, assay_groups, cell_type_unified_ensemble,
           cell_type, disease_groups, is_immune
         ) |> 
@@ -590,15 +588,29 @@ job::job({
       
     }     
     
-    create_input_cell_counts = function(cellNexus_metadata, drop_sample_df, caq_celltype_level_map, ethnicity_imputed, result_directory){
-
-      tbl(
-        dbConnect(duckdb::duckdb(), dbdir = ":memory:"),
-        sql(glue("SELECT * FROM read_parquet('{cellNexus_metadata}')"))
-      ) |>
+    create_input_cell_counts = function(
+    drop_sample_df, 
+    caq_celltype_level_map,
+    ethnicity_imputed, count_by = c("sample_id", "donor_id"), 
+    sce_scored_delayed_plasma,
+    result_directory
+    ){
+      
+      count_by <- match.arg(count_by)
+      
+      my_tbl = 
+        get_metadata() |> 
+        # tbl(
+        #   dbConnect(duckdb::duckdb(), dbdir = ":memory:"),
+        #   sql(glue("SELECT * FROM read_parquet('{cellNexus_metadata}')"))
+        # ) |>
         
-        # Filter empty droplets
-        filter(!empty_droplet) |> 
+        # Filter low quality cells
+        dplyr::filter(
+          empty_droplet == FALSE,
+          alive == TRUE,
+          scDblFinder.class != "doublet"
+        ) |>
         
         # TISSUE
         filter(!tissue_groups %in% c(
@@ -613,18 +625,49 @@ job::job({
         !tissue_groups |> is.na()
         ) |> 
         
+        # Filter embrios
+        filter(age_days > 365) |> 
+        
         # NON immune cells
         mutate(cell_type_unified_ensemble = if_else(is_immune, cell_type_unified_ensemble, "non_immune")) |> 
         
         # IMMUNE CELLS
         # filter(is_immune) |> 
-        filter(cell_type_unified_ensemble %in% c("non_immune", "cd8 naive", "cd16 mono", "cd4 tcm", "cd4 th17 em", "granulocyte", "cd4 th1/th17 em", "treg", "b memory", "b naive", "nk", "plasma", "cd4 th2 em", "mast", "cd4 th1 em", "cd8 tem", "mait", "tgd", "cdc", "cd4 fh em", "cd4 naive", "nkt", "macrophage", "cytotoxic", "cd8 tcm", "cd14 mono", "pdc", "ilc")) |> 
+        filter(cell_type_unified_ensemble %in% c("non_immune", "cd8 naive", "cd16 mono", "cd4 tcm", "cd4 th17 em", "granulocyte", "cd4 th1/th17 em", "treg", "b memory", "b naive", "nk", "plasma", "cd4 th2 em", "mast", "cd4 th1 em", "cd8 tem", "mait", "tgd", "cdc", "cd4 fh em", "cd4 naive", "nkt", "macrophage", "cd8 tcm", "cd14 mono", "pdc", "ilc")) |> 
         
         edit_covariates() |> 
         
         # Here we drop those samples with a low cell type entropy. E.g. one cell type only.
         anti_join(drop_sample_df, copy = TRUE) |> 
         
+        
+        # Attach plasma subtype
+        left_join(
+          sce_scored_delayed_plasma |> 
+            readRDS() |> 
+            as_tibble()
+        ) |> 
+        
+        # calculate median per dataset
+        mutate(median_plasma_score = median(TotalScore, na.rm = TRUE), .by = dataset_id) |> 
+        mutate(cell_type_unified_ensemble = 
+                 case_when(
+                   cell_type_unified_ensemble == "plasma" & !TotalScore |> is.na() & TotalScore > median_plasma_score ~ "plasma_long_lived",
+                   cell_type_unified_ensemble == "plasma" & !TotalScore |> is.na() & TotalScore <= median_plasma_score ~ "plasma_short_lived",
+                   TRUE ~ cell_type_unified_ensemble
+                 ))
+      
+      
+      if(count_by=="donor_id")
+        my_tbl =  
+        my_tbl |> 
+        
+        # I add dataset_id because there are duplicated donor_id
+        # I add technology because there are 71 donors with multiple technologies. It is acceptable in the grand scheme of things of 4K+ donors
+        # Same for disease
+        mutate(sample_id = paste0(donor_id, dataset_id, tissue_groups, age_days, assay_groups, disease_groups)) 
+      
+      my_tbl |> 
         dplyr::count(
           sample_id, donor_id, dataset_id, title, collection_id, age_days, age_bin, age_days_scaled, age_decade,
           sex, ethnicity_groups, tissue_groups, tissue, assay_groups, cell_type_unified_ensemble, is_immune,
@@ -634,7 +677,21 @@ job::job({
         
         # Add hierarchy of cell types L1, L2, L3
         left_join(
-          caq_celltype_level_map,
+          caq_celltype_level_map |> 
+            
+            # Plasma hierarchy
+            mutate(L4=L3) |>
+            bind_rows(tibble(
+              cell_type_unified_harmonised = c("plasma_long_lived", "plasma_short_lived"), 
+              L0 = "b",   L1 ="plasma",       L2   ="plasma",     L3  = "plasma",    
+              L4 =c("plasma_long_lived", "plasma_short_lived")
+            )) |> 
+            mutate(L4 = case_when(
+              L4 |> is.na() ~ NA,
+              cell_type_unified_harmonised %in% c("plasma_long_lived", "plasma_short_lived") ~ L4,
+              TRUE ~ "non_plasma"
+            )),
+          
           by = join_by(cell_type_unified_ensemble == cell_type_unified_harmonised)
         ) |> 
         mutate(
@@ -678,7 +735,7 @@ job::job({
     list(
       tar_target(
         result_directory,
-        "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2", 
+        "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_12", 
         deployment = "main"
       ),
       tar_target(
@@ -719,24 +776,29 @@ job::job({
       ),
       
       tar_target(
-        input_relative, 
+        input_relative_sample, 
         create_input_cell_counts(
-          "/vast/projects/cellxgene_curated/cellNexus/metadata.1.0.10.parquet",
           drop_samples,
           caq_celltype_level_map,
           ethnicity_imputed,
-          result_directory
+          sce_scored_delayed_plasma,
+          result_directory,
+          count_by = "sample_id"
         ),
-        packages = c(
-          "dplyr",      # Data manipulation (mutate, filter, count, left_join)
-          "tidyr",
-          "tibble",     # Creating tibbles (tribble function)
-          "duckdb",     # For connecting to DuckDB and reading parquet files
-          "glue",       # For constructing SQL queries with glue syntax
-          "readr",     # For reading CSV files
-          "forcats",
-          "tidybulk"
-        )
+        packages = c( "dplyr", "tidyr", "tibble",   "duckdb",   "glue",  "readr", "forcats","tidybulk", "cellNexus" )
+      ),
+      tar_target(sce_scored_delayed_plasma, "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sce_scored_delayed_plasma.rds", format = "file"),
+      tar_target(
+        input_relative_donor, 
+        create_input_cell_counts(
+          drop_samples,
+          caq_celltype_level_map,
+          ethnicity_imputed,
+          sce_scored_delayed_plasma,
+          result_directory, 
+          count_by = "donor_id"
+        ),
+        packages = c( "dplyr", "tidyr", "tibble",   "duckdb",   "glue",  "readr", "forcats","tidybulk", "cellNexus"  )
       ),
       tar_target(
         saved_input_relative,
@@ -745,7 +807,7 @@ job::job({
           print(result_directory)
           
           file_name = glue("{result_directory}/cell_metadata_1_0_10_sccomp_input_counts.rds")
-          input_relative |> 
+          input_relative_sample |> 
             saveRDS(file_name)
           
           check_rclone_installation()
@@ -757,60 +819,95 @@ job::job({
       tar_target(
         formula_df,
         tribble(
-          ~ formula_composition, ~ formula_variability, ~ name,
+          ~ name, ~ formula_composition, ~ formula_variability, ~ counts,
           
           # continuous age
+          "estimates_continuous_age",
           "~ 1 + age_days_scaled*sex + disease_groups___altered + ethnicity_groups_imputed + assay_groups___altered + 
           (1 | dataset_id___altered) + 
           (1 + age_days_scaled*sex + ethnicity_groups_imputed | tissue_groups)",  
           "~ age_days_scaled*sex + disease_groups___altered",
-          "estimates_continuous_age",
+          input_relative_sample,
           
           # discrete
+          "estimates_age_bins", 
           "~ 1 + age_bin + disease_groups___altered + sex + age_bin:sex + ethnicity_groups_imputed + assay_groups___altered + 
           (1 | dataset_id___altered) + 
           (1 + age_bin + sex + age_bin:sex + ethnicity_groups_imputed | tissue_groups)",  
           "~ age_bin + disease_groups___altered",
-          "estimates_age_bins", 
+          input_relative_sample,
           
           # discrete decade
+          "estimates_age_decade", 
           "~ 1 + age_decade + disease_groups___altered + sex + age_decade:sex + ethnicity_groups_imputed + assay_groups___altered + 
           (1 | dataset_id___altered) + 
           (1 + age_decade + sex + age_decade:sex + ethnicity_groups_imputed | tissue_groups)",  
           "~ age_decade + disease_groups___altered",
-          "estimates_age_decade", 
+          input_relative_sample,
+          
+          # discrete decade
+          "estimates_age_decade_plasma", 
+          "~ 1 + age_decade + disease_groups___altered + sex + age_decade:sex + ethnicity_groups_imputed + assay_groups___altered + 
+          (1 | dataset_id___altered) + 
+          (1 + age_decade + sex + age_decade:sex + ethnicity_groups_imputed | tissue_groups)",  
+          "~ age_decade + disease_groups___altered",
+          input_relative_sample ,
+          
+          # interaction decade, this model is to test that the signal really comes from each tissue and not learned
+          # at the body level, because of lack of data
+          "estimates_age_decade_interaction", 
+          "~ 1 + age_decade*sex*tissue_groups + disease_groups___altered*tissue_groups + ethnicity_groups_imputed + assay_groups___altered + 
+          (1 | dataset_id___altered)", 
+          "~ age_decade", # + disease_groups___altered",
+          input_relative_sample,
+          
+          # discrete decade DONOR grouping
+          "estimates_age_decade_donor_grouping", 
+          "~ 1 + age_decade + disease_groups___altered + sex + age_decade:sex + ethnicity_groups_imputed + assay_groups___altered + 
+          (1 | dataset_id___altered) + 
+          (1 + age_decade + sex + age_decade:sex + ethnicity_groups_imputed | tissue_groups)",  
+          "~ age_decade + disease_groups___altered",
+          input_relative_donor,
+          
+          # interaction decade DONOR grouping
+          "estimates_age_decade_interaction_donor_grouping", 
+          "~ 1 + age_decade*sex*tissue_groups + disease_groups___altered*tissue_groups + ethnicity_groups_imputed + assay_groups___altered + 
+          (1 | dataset_id___altered)", 
+          "~ age_decade", # + disease_groups___altered",
+          input_relative_donor,
           
           # discrete + interaction ethnicity sex
+          "estimates_age_bins_sex_ethnicity_interaction", 
           "~ 1 + age_bin + disease_groups___altered + sex + age_bin:sex + ethnicity_groups_imputed * sex + assay_groups___altered + 
           (1 | dataset_id___altered) + 
           (1 + age_bin + sex + age_bin:sex + ethnicity_groups_imputed * sex | tissue_groups)",  
           "~ age_bin + disease_groups___altered",
-          "estimates_age_bins_sex_ethnicity_interaction", 
+          input_relative_sample,
           
           # continuous + discrete
+          "estimates_continuous_age_plus_age_bins",
           "~ 1 + age_days_scaled + disease_groups___altered + age_bin*sex + ethnicity_groups_imputed + assay_groups___altered + 
           (1 | dataset_id___altered) + 
           (1 + age_days_scaled + age_bin*sex + ethnicity_groups_imputed | tissue_groups)", 
           "~ age_days_scaled + disease_groups___altered",
-          "estimates_continuous_age_plus_age_bins",
+          input_relative_sample,
           
           # disease tissue specific
+          "estimates_age_bins_disease", 
           "~ 1 + age_bin + disease_groups___altered + sex + age_bin:sex + ethnicity_groups_imputed + assay_groups___altered + 
           (1 | dataset_id___altered) + 
           (1 + age_bin + disease_groups___altered + sex + age_bin:sex + ethnicity_groups_imputed | tissue_groups)",  
           "~ age_bin + disease_groups___altered",
-          "estimates_age_bins_disease", 
+          input_relative_sample
         ) |> 
           expand_grid(
-            cell_type_level = glue("L{0:3}") |> as.character(), 
+            cell_type_level = glue("L{0:4}") |> as.character(), 
             drop_disease = c(TRUE, FALSE),
             immune_only = c(TRUE,FALSE)
           ) |> 
           
           # Keep NON immune for one model only
           filter(immune_only | name == "estimates_age_bins") |> 
-          
-          mutate(counts = list(input_relative)) |> 
           
           # Filter immune if needed
           mutate(counts = map2(counts, immune_only,  ~ { 
@@ -833,12 +930,12 @@ job::job({
           } )) |> 
           
           # Drop Disease if needed
-          mutate(counts = map2(counts, drop_disease, 
-                               ~ {
-                                 if(.y) .x |> filter(disease_groups___altered == "Normal")
-                                 else .x 
-                                })) |> 
           mutate(
+            counts = map2(counts, drop_disease, 
+                          ~ {
+                            if(.y) .x |> filter(disease_groups___altered == "Normal")
+                            else .x 
+                          }),
             formula_composition = if_else(drop_disease, formula_composition |> str_remove_all("\\+ disease_groups___altered"), formula_composition),
             formula_variability = if_else(drop_disease, formula_variability |> str_remove_all("\\+ disease_groups___altered"), formula_variability)
           ) |> 
@@ -846,7 +943,8 @@ job::job({
           
           # TEMPORARY
           # FILTER FOR JUST ONE MODEL
-          filter(name %in% c("estimates_age_decade")) |> 
+          filter(name %in% c("estimates_age_decade", "estimates_age_decade_plasma", "estimates_age_decade_interaction", "estimates_age_decade_donor_grouping", "estimates_age_decade_interaction_donor_grouping")) |> 
+          filter(cell_type_level %in% c("L0", "L3") | (cell_type_level == "L4" & name == "estimates_age_decade_plasma")) |> 
           
           group_by(local_file_name) |> 
           tar_group(), 
@@ -893,7 +991,7 @@ job::job({
         packages = "sccomp"
         
         # TEMPORARY
-        #, cue = tar_cue(mode = "never")
+        , cue = tar_cue(mode = "never")
       ),
       tar_target(
         saved_and_tranferred,
@@ -915,7 +1013,7 @@ job::job({
           estimates |>  sccomp_test() |> saveRDS(local_file_name)
           
           check_rclone_installation()
-          system(glue("~/bin/rclone copy {local_file_name} box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/sccomp_on_cellNexus_1_0_10_2/"))
+          system(glue("~/bin/rclone copy {local_file_name} box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/sccomp_on_cellNexus_1_0_12/"))
           
         }, 
         pattern = map(formula_df, estimates), 
@@ -927,24 +1025,24 @@ job::job({
     )
   }, 
   ask = FALSE, 
-  script = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets.R"
+  script = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_12/_targets.R"
   )
   
   tar_make(
     # callr_function = NULL,
-    script = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets.R", 
-    store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets", 
+    script = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_12/_targets.R", 
+    store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_12/_targets", 
     reporter = "verbose" #, callr_function = NULL
   )
   
 })
 
 
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/estimates_age_bins___L3___disease_TRUE___immune_only_TRUE.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/sccomp_on_cellNexus_1_0_10_2/")
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_12/estimates_age_bins___L3___disease_TRUE___immune_only_TRUE.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/sccomp_on_cellNexus_1_0_12/")
 
 
-
-tar_meta(store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets") |> 
+library(targets)
+tar_meta(store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_12/_targets") |> 
   arrange(desc(time)) |>
   filter(!error |> is.na()) |> 
   dplyr::select(name, error)
@@ -952,28 +1050,29 @@ tar_meta(store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMa
 
 
 
+
+
+library(targets)
+
+x = tar_read(caq_celltype_level_map, store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_12/_targets")
+
+
+tar_workspace(create_input_cell_counts, 
+              script = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_12/_targets.R", 
+              store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_12/_targets"
+)
+
 library(tidyverse)
 library(sccomp)
 library(magrittr)
 library(glue)
 library(forcats)
 library(stringr)
-
 library(arrow)
 library(dplyr)
 library(duckdb)
 
-library(targets)
-
-x = tar_read(input_relative, store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets")
-
-
-tar_workspace(estimates_290259492ab903fd, 
-              script = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets.R", 
-              store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets"
-              )
-
-tar_meta(starts_with("estimates_"), store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets")
+tar_meta(starts_with("estimates_"), store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_12/_targets")
 
 # Age proportion prediciton
 estimates_age_bins |> 
@@ -988,32 +1087,32 @@ estimates_age_bins |>
     ordered = TRUE
   )) |> 
   mutate(age_bin_numeric = age_bin |> as.integer())  |> 
-  saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/prediction_age_bins.rds")
+  saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_12/prediction_age_bins.rds")
 
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/prediction_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_12/prediction_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
 
-tar_read(formula_df, store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/_targets")
+tar_read(formula_df, store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_12/_targets")
 
 
 # For Hong
-estimate_age_bins = readRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/estimates_age_bins___L3.rds")
+estimate_age_bins = readRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_12/estimates_age_bins___L3.rds")
 estimate_age_bins = estimate_age_bins |> dplyr::select(-count_data)
 attr(estimate_age_bins, "fit") = NULL
-estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/estimates_age_bins_effect_tibble_only.rds")
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/estimates_age_bins_effect_tibble_only.rds box_adelaide:/immune_map_disease/")
+estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_12/estimates_age_bins_effect_tibble_only.rds")
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_12/estimates_age_bins_effect_tibble_only.rds box_adelaide:/immune_map_disease/")
 
 # Save fit
 library(magrittr)
-estimate_age_bins = readRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/estimates_age_bins.rds")
-estimate_age_bins |> attr("fit") %$% save_object(file = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/estimates_age_bins_FIT_FOR_PORTABILITY.rds") 
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/estimates_age_bins_FIT_FOR_PORTABILITY.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
-estimate_age_bins |> attr("fit") = readRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/estimates_age_bins_FIT_FOR_PORTABILITY.rds")
-estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/estimates_age_bins.rds")
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/estimates_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
+estimate_age_bins = readRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_12/estimates_age_bins.rds")
+estimate_age_bins |> attr("fit") %$% save_object(file = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_12/estimates_age_bins_FIT_FOR_PORTABILITY.rds") 
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_12/estimates_age_bins_FIT_FOR_PORTABILITY.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
+estimate_age_bins |> attr("fit") = readRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_12/estimates_age_bins_FIT_FOR_PORTABILITY.rds")
+estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_12/estimates_age_bins.rds")
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_12/estimates_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
 
 
-# estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/estimates_age_bins.rds")
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_10_2/21_11_2024_sccomp_archive_before_factor_ordering/estimates_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
+# estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_12/estimates_age_bins.rds")
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_12/21_11_2024_sccomp_archive_before_factor_ordering/estimates_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
 
 # Benchmark
 tic()
@@ -1024,3 +1123,136 @@ toc()
 
 estimate_age_bins |> 
   sccomp_test()
+
+
+
+# annotate plasma
+out_dir <- file.path(getwd(), "./", "plasma_h5se")
+
+
+build_plasma_sce <- function(cache_dir,
+                             subset_n = 100,
+                             min_features = 8000,
+                             seed = NULL) {
+  metadata <- cellNexus::get_metadata()
+  
+  plasma_metadata <- metadata |>
+    dplyr::filter(cell_type_unified_ensemble == "plasma") |>
+    dplyr::filter(
+      empty_droplet == FALSE,
+      alive == TRUE,
+      scDblFinder.class != "doublet",
+      feature_count >= min_features
+    ) |>
+    dplyr::collect()
+  
+  if (!is.null(seed)) set.seed(seed)
+  if (!is.null(subset_n) && nrow(plasma_metadata) > subset_n) {
+    plasma_metadata <- plasma_metadata |>
+      head(subset_n)
+  }
+  
+  sce <- cellNexus::get_single_cell_experiment(
+    plasma_metadata,
+    cache_directory = cache_dir
+  )
+  
+  sce
+}
+
+
+compute_singscore_delayed <- function(
+    sce, assay_name = NULL, upSet = singscore::tgfb_gs_up, 
+    downSet = singscore::tgfb_gs_dn, workers = 1, output_file = NULL
+) {
+  assay_names <- SummarizedExperiment::assayNames(sce)
+  if (is.null(assay_name)) {
+    assay_name <- if ("logcounts" %in% assay_names) "logcounts" else assay_names[[1]]
+  }
+  message("Ranking genes using assay: ", assay_name)
+  expr_mat <- SummarizedExperiment::assay(sce, assay_name)
+  feature_ids <- rownames(expr_mat)
+  
+  # Debug information
+  message("Expression matrix dimensions: ", nrow(expr_mat), " x ", ncol(expr_mat))
+  message("Expression matrix rownames length: ", length(rownames(expr_mat)))
+  message("Expression matrix class: ", class(expr_mat))
+  # Choose ID space (prefer best overlap with matrix rownames)
+  up_sym <- upSet; down_sym <- downSet
+  # Map symbols -> ENSG
+  up_ens <- AnnotationDbi::mapIds(org.Hs.eg.db::org.Hs.eg.db, keys = up_sym, keytype = "SYMBOL", column = "ENSEMBL", multiVals = "first")
+  down_ens <- AnnotationDbi::mapIds(org.Hs.eg.db::org.Hs.eg.db, keys = down_sym, keytype = "SYMBOL", column = "ENSEMBL", multiVals = "first")
+  
+  # Use delayed ranking with optional output file
+  ranked <- singscore::rankGenes(
+    expr_mat, 
+    workers = workers 
+    
+    # TEMPORARY
+    # , stableGenes = up_ens    
+  )
+  
+  # Convert character vectors to GeneSet objects
+  library(GSEABase)
+  up_geneset <- GeneSet(up_ens, setName = "upSet")
+  down_geneset <- GeneSet(down_ens, setName = "downSet")
+  
+  # Use regular simpleScore for now since the delayed version has issues
+  # Convert DelayedMatrix to matrix for simpleScore
+  # Set the stable attribute properly
+  scoredf_delayed <- singscore::simpleScore(
+    ranked, 
+    upSet = up_geneset, 
+    downSet = down_geneset
+  )
+  
+  # Add original cell
+  scoredf_delayed$cell_id = sce |> colData() |> _[,"original_cell_"]
+  scoredf_delayed$dataset_id = sce |> colData() |> _[,"dataset_id"]
+  
+  # Return the delayed results and the ranked data
+  return(scoredf_delayed)
+}
+
+
+# Build from cache (default)
+sce <- build_plasma_sce(cache_dir = "/vast/projects/cellxgene_curated/cellNexus", subset_n = Inf, min_features = 8000) 
+
+library(tidySummarizedExperiment)
+# BiocManager::install("stemangiola/singscore@delayedArray")
+library(singscore)
+# Rename features using
+
+# from sce to singscore execution
+long_lived_genes <- c("SDC1", "CD38", "TNFRSF17", "TNFRSF13B", "CD28", "CXCR4", "CD69", "ITGA4", "ITGB1", "ITGB7", "ITGAE", "PRDM1", "XBP1", "MZB1", "DERL3", "HSPA5", "BCL2", "MCL1")
+short_lived_genes <- c("CD19", "PTPRC", "HLA-DRA", "HLA-DRB1", "CD27", "CXCR3", "S1PR1", "MKI67", "TOP2A", "PCNA", "MCM2", "MCM3", "MCM4", "PAX5", "BCL6", "BACH2", "AICDA", "CCR9", "CCR10")
+
+long_lived_genes <- c("SDC1", "TNFRSF17", "CXCR4", "PRDM1", "XBP1", "MZB1", "MCL1")
+short_lived_genes <- c("CD19", "PTPRC", "HLA-DRA", "MKI67", "PAX5", "BCL6", "BACH2")
+
+sce_scored_delayed <- compute_singscore_delayed(
+  sce, 
+  assay_name = "counts", 
+  upSet =long_lived_genes  , 
+  downSet = short_lived_genes, 
+  workers = 20,
+  output_file = NULL  # Disable output file for now to avoid HDF5 conflicts
+)
+
+sce_scored_delayed |> saveRDS("sce_scored_delayed_plasma.rds")
+
+sce_scored_delayed |>
+  as_tibble(rownames="cell") |> 
+  left_join(colData(sce) |> as_tibble(rownames="cell")) |>
+  ggplot(aes(x=TotalScore)) +
+  geom_density(aes(color = dataset_id)) +
+  guides(color = "none") +
+  ylim(c(0, 30)) + 
+  theme_minimal() 
+
+plot(sce_scored_delayed$TotalScore, sce_scored_delayed_down$TotalScore)
+
+# sce_scored |>
+#colData() |>
+#saveRDS(file = "dev/plasma_h5se_scored.rds")
+
