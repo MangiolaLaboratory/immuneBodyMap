@@ -188,7 +188,8 @@ job::job({
       
       # Calculate residuals: observed counts minus fitted values, normalised by exp(offset)
       # This places residuals on a consistent scale, making them addable to adjusted predictions later.
-      fitted_residuals =   fit |> predictive_error(robust = robust, summary = FALSE, offset = 0) 
+      # Use residuals() to obtain observed - fitted on original scale
+      fitted_residuals =   fit |> residuals(robust = robust, summary = FALSE) 
       
       # Correct by offset
       if(correct_by_offset)
@@ -305,76 +306,118 @@ job::job({
     }
     
     ## helper to build one contrast for an arbitrary vector of bins
-    build_contrast <- function(k, bins, minimum_difference = 0) {
+    # Build a directional contrast string for brms::hypothesis()
+    # - k: split index (first k = "younger", remaining = "older")
+    # - bins: coefficient names (character vector)
+    # - abs_threshold: non-negative numeric threshold τ
+    # - direction: "gt" => (> +τ), "lt" => (< −τ), "eq" => (= 0)
+    # 1) Build the directional contrast (unchanged idea, explicit direction)
+    build_contrast <- function(k, bins, abs_threshold = 0, direction = c("gt", "lt", "eq")) {
+      stopifnot(is.numeric(k), k >= 1, k < length(bins))
+      stopifnot(is.character(bins), length(bins) >= 2)
+      stopifnot(is.numeric(abs_threshold), length(abs_threshold) == 1, abs_threshold >= 0)
       
-      if(minimum_difference == 0) sign = "="
-      else if(minimum_difference < 0) sign = "<"
-      else if(minimum_difference > 0) sign = ">"
+      direction <- match.arg(direction)
       
       younger <- bins[1:k]
       older   <- bins[(k + 1):length(bins)]
-      glue::glue("({paste(older,   collapse = ' + ')})/{length(older)} - ",
-                 "({paste(younger, collapse = ' + ')})/{length(younger)} {sign} {minimum_difference}")
+      
+      lhs <- glue::glue("({paste(older,   collapse = ' + ')})/{length(older)} - ",
+                        "({paste(younger, collapse = ' + ')})/{length(younger)}")
+      
+      rhs  <- switch(direction, gt = paste0("+", abs_threshold),
+                     lt = paste0("-", abs_threshold),
+                     eq = "0")
+      sign <- switch(direction, gt = ">", lt = "<", eq = "=")
+      
+      glue::glue("{lhs} {sign} {rhs}")
     }
     
-    # 
-    #  helper: absolute-difference test, returns a brms_hypothesis-like table
-    # 
+    
+    # 2) Robust absolute-direction tester that avoids string-equality and pivot_wider()
     hypothesis_abs <- function(fit, k, bins,
                                abs_threshold = 0.2,
                                scope = "coef",
                                group = "",
                                re_formula = NA,
                                resp = NULL) {
+      stopifnot(is.numeric(abs_threshold), abs_threshold >= 0)
       
-      browser()
-      # build the two complementary algebraic strings
-      h_pos <- build_contrast(k, bins,  abs_threshold)          # > +τ
-      h_neg <- build_contrast(k, bins, -abs_threshold) |>
-        stringr::str_replace(">", "<")                   # < –τ
+      # Two complementary statements
+      h_pos <- build_contrast(k, bins, abs_threshold, direction = "gt")  # > +τ
+      h_neg <- build_contrast(k, bins, abs_threshold, direction = "lt")  # < −τ
       
-      ## evaluate ------------------------------------------------------------
-      tbl_pos <- brms::hypothesis(fit, h_pos,
-                                  scope      = scope,
-                                  group      = group,
-                                  re_formula = re_formula,
-                                  resp       = resp)$hypothesis |>
-        tibble::as_tibble() |>
-        dplyr::mutate(direction = "positive",
-                      prob = Post.Prob)
+      res <- brms::hypothesis(
+        fit, c(h_pos, h_neg),
+        scope = scope, group = group,
+        re_formula = re_formula, resp = resp
+      )$hypothesis |>
+        tibble::as_tibble()
       
-      tbl_neg <- brms::hypothesis(fit, h_neg,
-                                  scope      = scope,
-                                  group      = group,
-                                  re_formula = re_formula,
-                                  resp       = resp)$hypothesis |>
-        tibble::as_tibble() |>
-        dplyr::mutate(direction = "negative",
-                      prob = Post.Prob)
+      if (!"Group" %in% names(res)) res <- dplyr::mutate(res, Group = "population")
       
-      long_tbl <- dplyr::bind_rows(tbl_pos, tbl_neg)
-      
-      if(!"Group" %in% colnames(long_tbl)) long_tbl = long_tbl |> mutate(Group = "population")
-      
-      ## pick winner & compute absolute evidence ----------------------------
-      out <- long_tbl |>
-        dplyr::group_by(Group) |>
+      # Label direction by detecting the operator actually printed by brms
+      res <- res |>
         dplyr::mutate(
-          prob_abs   = sum(prob),                       # P(|Δ| > τ)
-          p_two_tail = 2 * min(prob),                   # doubled smaller tail
-          p_two_tail = pmin(p_two_tail, 1)
+          direction = dplyr::case_when(
+            stringr::str_detect(Hypothesis, fixed(">")) ~ "positive",
+            stringr::str_detect(Hypothesis, fixed("<")) ~ "negative",
+            TRUE ~ NA_character_
+          )
         ) |>
-        dplyr::slice_max(prob, n = 1, with_ties = FALSE) |>
-        dplyr::ungroup() |>
-        dplyr::transmute(
-          Group, Hypothesis,
-          Estimate, CI.Lower, CI.Upper,
-          Post.Prob = p_two_tail,        # absolute tail probability
-          direction                    # “positive” or “negative”
+        dplyr::group_by(Group) |>
+        # Fallback: preserve input order if operator was not found for some reason
+        dplyr::mutate(
+          direction = ifelse(
+            is.na(direction),
+            c("positive", "negative")[seq_len(dplyr::n())],
+            direction
+          )
+        ) |>
+        dplyr::ungroup()
+      
+      # Summarise tails per Group
+      # after you have 'res' with both directions labelled
+      tails <- res |>
+        dplyr::summarise(
+          .by = Group,
+          P_pos = sum(Post.Prob[direction == "positive"], na.rm = TRUE),
+          P_neg = sum(Post.Prob[direction == "negative"], na.rm = TRUE),
+          Est_pos = dplyr::first(Estimate[direction == "positive"]),
+          Est_neg = dplyr::first(Estimate[direction == "negative"]),
+          L_pos = dplyr::first(CI.Lower[direction == "positive"]),
+          U_pos = dplyr::first(CI.Upper[direction == "positive"]),
+          L_neg = dplyr::first(CI.Lower[direction == "negative"]),
+          U_neg = dplyr::first(CI.Upper[direction == "negative"])
         )
+      
+      out <- tails |>
+        dplyr::mutate(
+          tau = abs_threshold,
+          # pick winner and reconstruct raw Δ and its CI by shifting back by ±tau
+          direction = dplyr::if_else(P_pos >= P_neg, "positive", "negative"),
+          
+          # This is needed because 
+          # brms::hypothesis() reports the estimate of the hypothesis expression (LHS − RHS), not the raw contrast Δ.
+          # Hence, when Δ ≈ 0 you will get Estimate ≈ −τ for the “positive” branch and Estimate ≈ +τ for the “negative” branch. 
+          # If your downstream keeps Estimate as “the effect”, low P_abs rows will cluster near −τ or +τ rather than 0
+          estimate  = dplyr::if_else(direction == "positive", Est_pos + tau, Est_neg - tau),
+          ci_lower  = dplyr::if_else(direction == "positive", L_pos + tau,  L_neg - tau),
+          ci_upper  = dplyr::if_else(direction == "positive", U_pos + tau,  U_neg - tau),
+          P_abs      = pmin(1, P_pos + P_neg),
+          ER_abs     = dplyr::if_else(P_abs %in% c(0,1), Inf, P_abs/(1 - P_abs)),
+          P_two_tail = pmin(1, 2 * pmin(P_pos, P_neg)),
+          P_winner   = dplyr::if_else(direction == "positive", P_pos, P_neg),
+          ER_winner  = P_winner / (1 - P_winner)
+        ) |>
+        dplyr::select(Group, estimate, ci_lower, ci_upper,
+                      P_pos, P_neg, P_abs, P_two_tail, P_winner, ER_winner, ER_abs, tau, direction)
       
       out
     }
+    
+    # Helper for missing-coalesce in base R pipelines
+    `%||%` <- function(x, y) if (is.null(x)) y else x
     
     
     
@@ -401,71 +444,65 @@ job::job({
       
       
       ## 2. loop over split points *within the available bins*
-      seq_len(length(present_bins) - 1) |> 
+      seq_len(length(present_bins) - 1) |>
         purrr::map_dfr(function(k) {
           
-          h_txt <- build_contrast(k, present_bins)
-          
-          h_tot = 
-            #   brms::hypothesis(
-            #   fit, h_txt,
-            #   scope = "coef", group = "tissue_groups"
-            # )$hypothesis 
-            
-            # ---------------- total = population + random ----------------
-          hypothesis_abs(
+          # -------- total = population + random (grouped by 'tissue_groups') --------
+          h_tot <- hypothesis_abs(
             fit, k, present_bins,
-            abs_threshold = 0.001,
-            scope = "coef", 
+            abs_threshold = 0.2,
+            scope = "coef",
             group = "tissue_groups"
-          )
-          
-          h_tot = h_tot %>% 
-            tibble::as_tibble() %>% 
-            dplyr::transmute(
+          ) |>
+            tibble::as_tibble() |>
+            dplyr::mutate(
               component    = "total",
               tissue       = Group,
               split_after  = present_bins[k],
               younger_bins = paste(present_bins[1:k],  collapse = ","),
               older_bins   = paste(present_bins[(k + 1):length(present_bins)], collapse = ","),
-              estimate     = Estimate,
-              ci_lower     = CI.Lower,
-              ci_upper     = CI.Upper,
-              post_prob    = Post.Prob,
-              Hypothesis = Hypothesis,
-              # p_two_tail = p_two_tail,
-              direction = direction
-            )
-          
-          
-          # ---------------- fixed = population-level only --------------
-          h_fix <- 
-            hypothesis_abs(
-              fit, k, present_bins,
-              abs_threshold = 0.001,
-              scope = "standard"
-            )
-          
-          # brms::hypothesis(
-          #   fit, h_txt,
-          #   scope = "standard"
-          # )$hypothesis
-          
-          h_fix = h_fix %>% 
-            tibble::as_tibble() %>% 
+              # convenience: probability of the winning direction
+              P_winner     = dplyr::if_else(direction == "positive", P_pos, P_neg)
+            ) |>
             dplyr::transmute(
+              component, tissue, split_after, younger_bins, older_bins,
+              estimate   = estimate,     # now true Δ
+              ci_lower   = ci_lower,
+              ci_upper   = ci_upper,
+              P_abs      = P_abs,
+              P_two_tail = P_two_tail,
+              P_winner   = P_winner,
+              ER_abs     = ER_abs,
+              ER_winner  = ER_winner,
+              direction  = direction
+            )
+          
+          # -------- fixed = population-level only -----------------------------------
+          h_fix <- hypothesis_abs(
+            fit, k, present_bins,
+            abs_threshold = 0.2,
+            scope = "standard"
+          ) |>
+            tibble::as_tibble() |>
+            dplyr::mutate(
               component    = "fixed",
               tissue       = "population",
               split_after  = present_bins[k],
-              younger_bins = paste(present_bins[1:k],                 collapse = ","),
+              younger_bins = paste(present_bins[1:k],  collapse = ","),
               older_bins   = paste(present_bins[(k + 1):length(present_bins)], collapse = ","),
-              estimate     = Estimate,
-              ci_lower     = CI.Lower,
-              ci_upper     = CI.Upper,
-              post_prob    = Post.Prob,
-              Hypothesis = Hypothesis,
-              # p_two_tail = p_two_tail,
-              direction = direction
+              P_winner     = dplyr::if_else(direction == "positive", P_pos, P_neg)
+            ) |>
+            dplyr::transmute(
+              component, tissue, split_after, younger_bins, older_bins,
+              estimate   = estimate,     # now true Δ
+              ci_lower   = ci_lower,
+              ci_upper   = ci_upper,
+              P_abs      = P_abs,
+              P_two_tail = P_two_tail,
+              P_winner   = P_winner,
+              ER_abs     = ER_abs,
+              ER_winner  = ER_winner,
+              direction  = direction
             )
           
           dplyr::bind_rows(h_tot, h_fix)
@@ -477,43 +514,6 @@ job::job({
     
     has_param <- function(expr) expr != "0"                       # TRUE if at least one real term
     safe_hyp  <- purrr::possibly(brms::hypothesis, NULL)     
-    
-    
-    prepare_database = function(tbl, ethnicity_imputed){
-      tbl |> 
-        distinct(sample_id, source, target, pathway_name, interaction_weight, interaction_count, pathway_prob, annotation ) |> 
-        inner_join(
-          get_metadata() |> 
-            distinct(
-              sample_id, donor_id, dataset_id, tissue, age_days, 
-              sex, self_reported_ethnicity, disease, assay, title, collection_id, 
-              cell_type_unified_ensemble, cell_type, is_immune
-            ) |> 
-            edit_covariates() |> 
-            distinct(sample_id, donor_id, dataset_id, tissue_groups, age_days, 
-                     sex, ethnicity_groups, disease_groups, assay_groups, age_decade, age_bin) |> 
-            
-            # Add imputed ethnicities, and assign original if not present (cmposition and DE might have different samples because of filtering)
-            left_join(
-              ethnicity_imputed,
-              by = join_by(sample_id, ethnicity_groups)
-            ) |> 
-            mutate(ethnicity_groups_imputed = if_else(ethnicity_groups_imputed |> is.na(), ethnicity_groups, ethnicity_groups_imputed)) |> 
-            
-            # Remove confounders of non interest
-            tidybulk:::.resolve_complete_confounders_of_non_interest_df(dataset_id, assay_groups, disease_groups) |> 
-            
-            # Set intercept
-            mutate(
-              ethnicity_groups_imputed = fct_relevel(ethnicity_groups_imputed, "European"),
-              assay_groups___altered = fct_relevel(assay_groups___altered, "10x Genomics 3"),
-              disease_groups___altered = fct_relevel(disease_groups___altered, "Normal"),
-              age_bin = fct_relevel(age_bin, "Senior_50"),
-              age_decade = fct_relevel(age_decade, "5")
-            ) , 
-          copy = TRUE
-        ) 
-    }
     
     get_pairs_to_consider = function(all_cell_types){
       myeloid_lymphoid_pairs <- tribble(
@@ -631,6 +631,82 @@ job::job({
     }
     
     
+    prepare_database = function(tbl, ethnicity_imputed){
+      
+      # This kayes/annot strategy lowers the memory usage
+      # distinct takes >40Gb on duckDB otherwise
+      tbl |>
+        distinct(sample_id, source, target, pathway_name, interaction_weight, interaction_count, pathway_prob, annotation) |>
+        inner_join(
+          get_metadata() |> 
+            distinct(
+              sample_id, donor_id, dataset_id, tissue, age_days, 
+              sex, self_reported_ethnicity, disease, assay, title, collection_id, 
+              cell_type_unified_ensemble, cell_type, is_immune
+            ) |> 
+            edit_covariates() |> 
+            distinct(sample_id, donor_id, dataset_id, tissue_groups, age_days, 
+                     sex, ethnicity_groups, disease_groups, assay_groups, age_decade, age_bin) |> 
+            
+            # Add imputed ethnicities, and assign original if not present (cmposition and DE might have different samples because of filtering)
+            left_join(
+              ethnicity_imputed,
+              by = join_by(sample_id, ethnicity_groups)
+            ) |> 
+            mutate(ethnicity_groups_imputed = if_else(ethnicity_groups_imputed |> is.na(), ethnicity_groups, ethnicity_groups_imputed)) |> 
+            
+            # Remove confounders of non interest
+            tidybulk:::.resolve_complete_confounders_of_non_interest_df(dataset_id, assay_groups, disease_groups) |> 
+            
+            # Set intercept
+            mutate(
+              ethnicity_groups_imputed = fct_relevel(ethnicity_groups_imputed, "European"),
+              assay_groups___altered = fct_relevel(assay_groups___altered, "10x Genomics 3"),
+              disease_groups___altered = fct_relevel(disease_groups___altered, "Normal"),
+              age_bin = fct_relevel(age_bin, "Senior_50"),
+              age_decade = fct_relevel(age_decade, "5")
+            ) , 
+          copy = TRUE
+        ) 
+    }
+    
+
+    prepare_data_for_brms = function(cellchat_file, source, target, pathway_name, ethnicity_imputed){
+      
+      con = 
+        duckdb::duckdb() |> 
+        dbConnect(dbdir = cellchat_file, read_only = TRUE)
+      
+      data =  
+        con |> 
+        tbl("lr_pathway_table") |> 
+        
+        # Filter data
+        filter(source == !!source & target == !!target & pathway_name == !!pathway_name) 
+      #|> 
+        
+      #  as_tibble()
+      
+      data = data |> 
+        prepare_database(ethnicity_imputed) |> 
+        
+        # Causes some problems
+        filter(sex != "unknown") |>
+
+        as_tibble() |>
+        droplevels()
+      
+      dbDisconnect(con, shutdown = TRUE)
+      
+      # Skip if not enought samples
+      if(data |> distinct(sample_id) |> nrow() < 100) return(NULL)
+      
+      # Manually revise data colnames to suit brms bug
+      colnames(data) = colnames(data) |> stringr::str_replace_all("_+", "_")
+      
+      data
+    }
+    
     #-----#
     # Pipeline
     #-----#
@@ -702,6 +778,9 @@ job::job({
         packages = c("dbplyr", "duckdb", "cellNexus", "tarchetypes"),
         resources = tar_resources(crew = tar_resources_crew("elastic_5"))
       ),
+      
+      
+      
       # estimates_chunk 
       # This target fits Bayesian models on chunks of the data. It processes each feature's data, handles missing values,
       # defines the model specification with priors, and runs the Bayesian inference using the brm function.
@@ -710,35 +789,10 @@ job::job({
         
         cell_pathway_combination |> mutate(brms_fit = pmap(list(source, target, pathway_name), \(s, t, p){
           
-          con = 
-            duckdb::duckdb() |> 
-            dbConnect(dbdir = cellchat_file, read_only = TRUE)
+          data = 
+            prepare_data_for_brms(cellchat_file, s, t, p, ethnicity_imputed)
           
-          data =  
-            con |> 
-            tbl("lr_pathway_table") |> 
-            
-            # Filter data
-            filter(source == s, target == t, pathway_name == p) |> 
-            
-            as_tibble()
-          
-          data = data |> 
-            prepare_database(ethnicity_imputed) |> 
-            
-            # Causes some problems
-            filter(sex != "unknown") |> 
-            
-            as_tibble() |> 
-            droplevels() 
-          
-          dbDisconnect(con, shutdown = TRUE)
-          
-          # Skip if not enought samples
-          if(data |> distinct(sample_id) |> nrow() < 100) return(NULL)
-          
-          # Manually revise data colnames to suit brms bug
-          colnames(data) = colnames(data) |> stringr::str_replace_all("_+", "_")
+          if(is.null(data)) return(NULL)
           
           # # Check if dispersion estimation has failed
           # if(data |> pull(dispersion) |> unique() |> is.na()){
@@ -966,7 +1020,7 @@ job::job({
   )
   
   tar_make(
-    callr_function = NULL,
+    # callr_function = NULL,
     script = "/vast/scratch/users/mangiola.s/cellchat_brms_1_6_12_d/_targets.R", 
     store ="/vast/scratch/users/mangiola.s/cellchat_brms_1_6_12_d/_targets", 
     reporter = "verbose" # "balanced"
@@ -995,8 +1049,7 @@ tar_read_raw(
 
 tar_read(
   cell_pathway_combination,
-  store ="/vast/scratch/users/mangiola.s/cellchat_brms_1_6_12_d/_targets", 
-  branches = 1
+  store ="/vast/scratch/users/mangiola.s/cellchat_brms_1_6_12_d/_targets"
 )
 
 tar_read_raw(
@@ -1051,19 +1104,45 @@ job::job({
       copy = TRUE
     ) |> 
     
-    filter(!source %in% c("immune", "blood", "t", "erythrocyte", "other") & !target %in% c("immune", "blood", "t", "erythrocyte", "other")) |>
-    mutate(star = (1-post_prob)<0.05) |> # & abs(estimate) > 0.2) |> 
+    filter(!source %in% c("immune", "blood", "t", "erythrocyte", "other") & !target %in% c("immune", "blood", "t", "erythrocyte", "other")) 
+  
+  q_target <- 0.025
+  
+  data_for_plot = 
+    data_for_plot |> 
     
     # multitest adjustment
-    mutate(BH = p.adjust(1-post_prob, method="BH"), .by = split_after) |> 
-    mutate(star = BH<0.05) 
+    dplyr::arrange(dplyr::desc(P_abs), .by = split_after) |>
+    dplyr::mutate(
+      p0   = 1 - P_abs,                  # posterior prob of null (|Δ| ≤ τ)
+      cumV = cumsum(p0),                 # expected false discoveries among top k
+      cumR = dplyr::row_number(),        # number of calls among top k
+      bfdr = cumV / cumR,                 # BFDR(k)
+      .by = split_after
+    ) |>
+    dplyr::mutate(selected = cummax(bfdr <= q_target) == 1, .by = split_after) |>
+    dplyr::mutate(bfdr_q = rev(cummin(rev(bfdr))), .by = split_after)  |>   # per-test q-value analogue
+    mutate(star = bfdr_q<q_target)
+  
+  # for each nest rank by significant_signs and effect size, select first row and bring outside
+  data_for_plot = 
+    data_for_plot |>
+    mutate(sign = if_else(estimate >= 0, 1L, -1L)) |>
+    # nest
+    tidyr::nest(other_split_after = -c(source, target, pathway_name, tissue)) |>
+    mutate(significant_signs = map_int(other_split_after, ~ .x |> filter(star) |> distinct(sign) |> nrow(), .progress = TRUE)) |>
+    mutate(has_opposite_effect_along_age = significant_signs == 2) |>
+    
+    # for each nest rank by star TRUE and then abs(estimate), select first row and bring outside
+    mutate(data_top = map(other_split_after, ~ .x |> arrange(desc(star), desc(abs(estimate))) |> slice(1))) |>
+    unnest(data_top) 
   
 })
 
-data_for_plot |> saveRDS("../rebuttal_CellPress/comunication_for_plot.rds")
+data_for_plot |> saveRDS("comunication_for_plot.rds")
 
 
-data_for_plot = readRDS("rebuttal_CellPress/comunication_for_plot.rds")
+data_for_plot = readRDS("../comunication_for_plot.rds")
 
 library(tidyverse)
 
@@ -1076,7 +1155,7 @@ library(tidyverse)
 # filter(source == "plasma") |>
 # filter(pathway_name == "GAP") |>
 
-source("/vast/scratch/users/mangiola.s/cellchat_brms_1_6_12_c/_targets.R")
+source("/vast/scratch/users/mangiola.s/cellchat_brms_1_6_12_d/_targets.R")
 
 # Plot for compensation
 
@@ -1086,9 +1165,40 @@ library(purrr)
 library(ggplot2)
 library(forcats)
 
+# Signed log10 transform for symmetric scaling around zero
+signed_log10_trans <- function() {
+  scales::trans_new(
+    name = "signed_log10",
+    transform = function(x) sign(x) * log10(1 + abs(x)),
+    inverse   = function(y) sign(y) * (10^(abs(y)) - 1)
+  )
+}
+
+# Evenly spaced decade ticks for signed log10 axis
+signed_log10_breaks <- function() {
+  function(x) {
+    max_abs <- max(abs(x), na.rm = TRUE)
+    if (!is.finite(max_abs) || max_abs <= 1) return(c(-1, 0, 1))
+    exp_max <- floor(log10(max_abs))
+    decades <- 10^(0:exp_max)
+    sort(unique(c(-rev(decades), 0, decades)))
+  }
+}
+
+# counts of pathways significant in >= 3 tissues per cell_type and direction
+sig3_counts_per_ct <-
+  data_for_plot |>
+  dplyr::filter(star) |>
+  dplyr::mutate(direction = dplyr::if_else(estimate > 0, "up", "down")) |>
+  dplyr::summarise(n_tissues = dplyr::n_distinct(tissue), .by = c(source, target, pathway_name, direction)) |>
+  dplyr::filter(n_tissues >= 3) |>
+  dplyr::mutate(cell_type = purrr::map2(source, target, ~ tibble::tibble(cell_type = c(.x, .y)))) |>
+  tidyr::unnest(cell_type) |>
+  dplyr::summarise(n_sig3_raw = dplyr::n(), .by = c(cell_type, direction))
+
 plot_dat <-
   data_for_plot |>
-  arrange(post_prob) |> 
+  arrange(P_abs) |> 
   filter(star) |>
   
   # Filter plausible pairs
@@ -1125,6 +1235,8 @@ mutate(cell_type = map2(source, target, ~ tibble(cell_type = c(.x, .y)))) |>
     sample_size = mean(sample_size),
     .by         = c(cell_type, direction)
   ) |>
+  # add counts of pathways significant in >= 3 tissues
+  dplyr::left_join(sig3_counts_per_ct, by = c("cell_type", "direction")) |>
   
   ## totals per cell type ------------------------------------------------
 mutate(tot = sum(n_raw), .by = cell_type) |>
@@ -1150,14 +1262,23 @@ mutate(
   n_raw_signed   = sign_n * n_raw,
   n_adjusted     = sign_n * exp(resid_n + mean(log_n))
 ) |>
+  ## adjust n_sig3 (thresholded pathways) --------------------------------
+mutate(
+  log_n_sig3       = log(pmax(replace_na(n_sig3_raw, 0), 1)),
+  resid_sig3       = resid(lm(log_n_sig3 ~ log_sample_scaled, data = cur_data())),
+  n_sig3_adjusted  = sign_n * exp(resid_sig3 + mean(log_n_sig3)),
+  n_sig3_adjusted  = dplyr::if_else(is.na(n_sig3_raw) | n_sig3_raw == 0, 0, n_sig3_adjusted)
+) |>
   
   ## value to order by: total magnitude of adjusted counts ---------------
 mutate(order_adj = sum(abs(n_adjusted)), .by = cell_type) |>
+  ## value to order by (requested): magnitude of 3+ adjusted counts ------
+mutate(order_sig3 = sum(abs(n_sig3_adjusted)), .by = cell_type) |>
   
   ## pivot for plotting --------------------------------------------------
 select(-n_raw) |>
   pivot_longer(
-    c(n_raw_signed, n_adjusted),
+    c(n_raw_signed, n_adjusted, n_sig3_adjusted),
     names_to  = "series",
     values_to = "n"
   ) |> 
@@ -1167,26 +1288,39 @@ select(-n_raw) |>
 
 
 plot_overall = 
-  ggplot(plot_dat, aes(x = n, y = fct_reorder(cell_type, order_adj))) +
+  ggplot(plot_dat, aes(x = n, y = fct_reorder(cell_type, order_sig3))) +
   
   ## raw counts first (white fill, thin outline) -------------------------
 geom_col(
   data      = subset(plot_dat, series == "n_raw_signed"),
   fill      = "white",
-  aes(colour = direction),
+  colour    = "grey20",
   width     = 0.8,
   linewidth = 0.3
 ) +
   
-  ## adjusted counts overlay (filled) ------------------------------------
+  ## original adjusted counts overlay (grey, narrower) -------------------
 geom_col(
   data   = subset(plot_dat, series == "n_adjusted"),
+  fill   = "grey80",
+  width  = 0.4,
+  colour = NA
+) +
+  
+  ## sig3 adjusted counts overlay (filled, coloured by direction) --------
+geom_col(
+  data   = subset(plot_dat, series == "n_sig3_adjusted"),
   aes(fill = direction),
   width  = 0.6,
   colour = NA
 ) +
   
-  scale_x_continuous(expand = expansion(mult = c(0.05, 0.05))) +
+  scale_x_continuous(
+    trans  = signed_log10_trans(),
+    breaks = signed_log10_breaks(),
+    labels = scales::label_number(accuracy = 1, big.mark = ","),
+    expand = expansion(mult = c(0.05, 0.05))
+  ) +
   scale_fill_brewer(palette = "Set1") +
   scale_colour_brewer(palette = "Set1", guide = "none") +
   labs(
@@ -1207,6 +1341,8 @@ library(glue)
 library(forcats)
 library(patchwork)
 library(RColorBrewer)
+library(ggupset)
+library(stringr)
 
 # # 1. Count how many cell-type levels you actually have
 # n_types <- 
@@ -1263,22 +1399,22 @@ tidyr::nest(data = -cell_type) |>
       unique() |> 
       list()
   ) |> 
-  mutate(
-    cell_types_to_keep_for_dotplot =
-      purrr::map2(
-        cell_type,
-        cell_types_to_keep_for_dotplot,
-        ~ if (.x == "pdc") {
-          c("cd4 th2 em", "cd8 naive", "cd4 fh em", "cd4 th1 em", "treg")
-        } else if(.x == "nkt") { 
-          c("endothelial", "plasma", "cdc", "cd4 th1 em")
-        } else if(.x == "cdc") { 
-          c("nkt", "mait", "cd4 th2 em", "cd4 th1/th17 em", "cd4 th17 em", "tgd")
-        } else {
-          .y
-        }
-      )
-  ) |> 
+  # mutate(
+  #   cell_types_to_keep_for_dotplot =
+  #     purrr::map2(
+  #       cell_type,
+  #       cell_types_to_keep_for_dotplot,
+  #       ~ if (.x == "pdc") {
+  #         c("cd4 th2 em", "cd8 naive", "cd4 fh em", "cd4 th1 em", "treg")
+  #       } else if(.x == "nkt") { 
+  #         c("endothelial", "plasma", "cdc", "cd4 th1 em")
+  #       } else if(.x == "cdc") { 
+  #         c("nkt", "mait", "cd4 th2 em", "cd4 th1/th17 em", "cd4 th17 em", "tgd")
+  #       } else {
+  #         .y
+  #       }
+  #     )
+  # ) |> 
   mutate(
     ## compute top partner by adjusted signed counts (reusable by any plot)
     top_partner = purrr::map2(
@@ -1329,6 +1465,113 @@ tidyr::nest(data = -cell_type) |>
           dplyr::arrange(dplyr::desc(total_abs), other_cell)
         
         if (nrow(top_tbl) == 0) NA_character_ else top_tbl$other_cell[1]
+      }
+    )
+  ) |>
+  mutate(
+    ## compute top 6 partners for volcano plot (no >=3 restriction)
+    top_partners_all = purrr::map2(
+      data, cell_type,
+      ~ {
+        focal <- .y
+        raw_df <-
+          .x |>
+          dplyr::filter(star) |>
+          dplyr::mutate(
+            direction   = dplyr::if_else(source == focal, "out", "in"),
+            other_cell  = dplyr::if_else(source == focal, target, source),
+            effect_sign = dplyr::if_else(estimate >= 0, "positive", "negative")
+          ) |>
+          dplyr::distinct(pathway_name, other_cell, direction, effect_sign, sample_size)
+        
+        if (nrow(raw_df) == 0) return(character(0))
+        
+        agg_df <- raw_df |>
+          dplyr::group_by(other_cell, direction, effect_sign) |>
+          dplyr::summarise(
+            n_raw       = dplyr::n(),
+            sample_size = mean(sample_size),
+            .groups     = "drop"
+          ) |>
+          dplyr::mutate(
+            sign_n = dplyr::if_else(effect_sign == "positive", 1, -1)
+          )
+        
+        adj_df <- agg_df |>
+          dplyr::mutate(
+            log_sample        = log(sample_size),
+            log_sample_scaled = as.numeric(scale(log_sample)),
+            log_n             = log(n_raw)
+          )
+        
+        if (nrow(adj_df) > 1 && !all(is.na(adj_df$log_sample_scaled))) {
+          model             <- stats::lm(log_n ~ log_sample_scaled, data = adj_df)
+          adj_df$resid_n    <- stats::resid(model)
+          adj_df$n_adjusted <- exp(adj_df$resid_n + mean(adj_df$log_n))
+        } else {
+          adj_df$n_adjusted <- adj_df$n_raw
+        }
+        
+        top_tbl <- adj_df |>
+          dplyr::mutate(n_adjusted_signed = sign_n * n_adjusted) |>
+          dplyr::summarise(total_abs = sum(abs(n_adjusted_signed)), .by = other_cell) |>
+          dplyr::arrange(dplyr::desc(total_abs), other_cell)
+        
+        head(top_tbl$other_cell, 1)
+      }
+    ),
+    
+    ## compute top 6 partners for error bars (>=3 tissues only)
+    top_partners_sig3 = purrr::map2(
+      data, cell_type,
+      ~ {
+        focal <- .y
+        raw_df <-
+          .x |>
+          dplyr::filter(star) |>
+          dplyr::mutate(
+            direction   = dplyr::if_else(source == focal, "out", "in"),
+            other_cell  = dplyr::if_else(source == focal, target, source),
+            effect_sign = dplyr::if_else(estimate >= 0, "positive", "negative")
+          )
+        
+        if (nrow(raw_df) == 0) return(character(0))
+        
+        sig3_counts <- raw_df |>
+          dplyr::summarise(n_tissues = dplyr::n_distinct(tissue), .by = c(pathway_name, other_cell, direction, effect_sign)) |>
+          dplyr::filter(n_tissues >= 3) |>
+          dplyr::summarise(n_sig3_raw = dplyr::n(), .by = c(other_cell, direction, effect_sign))
+        
+        if (nrow(sig3_counts) == 0) return(character(0))
+        
+        sample_size_by_dir <- raw_df |>
+          dplyr::summarise(sample_size = mean(sample_size), .by = c(other_cell, direction))
+        
+        tmp <- sig3_counts |>
+          dplyr::left_join(sample_size_by_dir, by = c("other_cell", "direction")) |>
+          dplyr::mutate(
+            sign_n     = dplyr::if_else(effect_sign == "positive", 1, -1),
+            log_sample = log(pmax(sample_size, 1)),
+            log_n_sig3 = log(pmax(n_sig3_raw, 1))
+          )
+        
+        if (nrow(tmp) > 1 && dplyr::n_distinct(tmp$log_sample[is.finite(tmp$log_sample)]) > 1 &&
+            all(is.finite(tmp$log_sample)) && all(is.finite(tmp$log_n_sig3))) {
+          model <- stats::lm(log_n_sig3 ~ scale(log_sample), data = tmp)
+          tmp$resid_sig3 <- stats::resid(model)
+        } else {
+          tmp$resid_sig3 <- 0
+        }
+        
+        ranked <- tmp |>
+          dplyr::mutate(
+            n_sig3_adjusted = exp(resid_sig3 + mean(log_n_sig3, na.rm = TRUE)),
+            n_sig3_signed   = sign_n * n_sig3_adjusted
+          ) |>
+          dplyr::summarise(total_abs = sum(abs(n_sig3_signed), na.rm = TRUE), .by = other_cell) |>
+          dplyr::arrange(dplyr::desc(total_abs), other_cell)
+        
+        head(ranked$other_cell, 6)
       }
     )
   ) |>
@@ -1398,6 +1641,31 @@ tidyr::nest(data = -cell_type) |>
             n_raw_signed = sign_n * n_raw
           )
         
+        # counts of pathways significant in >= 3 tissues per partner and direction
+        sig3_counts <-
+          .x |>
+          dplyr::filter(star) |>
+          dplyr::mutate(
+            direction   = dplyr::if_else(source == focal, "out", "in"),
+            other_cell  = dplyr::if_else(source == focal, target, source),
+            effect_sign = dplyr::if_else(estimate >= 0, "positive", "negative")
+          ) |>
+          dplyr::summarise(n_tissues = dplyr::n_distinct(tissue), .by = c(pathway_name, other_cell, direction, effect_sign)) |>
+          dplyr::filter(n_tissues >= 3) |>
+          dplyr::summarise(n_sig3_raw = dplyr::n(), .by = c(other_cell, direction, effect_sign))
+        
+        # average sample size per partner/direction to adjust counts
+        sample_size_by_dir <- raw_df |>
+          dplyr::summarise(sample_size = mean(sample_size), .by = c(other_cell, direction))
+        
+        sig3_counts <- sig3_counts |>
+          dplyr::left_join(sample_size_by_dir, by = c("other_cell", "direction")) |>
+          dplyr::mutate(
+            sign_n = dplyr::if_else(effect_sign == "positive", 1, -1),
+            log_sample_sig3 = log(sample_size),
+            log_n_sig3      = log(pmax(n_sig3_raw, 1))
+          )
+        
         adj_df <- raw_df |>
           dplyr::mutate(
             log_sample        = log(sample_size),
@@ -1413,36 +1681,73 @@ tidyr::nest(data = -cell_type) |>
           adj_df$n_adjusted     <- adj_df$n_raw
         }
         
-        adj_df <- adj_df |>
-          dplyr::mutate(
-            n_adjusted_signed = sign_n * n_adjusted,
-            order_stat        = sum(abs(n_adjusted)),
-            .by               = other_cell
-          ) |>
-          dplyr::select(other_cell, direction, order_stat, n_raw_signed, n_adjusted_signed) |>
+        # adjust sig3 counts analogous to above (per partner/direction)
+        if (nrow(sig3_counts) > 0) {
+          sig3_counts <- sig3_counts |>
+            dplyr::mutate(
+              log_sample_scaled = as.numeric(scale(log_sample_sig3)),
+              resid_sig3        = if (nrow(sig3_counts) > 1 && !all(is.na(log_sample_scaled))) stats::resid(stats::lm(log_n_sig3 ~ log_sample_scaled, data = sig3_counts)) else 0,
+              n_sig3_adjusted   = exp(resid_sig3 + mean(log_n_sig3)),
+              n_sig3_adjusted_signed = sign_n * n_sig3_adjusted
+            )
+        } else {
+          sig3_counts <- tibble::tibble(other_cell = character(), direction = character(), n_sig3_adjusted_signed = double())
+        }
+        
+        # order by 3+ adjusted counts (include partners with zero 3+ counts)
+        order_by_sig3 <- sig3_counts |>
+          dplyr::summarise(order_stat = sum(abs(n_sig3_adjusted_signed)), .by = other_cell) |>
+          dplyr::full_join(tibble::tibble(other_cell = unique(adj_df$other_cell)), by = "other_cell") |>
+          dplyr::mutate(order_stat = tidyr::replace_na(order_stat, 0))
+        order_levels <- order_by_sig3 |>
+          dplyr::arrange(order_stat) |>
+          dplyr::pull(other_cell)
+        
+        # long format with three series
+        adj_long <- adj_df |>
+          dplyr::mutate(n_adjusted_signed = sign_n * n_adjusted) |>
+          dplyr::select(other_cell, direction, n_raw_signed, n_adjusted_signed) |>
           tidyr::pivot_longer(
             cols      = c(n_raw_signed, n_adjusted_signed),
             names_to  = "series",
             values_to = "n"
           )
         
-        ggplot2::ggplot(adj_df,
+        sig3_long <- sig3_counts |>
+          dplyr::select(other_cell, direction, n = n_sig3_adjusted_signed) |>
+          dplyr::mutate(series = "n_sig3_adjusted_signed")
+        
+        plot_df_all <- dplyr::bind_rows(adj_long, sig3_long) |>
+          dplyr::left_join(order_by_sig3, by = "other_cell")
+        
+        ggplot2::ggplot(plot_df_all,
                         ggplot2::aes(x = n,
-                                     y = forcats::fct_reorder(other_cell, order_stat),
+                                     y = factor(other_cell, levels = order_levels),
                                      fill = direction)) +
           ggplot2::geom_col(
-            data      = dplyr::filter(adj_df, series == "n_raw_signed"),
+            data      = dplyr::filter(plot_df_all, series == "n_raw_signed"),
             fill      = "white",
             colour    = "grey20",
             linewidth = 0.3,
             width     = 0.8
           ) +
           ggplot2::geom_col(
-            data      = dplyr::filter(adj_df, series == "n_adjusted_signed"),
+            data      = dplyr::filter(plot_df_all, series == "n_adjusted_signed"),
+            fill      = "grey80",
+            colour    = NA,
+            width     = 0.4
+          ) +
+          ggplot2::geom_col(
+            data      = dplyr::filter(plot_df_all, series == "n_sig3_adjusted_signed"),
             colour    = NA,
             width     = 0.6
           ) +
-          ggplot2::scale_x_continuous(labels = abs, expand = ggplot2::expansion(mult = c(0.05, 0.05))) +
+          ggplot2::scale_x_continuous(
+            trans  = signed_log10_trans(),
+            breaks = signed_log10_breaks(),
+            labels = abs,
+            expand = ggplot2::expansion(mult = c(0.05, 0.05))
+          ) +
           ggplot2::scale_fill_manual(values = c("out" = "#377eb8", `in` = "#e41a1c"),
                                      name   = "Direction",
                                      breaks = c("out", "in"),
@@ -1454,112 +1759,617 @@ tidyr::nest(data = -cell_type) |>
       }
     ),
     
-    ## 3) Volcano plot (effect vs post_prob) ------------------------------
+    ## 3) Volcano plot (effect vs P_abs) ------------------------------
     volcano_plot = purrr::pmap(
-      list(data, cell_type, cell_types_to_keep_for_dotplot), ~{
-        ..1 |>
+      list(data, cell_type, top_partners_all), ~{
+        top_cells <- ..3
+        if (length(top_cells) == 0 || all(is.na(top_cells))) {
+          return(ggplot2::ggplot() + ggplot2::theme_void() + ggplot2::ggtitle(glue::glue("{..2}: no partners")))
+        }
+        df <- ..1 |>
           dplyr::mutate(other_cell = dplyr::if_else(source == ..2, target, source)) |>
-          dplyr::filter(other_cell %in% ..3) |>
-          
-          # map to the template's aesthetics
+          dplyr::filter(other_cell %in% top_cells) |>
           dplyr::mutate(
             logFC    = estimate,
-            # use (1 - posterior) as a p-value analogue; guard against zeros
-            PValue   = post_prob,
+            PValue   = 1 - P_abs,
             sig_flag = star
-          ) |>
-          
-          ggplot2::ggplot(ggplot2::aes(x = logFC, y = PValue)) +
-          #ggplot2::geom_errorbar(ggplot2::aes(xmin = ci_lower, xmax = ci_upper, colour = sig_flag)) +
-          
-          ggplot2::geom_point(ggplot2::aes(colour = sig_flag, size = sig_flag)) +
+          )
+        
+        ggplot2::ggplot(df, ggplot2::aes(x = logFC, y = PValue)) +
+          ggplot2::geom_point(
+            data  = dplyr::filter(df, sig_flag),
+            ggplot2::aes(colour = tissue),
+            size  = 0.5,
+            alpha = 1
+          ) +
+          ggplot2::geom_point(
+            data  = dplyr::filter(df, !sig_flag),
+            colour = "black",
+            size   = 0.1,
+            alpha  = 0.2
+          ) +
           ggplot2::scale_y_continuous(trans = tidybulk::log10_reverse_trans()) +
-          ggplot2::scale_color_manual(values = c(`TRUE` = "red", `FALSE` = "black")) +
-          ggplot2::scale_size_manual(values = c(`TRUE` = 0.5, `FALSE` = 0.1)) +
+          ggplot2::scale_colour_discrete(drop = FALSE) +
           ggplot2::facet_wrap(~other_cell) +
           ggplot2::labs(
             title = paste("Volcano:", ..2),
             x     = "Effect (signed max |estimate|)",
-            y     = "Posterior (shown as 1 - post_prob)"
+            y     = "Posterior (shown as 1 - P_abs)"
           ) +
           ggplot2::theme_minimal(base_size = 14) +
           ggplot2::theme(legend.position = "bottom")
       }
     ),
     
-    ## 4) Error bar plot for top partner (effect with CI per pathway) ------
-    top_partner_errorbar_plot = purrr::pmap(
-      list(data, cell_type, top_partner), ~{
-        focal    <- ..2
-        top_cell <- ..3
+    ## 4a) Error bar DATA for top partners (>=3 tissues) ------------------
+    top_partner_errorbar_data = purrr::pmap(
+      list(data, cell_type, top_partners_sig3), ~{
+        focal     <- ..2
+        top_cells <- ..3
+        top_cells <- top_cells[!is.na(top_cells)]
+        if (length(top_cells) == 0) return(tibble::tibble())
         
-        if (is.na(top_cell) || length(top_cell) == 0) {
-          return(ggplot2::ggplot() + ggplot2::theme_void() + ggplot2::ggtitle(glue::glue("{focal}: no data")))
+        purrr::map_dfr(top_cells, function(top_cell) {
+          # pathways with >=3 tissues for this partner
+          paths_sig3 <- ..1 |>
+            dplyr::mutate(other_cell = dplyr::if_else(source == focal, target, source)) |>
+            dplyr::filter(other_cell == top_cell, star) |>
+            dplyr::summarise(n_tissues = dplyr::n_distinct(tissue), .by = pathway_name) |>
+            dplyr::filter(n_tissues >= 3) |>
+            dplyr::pull(pathway_name)
+          
+          if (length(paths_sig3) == 0) return(tibble::tibble())
+          
+          ..1 |>
+            dplyr::mutate(other_cell = dplyr::if_else(source == focal, target, source)) |>
+            dplyr::filter(other_cell == top_cell, star, pathway_name %in% paths_sig3) |>
+            dplyr::summarise(
+              abs_est  = abs(estimate),
+              estimate = estimate[which.max(abs_est)],
+              ci_lower = ci_lower[which.max(abs_est)],
+              ci_upper = ci_upper[which.max(abs_est)],
+              .by = c(pathway_name, tissue)
+            ) |>
+            dplyr::mutate(partner = top_cell) |>
+            dplyr::relocate(partner, .before = 1)
+        })
+      }
+    ),
+    
+    ## 4) Error bar plots for top 6 partners (effect with CI per pathway) ------
+    top_partner_errorbar_plot = purrr::map2(
+      top_partner_errorbar_data, cell_type, ~{
+        focal <- ..2
+        dat   <- ..1
+        if (nrow(dat) == 0) {
+          return(ggplot2::ggplot() + ggplot2::theme_void() + ggplot2::ggtitle(glue::glue("{focal}: no partners")))
         }
         
-        df_top <- ..1 |>
-          dplyr::mutate(other_cell = dplyr::if_else(source == focal, target, source)) |>
-          dplyr::filter(other_cell == top_cell, star) |>
-          dplyr::summarise(
-            abs_est = abs(estimate),
-            estimate = estimate[which.max(abs_est)],
-            ci_lower = ci_lower[which.max(abs_est)],
-            ci_upper = ci_upper[which.max(abs_est)],
-            .by = pathway_name
-          ) |>
-          dplyr::arrange(estimate)
-        
-        if (nrow(df_top) == 0) {
-          return(ggplot2::ggplot() + ggplot2::theme_void() + ggplot2::ggtitle(glue::glue("{focal} vs {top_cell}: no pathways")))
+        {
+          df <- dat |>
+            dplyr::mutate(order_stat = mean(estimate), .by = c(partner, pathway_name))
+          
+          # build per-partner ordered pathway labels
+          level_tbl <- df |>
+            dplyr::summarise(order_path = mean(order_stat, na.rm = TRUE), .by = c(partner, pathway_name)) |>
+            dplyr::arrange(partner, order_path) |>
+            dplyr::mutate(y_level = paste(partner, pathway_name, sep = "||")) |>
+            dplyr::summarise(levels_vec = list(y_level), .by = partner)
+          
+          levels_all <- unique(unlist(level_tbl$levels_vec))
+          
+          df2 <- df |>
+            dplyr::left_join(level_tbl, by = "partner") |>
+            dplyr::mutate(y_lab = paste(partner, pathway_name, sep = "||")) |>
+            dplyr::mutate(y_var = factor(y_lab, levels = levels_all))
+          
+          ggplot2::ggplot(df2, ggplot2::aes(x = estimate, y = y_var)) +
+            ggplot2::geom_vline(xintercept = 0, colour = "grey60", linetype = "dashed") +
+            ggplot2::geom_errorbarh(ggplot2::aes(xmin = ci_lower, xmax = ci_upper, colour = tissue), height = 0.25) +
+            ggplot2::geom_point(ggplot2::aes(colour = tissue), size = 1.2) +
+            ggplot2::scale_y_discrete(labels = function(x) stringr::str_replace(x, ".*\\|\\|", "")) +
+            ggplot2::facet_grid(partner ~ ., scales = "free_y", space = "free_y") +
+            ggplot2::labs(x = "Effect (estimate with CI)", y = NULL) +
+            ggplot2::theme_minimal(base_size = 14) +
+            ggplot2::theme(legend.position = "bottom",
+                           axis.text.x = ggplot2::element_text(angle = 45, hjust = 1))
         }
-        
-        ggplot2::ggplot(df_top, ggplot2::aes(x = forcats::fct_reorder(pathway_name, estimate), y = estimate)) +
-          ggplot2::geom_hline(yintercept = 0, colour = "grey60", linetype = "dashed") +
-          ggplot2::geom_errorbar(ggplot2::aes(ymin = ci_lower, ymax = ci_upper), width = 0.25, colour = "grey40") +
-          ggplot2::geom_point(colour = "black", size = 1.2) +
-          ggplot2::coord_flip() +
-          ggplot2::labs(
-            x = NULL,
-            y = "Effect (estimate with CI)",
-            title = glue::glue("{focal} vs {top_cell} — significant pathways")
-          ) +
-          ggplot2::theme_minimal(base_size = 14) +
-          ggplot2::theme(legend.position = "bottom")
       }
     )
   )
 
-## example assembly ------------------------------------------------------
-combined_plot <-
-  plot_df |>
-  filter(cell_type %in% "cdc") |>
-  mutate(
-    panel = pmap(
-      list(volcano_plot, pyramid_plot, top_partner_errorbar_plot),
-      ~ ..1 + ..2 + ..3 + plot_layout(widths = c(4, 1, 1))   # 4-to-1 ratio
-    )
-  ) |>
-  pull(panel) |>
-  wrap_plots(ncol = 1, guides = "collect") &       # one row per cell-type, shared guides
-  theme(legend.position = "none")  
+# add a boxplot for the macrophage against muscle for the pathways VEGF, THBS, LIFR, OSM, IL-6
+# Using the original data and age bins in the x axis
 
-plot_df |>
-  pull(top_partner_errorbar_plot) |> 
+
+
+
+# Locate branch and read estimates_chunk for a given combination ----------
+store_path <- "/vast/scratch/users/mangiola.s/cellchat_brms_1_6_12_d/_targets"
+
+# set your focal triplet
+focal_source   <- "macrophage"
+focal_target   <- "muscle"
+focal_pathway  <- "LIFR"
+
+# find which branch of cell_pathway_combination contains it
+cell_pathway_combination = 
+  tar_read(cell_pathway_combination, store = store_path) |>
+  rowid_to_column() |>
+  filter(source == focal_source, target == focal_target, pathway_name == focal_pathway)
+
+target_number = cell_pathway_combination |> pull(tar_group) |> _[[1]]
+
+# Fixed and total (coef) age_bin effects for the selected model
+selected_fit <- tar_read(estimates_chunk, store = store_path, branches = target_number) |>
+  dplyr::filter(pathway_name == focal_pathway) 
+
+selected_fit = readRDS("estimates_chunk_macrohage_muscle_LIFR.rds")
+library(brms)
+selected_fit = selected_fit |>
+  dplyr::pull(brms_fit) |>
   _[[1]]
 
-library(dplyr)
-library(stringr)
+# Population-level (fixed) effects: terms starting with age_bin
+fixed_age_bins <- brms::fixef(selected_fit) |>
+  tibble::as_tibble(rownames = "term") |>
+  dplyr::filter(stringr::str_starts(term, "age_bin")) |>
+  filter(!term |> str_detect("sex")) |>
+  dplyr::rename(estimate = Estimate, se = Est.Error, lower = Q2.5, upper = Q97.5)
 
-data_for_plot |>
-  filter(
-    (source == "cdc" & target == "nkt") | (source == "nkt" & target == "cdc"),
-    str_detect(pathway_name, "CNTN")
+fixed_age_bins
+
+## Line plot with SE (±1 SE)
+fixed_age_bins_se_plot <-
+  fixed_age_bins |>
+  dplyr::mutate(age_bin = forcats::fct_relevel(
+    term,
+    c("age_binInfancy", "age_binChildhood", "age_binAdolescence", "age_binYoungAdulthood", "age_binMiddleAge", "age_binSenior_60", "age_binSenior_70")
+  )) |>
+  ggplot2::ggplot(ggplot2::aes(x = age_bin, y = estimate, group = 1)) +
+  ggplot2::geom_ribbon(ggplot2::aes(ymin = estimate - se, ymax = estimate + se), fill = "grey70", alpha = 0.3) +
+  ggplot2::geom_line(colour = "black") +
+  ggplot2::geom_point(size = 1.2) +
+  ggplot2::labs(x = "Age bin", y = "Estimate (± SE)") +
+  ggplot2::theme_minimal()
+
+## Adjusted values (residual-based) and boxplot along ageing -------------
+# Use residuals + fixed-effect fitted (no random effects) per observation
+adj_tbl <- remove_unwanted_effect_new(
+  fit = selected_fit,
+  newdata = 
+    selected_fit$data |>
+    mutate(assay_groups_altered=NA, sex = NA, ethnicity_groups_imputed = NA, disease_groups_altered = NA, dataset_id_altered = NA), 
+  robust = TRUE,
+  correct_by_offset = FALSE,
+  re_formula = ~0
+) |>
+  dplyr::rename_with(~ stringr::str_replace(.x, "^adjusted___", "adj_"))
+
+adj_dat <- dplyr::bind_cols(selected_fit$data, adj_tbl)
+
+# Order age bins
+# Map pretty labels seen in data to model term order
+age_term_levels <- c(
+  "Infancy","Childhood","Adolescence",
+  "Young Adulthood","Middle Age", "Senior_50", "Senior_60","Senior_70"
+)
+
+present_bins <- adj_dat |>
+  dplyr::mutate(age_label = stringr::str_replace(age_bin, "age_bin", "")) |>
+  dplyr::pull(age_label) |>
+  unique() |>
+  intersect(age_term_levels)
+
+adjusted_age_boxplot <-
+  adj_dat |>
+  dplyr::mutate(age_label = stringr::str_replace(age_bin, "age_bin", "")) |>
+  dplyr::mutate(age_label = forcats::fct_relevel(age_label, intersect(age_term_levels, unique(as.character(age_label))))) |>
+  # compute median per (age_label, tissue_groups) and build per-facet ordered labels
+  dplyr::group_by(age_label, tissue_groups) |>
+  dplyr::summarise(median_adj = stats::median(adj_Estimate, na.rm = TRUE), .groups = "drop") |>
+  dplyr::arrange(age_label, dplyr::desc(median_adj), tissue_groups) |>
+  dplyr::mutate(x_level = paste(age_label, tissue_groups, sep = "||")) |>
+  dplyr::summarise(levels_vec = list(x_level), .by = age_label) -> .facet_levels
+
+levels_all <- unique(unlist(.facet_levels$levels_vec))
+
+adj_ordered <- adj_dat |>
+  dplyr::mutate(age_label = stringr::str_replace(age_bin, "age_bin", "")) |>
+  dplyr::mutate(age_label = forcats::fct_relevel(age_label, intersect(age_term_levels, unique(as.character(age_label))))) |>
+  dplyr::left_join(.facet_levels, by = "age_label") |>
+  dplyr::mutate(x_lab = paste(age_label, tissue_groups, sep = "||")) |>
+  dplyr::mutate(x_var = factor(x_lab, levels = levels_all))
+
+adjusted_age_boxplot <-
+  ggplot2::ggplot(adj_ordered, ggplot2::aes(x = x_var, y = adj_Estimate, fill = tissue_groups)) +
+  ggplot2::geom_boxplot(outlier.shape = NA, width = 0.6) +
+  geom_jitter(shape = ".", width = 0.2, height = 0, size = 0.5, alpha = 0.5) +
+  ggplot2::facet_grid(. ~ age_label, scales = "free_x", space = "free_x") +
+  ggplot2::scale_x_discrete(labels = function(x) stringr::str_replace(x, ".*\\|\\|", "")) +
+  ggplot2::labs(x = "Tissue (per age bin)", y = "Adjusted value", fill = "Tissue") +
+  ggplot2::theme_minimal(base_size = 13) +
+  ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1)) +
+  ggplot2::theme(legend.position = "bottom")
+
+
+
+
+# Print table for cdc representing the error bar plot (from nested data)
+plot_df |>
+  dplyr::filter(cell_type == "macrophage") |>
+  select(top_partner_errorbar_data) |>
+  unnest(top_partner_errorbar_data) |>
+  print(n=99)
+
+
+maintenance_paths <- c("VEGF", "EPHA", "CDH5", "THBS", "LIFR", "OSM")
+inflammation_paths <- c("IL6", "IL1", "COMPLEMENT", "MHC-I", "PARs", "CD40")
+both_paths <- c("PLAU", "ApoA", "EPHA", "WNT", "PDGF")
+
+
+# Pyramid plot by pathway class (stacked by tissue; up/down by sign)
+pyr_dat <-
+  plot_df |>
+  dplyr::filter(cell_type == "macrophage") |>
+  tidyr::unnest(top_partner_errorbar_data) |>
+  dplyr::mutate(
+    pathway_class = dplyr::case_when(
+      pathway_name %in% both_paths ~ "both",
+      pathway_name %in% maintenance_paths ~ "maintenance",
+      pathway_name %in% inflammation_paths ~ "inflammation",
+      TRUE ~ "other"
+    )
   ) |>
-  mutate(direction = if_else(source == "cdc", "cdc->nkt", "nkt->cdc")) |>
-  transmute(
-    pathway_name, tissue, direction,
-    Hypothesis,           # from hypothesis_age_monotonic
-    estimate, ci_lower, ci_upper,
-    post_prob, star
+  dplyr::summarise(
+    total_estimate = sum(estimate, na.rm = TRUE),
+    .by = c(pathway_class, pathway_name, tissue)
   ) |>
-  arrange(direction, tissue, pathway_name)
+  dplyr::mutate(total_abs = sum(abs(total_estimate)), .by = c(pathway_class, pathway_name))
+
+pyramid_plot_by_class <-
+  ggplot2::ggplot(
+    pyr_dat,
+    ggplot2::aes(y = forcats::fct_reorder(pathway_name, total_abs), x = total_estimate, fill = tissue)
+  ) +
+  ggplot2::geom_vline(xintercept = 0, colour = "grey70", linewidth = 0.3) +
+  ggplot2::geom_col(width = 0.8) +
+  ggplot2::facet_grid(pathway_class ~ ., scales = "free_y", space = "free_y") +
+  ggplot2::labs(y = NULL, x = "Accumulated effect (stacked by tissue)", fill = "Tissue") +
+  ggplot2::theme_minimal(base_size = 13) +
+  ggplot2::theme(legend.position = "bottom")
+
+
+
+# UMAP of macrophage vs muscle cells from cellNexus
+library(cellNexus)
+library(duckdb)
+library(targets)
+library(dplyr)
+
+# For the 
+# focal_source   <- "macrophage"
+# focal_target   <- "muscle"
+# focal_pathway  <- "LIFR"
+# get the tissue list of significant pathways
+sig_tissues <-
+  plot_df |>
+  dplyr::filter(cell_type == focal_source) |>
+  select(top_partner_errorbar_data) |>
+  tidyr::unnest(top_partner_errorbar_data) |>
+  filter(partner == focal_target, pathway_name == focal_pathway ) |>
+  dplyr::distinct(tissue) |>
+  dplyr::pull(tissue)
+
+sample_list =
+  tar_read(cellchat_file, store = store_path) |> 
+  prepare_data_for_brms(
+    focal_source, focal_target, focal_pathway,
+    ethnicity_imputed =  tar_read(ethnicity_imputed, store = store_path)
+    ) |>
+  distinct(sample_id) |>
+  pull(sample_id)
+
+
+macro_muscle = 
+  get_metadata() |>
+  filter(cell_type_unified %in% c("macrophage", "muscle"), sample_id %in% sample_list, tissue_groups %in% sig_tissues) |>
+  filter(empty_droplet == FALSE, alive == TRUE, scDblFinder.class != "doublet", feature_count>=8000) |> 
+  get_single_cell_experiment(cache_directory = "/vast/projects/cellxgene_curated/cellNexus/")
+
+library(HDF5Array)
+library(DelayedArray)
+
+
+job::job({
+  setAutoBlockSize(size = 1e+09) 
+  macro_muscle = 
+    macro_muscle |> 
+    HDF5Array::saveHDF5SummarizedExperiment(
+      "macro_muscle_communication_5_tissues_hdf5", 
+      replace = TRUE, 
+      # as.sparse = TRUE, 
+      verbose = TRUE
+    )
+})
+
+
+macro_muscle = 
+  macro_muscle |> 
+  filter(tissue_groups %in% c("trachea", "integumentary system (skin)", "cardiovascular system", "female reproductive system", "large intestine")) |> 
+  mutate(n = n(), .by = sample_id) |> 
+  filter(n > 500)
+
+# With Bioconductor run a normalisation pipeline, variable genes and PCA
+library(SingleCellExperiment)
+library(scuttle)
+library(scran)
+library(scater)
+library(BiocSingular)
+library(BiocParallel)
+library(Matrix)
+library(DelayedArray)
+
+# Parallel + IO tuning for large data
+BiocParallel::register(BiocParallel::MulticoreParam(workers = max(1, parallelly::availableCores() - 1)))
+DelayedArray::setAutoBlockSize(1e9)
+HDF5Array::setHDF5DumpDir(tempdir())
+HDF5Array::setHDF5DumpCompressionLevel(6)
+
+# Library-size normalization and log-transform (block-aware size factors if batch exists)
+norm_block <- macro_muscle$sample_id
+macro_muscle <- scuttle::computeLibraryFactors(macro_muscle, BPPARAM = BiocParallel::bpparam())
+macro_muscle <- scuttle::logNormCounts(macro_muscle, BPPARAM = BiocParallel::bpparam())
+
+
+# Regress out ribosomal effects before PCA
+# Identify ribosomal genes using gene symbols (genes starting with RPS or RPL)
+add_gene_symbols_to_rowdata <- function(sce, species = "human") {
+  library(AnnotationDbi)
+  
+  ids <- rownames(sce)
+  
+  if (species == "human") {
+    library(org.Hs.eg.db)
+    tryCatch({
+      map <- AnnotationDbi::select(org.Hs.eg.db, keys = ids, columns = c("SYMBOL"), keytype = "ENSEMBL")
+    }, error = function(e) {
+      warning("Could not map Ensembl IDs to symbols: ", e$message)
+      return(sce)
+    })
+  } else {
+    library(org.Mm.eg.db)
+    tryCatch({
+      map <- AnnotationDbi::select(org.Mm.eg.db, keys = ids, columns = c("SYMBOL"), keytype = "ENSEMBL")
+    }, error = function(e) {
+      warning("Could not map Ensembl IDs to symbols: ", e$message)
+      return(sce)
+    })
+  }
+  
+  # Remove duplicates and NAs, keep first mapping for each Ensembl ID
+  map <- map[!is.na(map$SYMBOL), ]
+  map <- map[!duplicated(map$ENSEMBL), ]
+  
+  # Create mapping vector
+  symbol_mapping <- setNames(map$SYMBOL, map$ENSEMBL)
+  
+  # Add to rowData
+  SummarizedExperiment::rowData(sce)$gene_symbol <- symbol_mapping[SummarizedExperiment::rownames(sce)]
+  
+  cat("Mapped", sum(!is.na(SummarizedExperiment::rowData(sce)$gene_symbol)), "out of", nrow(sce), "genes to symbols\n")
+  
+  return(sce)
+}
+
+# Add gene symbols to rowData using the new function
+macro_muscle <- add_gene_symbols_to_rowdata(macro_muscle, "human")
+
+# Identify ribosomal genes (RPS* and RPL*)
+ribo_mask <- grepl("^RPS|^RPL", rowData(macro_muscle)$gene_symbol)
+ribo_genes <- rownames(macro_muscle)[ribo_mask & !is.na(rowData(macro_muscle)$gene_symbol)]
+cat("Found", length(ribo_genes), "ribosomal genes\n")
+
+# Calculate ribosomal percentage per cell
+macro_muscle <- scuttle::addPerCellQC(
+  macro_muscle,
+  subsets    = list(Ribo = ribo_genes),  # character names are fine
+  assay.type = "counts",
+  BPPARAM    = BiocParallel::SerialParam()
+)
+
+# Use scater::runPCA with variables_to_regress to regress out ribosomal percentage
+# This will be done during PCA calculation below
+library(limma)
+# Regress a continuous covariate from logcounts
+
+# Simple function: loop across samples to avoid memory issues
+residualize_assay_per_sample <- function(
+    sce,
+    assay_from = "logcounts",
+    covariate_col = "subsets_Ribo_percent",
+    sample_col = "sample_id",
+    outfile = "logcounts_riboRegressed_bySample.h5",
+    outname = "logcounts_noRibo",
+    show_progress = TRUE,
+    BPPARAM = BiocParallel::bpparam()
+) {
+  library(limma)
+  library(HDF5Array)
+  library(BiocParallel)
+  
+  # Create HDF5 file for the result
+  if (file.exists(outfile)) {
+    unlink(outfile)
+  }
+  
+  h5createFile(outfile)
+  h5createDataset(outfile, outname, 
+                  dims = dim(assay(sce, assay_from)), storage.mode = "double")
+  
+  # Get sample info
+  samples <- factor(colData(sce)[[sample_col]])
+  cov_all <- as.numeric(colData(sce)[[covariate_col]])
+  sample_levels <- levels(samples)
+  
+  # Function to process one sample
+  process_sample <- function(i) {
+    lev <- sample_levels[i]
+    col_idx <- which(samples == lev)
+    
+    if (length(col_idx) > 0) {
+      # Get data for this sample
+      sample_data <- as.matrix(assay(sce, assay_from)[, col_idx, drop = FALSE])
+      cov_sub <- cov_all[col_idx]
+      
+      # Regress out ribosomal effects
+      sample_res <- removeBatchEffect(
+        x = sample_data,
+        covariates = as.matrix(cov_sub)
+      )
+      
+      return(list(col_idx = col_idx, data = sample_res))
+    }
+    return(NULL)
+  }
+  
+  # Process samples in parallel using BiocParallel
+  if (show_progress) {
+    cat("Processing", length(sample_levels), "samples...\n")
+  }
+  
+  results <- BiocParallel::bplapply(
+    seq_along(sample_levels), 
+    process_sample, 
+    BPPARAM = BPPARAM
+  )
+  
+  # Write results to HDF5
+  if (show_progress) {
+    cat("Writing results to HDF5...\n")
+  }
+  
+  for (result in results) {
+    if (!is.null(result)) {
+      h5write(result$data, outfile, outname, 
+              index = list(NULL, result$col_idx))
+    }
+  }
+  
+  # Load as DelayedArray and add to sce
+  assay(sce, outname) <- HDF5Array(outfile, outname)
+  sce
+}
+
+# Use the function
+macro_muscle <- residualize_assay_per_sample(
+  sce = macro_muscle,
+  assay_from = "logcounts",
+  covariate_col = "subsets_Ribo_percent",
+  sample_col = "sample_id",
+  outfile = "logcounts_riboRegressed_bySample.h5",
+  outname = "logcounts_noRibo",
+  BPPARAM = BiocParallel::SerialParam()
+)
+
+
+
+# Select highly variable genes (HVGs) with blocks for batch/sample
+var_block <- macro_muscle$sample_id
+gene_var <- scran::modelGeneVar(macro_muscle, block = var_block, BPPARAM = BiocParallel::bpparam())
+hvg <- scran::getTopHVGs(gene_var, n = 500)
+
+# Run PCA on HVGs using IRLBA (truncated SVD), no centering of zeros (fast)
+cores <- max(1, as.integer(parallelly::availableCores()) - 1)
+RhpcBLASctl::blas_set_num_threads(cores)
+RhpcBLASctl::omp_set_num_threads(cores)
+
+set.seed(42)
+macro_muscle <- scater::runPCA(
+  macro_muscle,
+  subset_row = hvg,
+  ntop = 500,
+  ncomponents = 50,
+  name = "PCA",
+  exprs_values = "logcounts",
+  scale = FALSE,
+  BSPARAM = BiocSingular::IrlbaParam(deferred = TRUE)
+)
+
+# # Optional: variance explained and coordinates
+# pca_var_explained <- attr(SingleCellExperiment::reducedDim(macro_muscle, "PCA"), "percentVar")
+# pca_coords <- as.data.frame(SingleCellExperiment::reducedDim(macro_muscle, "PCA"))[, 1:2]
+# colnames(pca_coords) <- c("PC1", "PC2")
+# pca_coords$cell_type_unified <- SummarizedExperiment::colData(macro_muscle)[, "cell_type_unified"]
+
+# Run harmony on the SingleCellExperiment
+library(harmony)
+macro_muscle <- harmony::RunHarmony(macro_muscle, "sample_id", plot_convergence = TRUE)
+
+
+# UMAP from HARMONY embedding (uwot with threads)
+macro_muscle <- scater::runUMAP(
+  macro_muscle,
+  dimred = "HARMONY",
+  name = "UMAP_HARMONY",
+  ncomponents = 2,
+  n_neighbors = 30,
+  min_dist = 0.3,
+  n_threads = max(1, as.integer(parallelly::availableCores()) - 1)
+)
+
+job::job({
+  macro_muscle |> HDF5Array::quickResaveHDF5SummarizedExperiment()
+})
+
+# macro_muscle = HDF5Array::loadHDF5SummarizedExperiment("macro_muscle_communication_5_tissues_hdf5")
+
+
+cols <- c("dataset_id", "tissue_groups", "cell_type_unified", "cell_type", "sample_id")
+plots <- lapply(cols, function(cl) {
+  categories <- SummarizedExperiment::colData(macro_muscle)[[cl]]
+  n_colors <- length(unique(categories))
+  pal <- grDevices::hcl.colors(n_colors, palette = "Dark3")
+  scater::plotReducedDim(
+    macro_muscle,
+    dimred = "UMAP_HARMONY",
+    colour_by = cl,
+    point_size = 0.2,
+    point_alpha = 0.6, 
+    other_fields = "tissue_groups",
+    rasterise = TRUE
+  ) +
+    ggplot2::facet_wrap(~ tissue_groups, ncol = 4) +
+    ggplot2::scale_color_manual(values = pal, na.value = "#BDBDBD") +
+    ggplot2::ggtitle(paste("Coloured by", cl))
+})
+patchwork::wrap_plots(plots, ncol = 2)
+
+
+##  assembly ------------------------------------------------------
+mac_row <- plot_df |>
+  dplyr::filter(cell_type %in% "macrophage") |>
+  dplyr::slice(1)
+
+pyr_plot  <- mac_row$pyramid_plot[[1]]
+err_plot  <- mac_row$top_partner_errorbar_plot[[1]]
+volc_plot <- mac_row$volcano_plot[[1]]
+
+right_block <-  ((volc_plot / fixed_age_bins_se_plot) | pyramid_plot_by_class) +
+  patchwork::plot_layout(widths = c(2,1))
+
+final_combined_plot <-
+  (
+    (plot_overall | pyr_plot | err_plot | right_block) +
+      plot_layout(widths = c(1, 1, 1, 6))
+  ) /
+  adjusted_age_boxplot +
+  plot_layout(heights = c(5, 1), guides = "collect")
+
+ggsave(
+  plot = final_combined_plot,
+  filename = "combined_plot_.pdf",
+  width = 40,
+  height = 20
+)
+
