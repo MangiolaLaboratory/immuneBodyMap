@@ -1165,6 +1165,47 @@ library(purrr)
 library(ggplot2)
 library(forcats)
 
+# Multipanel theme from https://gist.githubusercontent.com/stemangiola/fc67b08101df7d550683a5100106561c/raw/a0853a1a4e8a46baf33bad6268b09001d49faf51/ggplot_theme_multipanel
+theme_multipanel <- theme_bw() + 
+  theme(
+    panel.border = element_blank(),
+    axis.line = element_line(size=0.1),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "bottom",
+    strip.background = element_blank(),
+    axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0), size = 5),
+    axis.title.x = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0), size = 5),
+    panel.spacing.x = unit(0.1, "lines"),
+    axis.text.x = element_text(size=5),
+    axis.text.y = element_text(size=5),
+    strip.text.x = element_text(size = 5),
+    strip.text.y = element_text(size = 5),
+    # legend
+    legend.key.size = unit(2, 'mm'),
+    legend.key.height = unit(2, 'mm'),
+    legend.key.width = unit(2, 'mm'),
+    legend.spacing = unit(0.5, 'mm'),
+    legend.spacing.x = unit(0.5, 'mm'),
+    legend.spacing.y = unit(0.5, 'mm'),
+    legend.margin = margin(0, 0, 0, 0, "mm"),
+    legend.title = element_text(size=5),
+    legend.text = element_text(size=4),
+    # Avoid text clipping for facets
+    strip.clip = "off",
+    # Title
+    plot.title = element_text(size=5),
+    axis.line.x = element_line(size=0.2),
+    axis.line.y = element_line(size=0.2),
+    axis.ticks.x = element_line(size=0.2),
+    axis.ticks.y = element_line(size=0.2)
+  )
+
+# Useful function for dropping leading zeros
+dropLeadingZero <- function(l){
+  stringr::str_replace(l, '0(?=.)', '')
+}
+
 # Signed log10 transform for symmetric scaling around zero
 signed_log10_trans <- function() {
   scales::trans_new(
@@ -1321,6 +1362,12 @@ geom_col(
     labels = scales::label_number(accuracy = 1, big.mark = ","),
     expand = expansion(mult = c(0.05, 0.05))
   ) +
+  scale_y_discrete(labels = function(x) {
+    dplyr::case_when(
+      x == "cd4 th1/th17 em" ~ "cd4 th1/17 em",
+      TRUE ~ x
+    )
+  }) +
   scale_fill_brewer(palette = "Set1") +
   scale_colour_brewer(palette = "Set1", guide = "none") +
   labs(
@@ -1328,8 +1375,7 @@ geom_col(
     y    = NULL,
     fill = "Direction"
   ) +
-  theme_minimal(base_size = 14) +
-  theme(legend.position = "bottom")
+  theme_multipanel
 
 # Single cell type plots
 library(dplyr)
@@ -1344,6 +1390,9 @@ library(RColorBrewer)
 library(ggupset)
 library(stringr)
 
+# Load tissue color utilities
+source("tissue_color_utils.R")
+
 # # 1. Count how many cell-type levels you actually have
 # n_types <- 
 #   data_for_plot |>
@@ -1351,7 +1400,7 @@ library(stringr)
 #   distinct(other_cell_type) |> 
 #   nrow()
 
-# 2. Generate an “extended” Set2 of exactly that many colours
+# 2. Generate an "extended" Set2 of exactly that many colours
 extended_cols <- colorRampPalette(brewer.pal(8, "Set2"))(30)
 
 plot_df <-
@@ -1602,15 +1651,14 @@ tidyr::nest(data = -cell_type) |>
             colour = "grey20"
           ) +
           ggplot2::facet_wrap(~other_cell) + 
-          ggplot2::theme_minimal(base_size = 14) +
-          ggplot2::theme(legend.position = "bottom") +
+          theme_multipanel +
           ggplot2::labs(
             colour = "Tissue",              # <<< changed
             size   = "Total sample\nsize",
             x      = "Number of tissues",
             y      = "Mean effect"
           ) +
-          ggplot2::scale_colour_discrete(drop = FALSE) +   # <<< changed: generic discrete scale
+          get_tissue_scale(type = "color", drop = FALSE) +   # <<< changed: use common tissue scale
           ggplot2::ggtitle(..2)
       }
     ),
@@ -1722,8 +1770,7 @@ tidyr::nest(data = -cell_type) |>
         
         ggplot2::ggplot(plot_df_all,
                         ggplot2::aes(x = n,
-                                     y = factor(other_cell, levels = order_levels),
-                                     fill = direction)) +
+                                     y = factor(other_cell, levels = order_levels))) +
           ggplot2::geom_col(
             data      = dplyr::filter(plot_df_all, series == "n_raw_signed"),
             fill      = "white",
@@ -1739,6 +1786,7 @@ tidyr::nest(data = -cell_type) |>
           ) +
           ggplot2::geom_col(
             data      = dplyr::filter(plot_df_all, series == "n_sig3_adjusted_signed"),
+            ggplot2::aes(fill = direction),
             colour    = NA,
             width     = 0.6
           ) +
@@ -1748,13 +1796,9 @@ tidyr::nest(data = -cell_type) |>
             labels = abs,
             expand = ggplot2::expansion(mult = c(0.05, 0.05))
           ) +
-          ggplot2::scale_fill_manual(values = c("out" = "#377eb8", `in` = "#e41a1c"),
-                                     name   = "Direction",
-                                     breaks = c("out", "in"),
-                                     labels = c("Out (source)", "In (target)")) +
+          ggplot2::scale_fill_brewer(palette = "Set1") +
           ggplot2::labs(x = "Number of pathways", y = NULL) +
-          ggplot2::theme_minimal(base_size = 14) +
-          ggplot2::theme(legend.position = "bottom") +
+          theme_multipanel +
           ggplot2::ggtitle(focal)
       }
     ),
@@ -1775,6 +1819,37 @@ tidyr::nest(data = -cell_type) |>
             sig_flag = star
           )
         
+        # Create labels for significant points (only for LIFR axis)
+        df_labeled <- df |>
+          dplyr::filter(sig_flag) |>
+          dplyr::mutate(
+            label = dplyr::if_else(
+              pathway_name == "LIFR",
+              paste(
+                dplyr::case_when(
+                  other_cell == "muscle" ~ "muscle cell",
+                  TRUE ~ other_cell
+                ),
+                dplyr::case_when(
+                  tissue == "integumentary system (skin)" ~ "skin",
+                  tissue == "female reproductive system" ~ "f. reproduct",
+                  tissue == "cardiovascular system" ~ "cardiovascular",
+                  tissue == "large intestine" ~ "large intestine",
+                  tissue == "respiratory system" ~ "respiratory",
+                  tissue == "adipose tissue" ~ "adipose",
+                  tissue == "liver" ~ "liver",
+                  tissue == "thymus" ~ "thymus",
+                  tissue == "trachea" ~ "trachea",
+                  tissue == "endocrine system" ~ "endocrine",
+                  tissue == "miscellaneous glands" ~ "glands",
+                  TRUE ~ tissue
+                ),
+                sep = "\n"
+              ),
+              NA_character_
+            )
+          )
+        
         ggplot2::ggplot(df, ggplot2::aes(x = logFC, y = PValue)) +
           ggplot2::geom_point(
             data  = dplyr::filter(df, sig_flag),
@@ -1788,16 +1863,27 @@ tidyr::nest(data = -cell_type) |>
             size   = 0.1,
             alpha  = 0.2
           ) +
-          ggplot2::scale_y_continuous(trans = tidybulk::log10_reverse_trans()) +
-          ggplot2::scale_colour_discrete(drop = FALSE) +
+          # Add ggrepel labels only for LIFR axis
+          ggrepel::geom_text_repel(
+            data = df_labeled,
+            ggplot2::aes(label = label),
+            size = 1.5,
+            max.overlaps = 10,
+            force = 2,
+            segment.size = 0.3,
+            segment.alpha = 0.6,
+            box.padding = 0.3,
+            point.padding = 0.2
+          ) +
+          tidybulk::scale_y_log10_reverse() +
+          get_tissue_scale(type = "color", drop = FALSE) +
           ggplot2::facet_wrap(~other_cell) +
           ggplot2::labs(
             title = paste("Volcano:", ..2),
             x     = "Effect (signed max |estimate|)",
-            y     = "Posterior (shown as 1 - P_abs)"
+            y     = "Probability H0"
           ) +
-          ggplot2::theme_minimal(base_size = 14) +
-          ggplot2::theme(legend.position = "bottom")
+          theme_multipanel
       }
     ),
     
@@ -1867,12 +1953,20 @@ tidyr::nest(data = -cell_type) |>
             ggplot2::geom_vline(xintercept = 0, colour = "grey60", linetype = "dashed") +
             ggplot2::geom_errorbarh(ggplot2::aes(xmin = ci_lower, xmax = ci_upper, colour = tissue), height = 0.25) +
             ggplot2::geom_point(ggplot2::aes(colour = tissue), size = 1.2) +
-            ggplot2::scale_y_discrete(labels = function(x) stringr::str_replace(x, ".*\\|\\|", "")) +
+            ggplot2::scale_y_discrete(labels = function(x) {
+              # Extract pathway name after ||
+              pathway_name <- stringr::str_replace(x, ".*\\|\\|", "")
+              # Create abbreviated labels
+              dplyr::case_when(
+                pathway_name == "COMPLEMENT" ~ "COMPL",
+                TRUE ~ pathway_name
+              )
+            }) +
+            get_tissue_scale(type = "color", drop = FALSE) +
             ggplot2::facet_grid(partner ~ ., scales = "free_y", space = "free_y") +
             ggplot2::labs(x = "Effect (estimate with CI)", y = NULL) +
-            ggplot2::theme_minimal(base_size = 14) +
-            ggplot2::theme(legend.position = "bottom",
-                           axis.text.x = ggplot2::element_text(angle = 45, hjust = 1))
+            theme_multipanel +
+            ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1))
         }
       }
     )
@@ -1930,8 +2024,19 @@ fixed_age_bins_se_plot <-
   ggplot2::geom_ribbon(ggplot2::aes(ymin = estimate - se, ymax = estimate + se), fill = "grey70", alpha = 0.3) +
   ggplot2::geom_line(colour = "black") +
   ggplot2::geom_point(size = 1.2) +
-  ggplot2::labs(x = "Age bin", y = "Estimate (± SE)") +
-  ggplot2::theme_minimal()
+  ggplot2::labs(x = "Age (years)", y = "Estimate (± SE)") +
+  ggplot2::scale_x_discrete(labels = ~ dplyr::case_when(
+    .x == "age_binInfancy" ~ "< 1",
+    .x == "age_binChildhood" ~ "1-10", 
+    .x == "age_binAdolescence" ~ "10-20",
+    .x == "age_binYoungAdulthood" ~ "20-40",
+    .x == "age_binMiddleAge" ~ "40-60",
+    .x == "age_binSenior_60" ~ "60-70",
+    .x == "age_binSenior_70" ~ "70+",
+    TRUE ~ .x
+  )) +
+  theme_multipanel +
+  ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1))
 
 ## Adjusted values (residual-based) and boxplot along ageing -------------
 # Use residuals + fixed-effect fitted (no random effects) per observation
@@ -1983,14 +2088,19 @@ adj_ordered <- adj_dat |>
 
 adjusted_age_boxplot <-
   ggplot2::ggplot(adj_ordered, ggplot2::aes(x = x_var, y = adj_Estimate, fill = tissue_groups)) +
-  ggplot2::geom_boxplot(outlier.shape = NA, width = 0.6) +
+  ggplot2::geom_boxplot(outlier.shape = NA, width = 0.6, linewidth = 0.3) +
   geom_jitter(shape = ".", width = 0.2, height = 0, size = 0.5, alpha = 0.5) +
   ggplot2::facet_grid(. ~ age_label, scales = "free_x", space = "free_x") +
-  ggplot2::scale_x_discrete(labels = function(x) stringr::str_replace(x, ".*\\|\\|", "")) +
+  ggplot2::scale_x_discrete(labels = function(x) {
+    # Extract tissue name after ||
+    tissue_name <- stringr::str_replace(x, ".*\\|\\|", "")
+    # Use the common tissue abbreviation function
+    get_tissue_abbrev(tissue_name)
+  }) +
+  get_tissue_scale(type = "fill", drop = FALSE) +
   ggplot2::labs(x = "Tissue (per age bin)", y = "Adjusted value", fill = "Tissue") +
-  ggplot2::theme_minimal(base_size = 13) +
-  ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1)) +
-  ggplot2::theme(legend.position = "bottom")
+  theme_multipanel +
+  ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1, size = 5))
 
 
 
@@ -2036,8 +2146,14 @@ pyramid_plot_by_class <-
   ggplot2::geom_col(width = 0.8) +
   ggplot2::facet_grid(pathway_class ~ ., scales = "free_y", space = "free_y") +
   ggplot2::labs(y = NULL, x = "Accumulated effect (stacked by tissue)", fill = "Tissue") +
-  ggplot2::theme_minimal(base_size = 13) +
-  ggplot2::theme(legend.position = "bottom")
+  ggplot2::scale_y_discrete(labels = function(x) {
+    dplyr::case_when(
+      x == "COMPLEMENT" ~ "COMPL",
+      TRUE ~ x
+    )
+  }) +
+  get_tissue_scale(type = "fill", drop = FALSE) +
+  theme_multipanel
 
 
 
@@ -2066,7 +2182,7 @@ sample_list =
   prepare_data_for_brms(
     focal_source, focal_target, focal_pathway,
     ethnicity_imputed =  tar_read(ethnicity_imputed, store = store_path)
-    ) |>
+  ) |>
   distinct(sample_id) |>
   pull(sample_id)
 
@@ -2093,14 +2209,6 @@ job::job({
     )
 })
 
-
-macro_muscle = 
-  macro_muscle |> 
-  filter(tissue_groups %in% c("trachea", "integumentary system (skin)", "cardiovascular system", "female reproductive system", "large intestine")) |> 
-  mutate(n = n(), .by = sample_id) |> 
-  filter(n > 500)
-
-# With Bioconductor run a normalisation pipeline, variable genes and PCA
 library(SingleCellExperiment)
 library(scuttle)
 library(scran)
@@ -2109,6 +2217,17 @@ library(BiocSingular)
 library(BiocParallel)
 library(Matrix)
 library(DelayedArray)
+library(tidySingleCellExperiment)
+macro_muscle = HDF5Array::loadHDF5SummarizedExperiment("macro_muscle_communication_5_tissues_hdf5")
+
+macro_muscle = 
+  macro_muscle |> 
+  filter(tissue_groups %in% c("trachea", "integumentary system (skin)", "cardiovascular system", "female reproductive system", "large intestine")) |> 
+  mutate(n = n(), .by = sample_id) |> 
+  filter(n > 500)
+
+# With Bioconductor run a normalisation pipeline, variable genes and PCA
+
 
 # Parallel + IO tuning for large data
 BiocParallel::register(BiocParallel::MulticoreParam(workers = max(1, parallelly::availableCores() - 1)))
@@ -2120,7 +2239,6 @@ HDF5Array::setHDF5DumpCompressionLevel(6)
 norm_block <- macro_muscle$sample_id
 macro_muscle <- scuttle::computeLibraryFactors(macro_muscle, BPPARAM = BiocParallel::bpparam())
 macro_muscle <- scuttle::logNormCounts(macro_muscle, BPPARAM = BiocParallel::bpparam())
-
 
 # Regress out ribosomal effects before PCA
 # Identify ribosomal genes using gene symbols (genes starting with RPS or RPL)
@@ -2155,9 +2273,9 @@ add_gene_symbols_to_rowdata <- function(sce, species = "human") {
   symbol_mapping <- setNames(map$SYMBOL, map$ENSEMBL)
   
   # Add to rowData
-  SummarizedExperiment::rowData(sce)$gene_symbol <- symbol_mapping[SummarizedExperiment::rownames(sce)]
+  SingleCellExperiment::rowData(sce)$gene_symbol <- symbol_mapping[SummarizedExperiment::rownames(sce)]
   
-  cat("Mapped", sum(!is.na(SummarizedExperiment::rowData(sce)$gene_symbol)), "out of", nrow(sce), "genes to symbols\n")
+  cat("Mapped", sum(!is.na(SingleCellExperiment::rowData(sce)$gene_symbol)), "out of", nrow(sce), "genes to symbols\n")
   
   return(sce)
 }
@@ -2175,7 +2293,7 @@ macro_muscle <- scuttle::addPerCellQC(
   macro_muscle,
   subsets    = list(Ribo = ribo_genes),  # character names are fine
   assay.type = "counts",
-  BPPARAM    = BiocParallel::SerialParam()
+  BPPARAM    = BiocParallel::bpparam()
 )
 
 # Use scater::runPCA with variables_to_regress to regress out ribosomal percentage
@@ -2272,7 +2390,8 @@ macro_muscle <- residualize_assay_per_sample(
   BPPARAM = BiocParallel::SerialParam()
 )
 
-
+# drop ribo_genes
+macro_muscle = macro_muscle[!rownames(macro_muscle) %in% ribo_genes,]
 
 # Select highly variable genes (HVGs) with blocks for batch/sample
 var_block <- macro_muscle$sample_id
@@ -2322,7 +2441,7 @@ job::job({
   macro_muscle |> HDF5Array::quickResaveHDF5SummarizedExperiment()
 })
 
-# macro_muscle = HDF5Array::loadHDF5SummarizedExperiment("macro_muscle_communication_5_tissues_hdf5")
+macro_muscle = HDF5Array::loadHDF5SummarizedExperiment("macro_muscle_communication_5_tissues_hdf5")
 
 
 cols <- c("dataset_id", "tissue_groups", "cell_type_unified", "cell_type", "sample_id")
@@ -2330,21 +2449,309 @@ plots <- lapply(cols, function(cl) {
   categories <- SummarizedExperiment::colData(macro_muscle)[[cl]]
   n_colors <- length(unique(categories))
   pal <- grDevices::hcl.colors(n_colors, palette = "Dark3")
-  scater::plotReducedDim(
+  
+  plot_obj <- scater::plotReducedDim(
     macro_muscle,
     dimred = "UMAP_HARMONY",
     colour_by = cl,
-    point_size = 0.2,
+    point_size = 0.05,
     point_alpha = 0.6, 
     other_fields = "tissue_groups",
     rasterise = TRUE
   ) +
     ggplot2::facet_wrap(~ tissue_groups, ncol = 4) +
-    ggplot2::scale_color_manual(values = pal, na.value = "#BDBDBD") +
-    ggplot2::ggtitle(paste("Coloured by", cl))
+    ggplot2::ggtitle(paste("Coloured by", cl)) +
+    theme_multipanel
+  
+  # Use common tissue scale for tissue_groups, otherwise use default
+  if (cl == "tissue_groups") {
+    plot_obj <- plot_obj + get_tissue_scale(type = "color", drop = FALSE)
+  } else {
+    plot_obj <- plot_obj + ggplot2::scale_color_manual(values = pal, na.value = "#BDBDBD")
+  }
+  
+  return(plot_obj)
 })
-patchwork::wrap_plots(plots, ncol = 2)
 
+#save session data
+
+# attach cluster labels to the macro_muscle object
+cluster_labels <- c(
+  `1` = "Myeloid APC (CD74+, SRGN+)",
+  `2` = "Vascular smooth muscle (MYH11+, TAGLN+)",
+  `3` = "Cardiomyocyte – NEXN+",
+  `4` = "Pericyte / mural – PDGFRB+/NOTCH3+/MCAM+",
+  `5` = "Cardiomyocyte – FHL2+",
+  `6` = "Cardiomyocyte – ANKRD1+",
+  `7` = "Cardiomyocyte – LDB3/PALLD+; SGCD–/MLIP–",
+  `8` = "Cardiomyocyte – SGCD+/MLIP+",
+  `9` = "Ventricular cardiomyocyte – MYL2+"
+)
+macro_muscle$cluster_label <- cluster_labels[as.character(macro_muscle$cluster_harmony)]
+
+library(tidySingleCellExperiment)
+
+# Plot umap by cluster harmony, but the legend should link numbers to cluster labels
+# add labels to the plot, ONE PER CLUSTER
+plot_macro_muscle_cluster_umap <- scater::plotReducedDim(
+  macro_muscle,
+  dimred = "UMAP_HARMONY",
+  colour_by = "cluster_label",
+  label = "cluster_label",
+  point_size = 0.05,
+  point_alpha = 0.6, 
+  rasterise = TRUE,   
+  other_fields = c("tissue_groups", "cluster_label")
+) +
+  ggplot2::scale_color_manual(
+    values = grDevices::hcl.colors(
+      length(unique(macro_muscle$cluster_label)), 
+      palette = "Dark3"
+    ),
+    name = "Cluster"
+  ) +
+  theme_multipanel +
+  ggplot2::theme(
+    axis.title.x = ggplot2::element_blank(),
+    axis.title.y = ggplot2::element_blank(),
+    axis.text.x = ggplot2::element_blank(),
+    axis.text.y = ggplot2::element_blank(),
+    axis.ticks.x = ggplot2::element_blank(),
+    axis.ticks.y = ggplot2::element_blank(),
+    axis.line.x = ggplot2::element_blank(),
+    axis.line.y = ggplot2::element_blank()
+  ) 
+
+plot_macro_muscle_tissue_umap <- scater::plotReducedDim(
+  macro_muscle |> 
+    # Reorder tissue_groups by frequency (common tissues like cardiovascular at the back)
+    mutate(tissue_groups = fct_infreq(tissue_groups)),
+  dimred = "UMAP_HARMONY",
+  colour_by = "tissue_groups",
+  order_by = "tissue_groups",  # Order points by tissue - rare tissues on top
+  label = "cluster_label",
+  point_size = 0.05,
+  point_alpha = 0.6, 
+  rasterise = TRUE,   
+  other_fields = c("tissue_groups", "cluster_label")
+) +
+  get_tissue_scale(type = "color", drop = FALSE) +
+  ggplot2::labs(color = "Tissue") +
+  theme_multipanel +
+  ggplot2::theme(
+    axis.title.x = ggplot2::element_blank(),
+    axis.title.y = ggplot2::element_blank(),
+    axis.text.x = ggplot2::element_blank(),
+    axis.text.y = ggplot2::element_blank(),
+    axis.ticks.x = ggplot2::element_blank(),
+    axis.ticks.y = ggplot2::element_blank(),
+    axis.line.x = ggplot2::element_blank(),
+    axis.line.y = ggplot2::element_blank()
+  ) 
+
+#' Plot gene expression markers on reduced dimensions
+#'
+#' @param sce SingleCellExperiment object
+#' @param markers Character vector of gene symbols to plot
+#' @param dimred Name of reduced dimension to use (default: "UMAP_HARMONY")
+#' @param ncol Number of columns for plot arrangement (default: 3)
+#' @param point_size Size of points (default: 0.2)
+#' @param point_alpha Transparency of points (default: 0.6)
+#' @param color_scale Color scale function (default: ggplot2::scale_color_viridis_c)
+#' @param rasterise Whether to rasterise points (default: TRUE)
+#' @param verbose Whether to print available markers (default: TRUE)
+#'
+#' @return Combined ggplot object with marker expression plots
+plot_marker_expression <- function(sce, 
+                                   markers, 
+                                   dimred = "UMAP_HARMONY",
+                                   ncol = 3,
+                                   point_size = 0.05,
+                                   point_alpha = 0.6, 
+                                   color_scale = ggplot2::scale_color_viridis_c(),
+                                   rasterise = TRUE,
+                                   verbose = TRUE,
+                                   other_fields = NULL) {
+  
+  # Load required libraries
+  if (!requireNamespace("org.Hs.eg.db", quietly = TRUE)) {
+    stop("org.Hs.eg.db package is required")
+  }
+  
+  # Convert gene symbols to Ensembl IDs if needed
+  ensembl_ids <- tryCatch({
+    AnnotationDbi::mapIds(org.Hs.eg.db::org.Hs.eg.db, 
+                          keys = markers, 
+                          column = "ENSEMBL", 
+                          keytype = "SYMBOL", 
+                          multiVals = "first")
+  }, error = function(e) {
+    if (verbose) cat("Warning: Could not map gene symbols to Ensembl IDs\n")
+    return(NULL)
+  })
+  
+  # Check which markers are available in the data
+  available_markers <- intersect(c(markers, ensembl_ids), rownames(sce))
+  
+  if (verbose) {
+    cat("Available markers:", paste(available_markers, collapse = ", "), "\n")
+    if (length(available_markers) == 0) {
+      cat("No markers found in the dataset. Available genes start with:", 
+          paste(head(rownames(sce), 5), collapse = ", "), "\n")
+    }
+  }
+  
+  # Create expression plots for available markers
+  if (length(available_markers) > 0) {
+    marker_plots <- list()
+    
+    for (marker in available_markers) {
+      # Get original symbol name for title if this is an Ensembl ID
+      marker_title <- marker
+      if (marker %in% ensembl_ids) {
+        symbol_match <- names(ensembl_ids)[ensembl_ids == marker & !is.na(ensembl_ids)]
+        if (length(symbol_match) > 0) {
+          marker_title <- paste0(symbol_match[1], " (", marker, ")")
+        }
+      }
+      
+      marker_plots[[marker]] <- scater::plotReducedDim(
+        sce,
+        dimred = dimred,
+        colour_by = marker,
+        order_by = marker,  # Order points by expression (high on top)
+        point_size = point_size,
+        point_alpha = point_alpha,
+        rasterise = rasterise,  
+        other_fields = other_fields
+      ) +
+        color_scale +
+        ggplot2::labs(title = marker_title) +
+        ggplot2::theme_void() +
+        ggplot2::theme(
+          legend.position = "none",
+          plot.title = ggplot2::element_text(size = 10, hjust = 0.5),
+          panel.grid = ggplot2::element_blank(),
+          axis.line = ggplot2::element_blank()
+        )
+    }
+    
+    # Combine all marker plots
+    combined_plot <- patchwork::wrap_plots(marker_plots, ncol = ncol)
+    
+    return(combined_plot)
+    
+  } else {
+    if (verbose) cat("No markers found in the dataset\n")
+    return(NULL)
+  }
+}
+
+# get the source-target for the focal_pathway
+LIFR_ligand_receptor <- 
+  tribble(
+    ~name_axis, ~ligand_receptor,
+    "CTF1", "LIFR_IL6ST",
+    "CNTF", "CNTFR_LIFR",
+    "CLCF1", "CNTFR_LIFR",
+    "LIF", "LIFR_IL6ST"
+  ) |>
+  
+  # split the ligand_receptor into ligand and receptor
+  tidyr::separate(ligand_receptor, into = c("ligand", "receptor"), sep = "_") |>
+  distinct(ligand, receptor)
+
+# Select at what age split we have significance for the focal_pathway
+data_for_plot |>
+  dplyr::filter(
+    pathway_name == focal_pathway, 
+    target == focal_target,
+    source == focal_source,
+    tissue %in%   c("cardiovascular system", "female reproductive system", "integumentary system (skin)", "trachea")
+  ) |>
+  dplyr::select(tissue, split_after)
+
+# for each row, plot UMAP for the ligand and receptor
+# use two colour palettes for the ligand and receptor
+# facet after the age split, one per tissue
+ligand_palette <- grDevices::hcl.colors(length(unique(LIFR_ligand_receptor$ligand)), palette = "Dark3")
+receptor_palette <- grDevices::hcl.colors(length(unique(LIFR_ligand_receptor$receptor)), palette = "Dark3")
+ligand_receptor_plots <- list()
+for (i in 1:nrow(LIFR_ligand_receptor)) {
+  ligand <- LIFR_ligand_receptor$ligand[i]
+  receptor <- LIFR_ligand_receptor$receptor[i]
+  
+  # Create individual plots for ligand and receptor
+  # Use magma palette only for LIFR-related genes, viridis for others
+  ligand_color_scale <- if(grepl("LIFR", ligand)) {
+    ggplot2::scale_color_viridis_c(option = "magma")
+  } else {
+    ggplot2::scale_color_viridis_c(option = "viridis")
+  }
+  
+  receptor_color_scale <- if(grepl("LIFR", receptor)) {
+    ggplot2::scale_color_viridis_c(option = "magma")
+  } else {
+    ggplot2::scale_color_viridis_c(option = "viridis")
+  }
+  
+  ligand_plot <- plot_marker_expression(
+    sce = macro_muscle,
+    markers = ligand,
+    dimred = "UMAP_HARMONY",
+    ncol = 1,
+    point_size = 0.05,
+    point_alpha = 0.6, 
+    color_scale = ligand_color_scale,
+    rasterise = TRUE,
+    verbose = FALSE,
+    other_fields = c("age_days", "tissue_groups")
+  ) +
+    ggplot2::facet_wrap(~ age_days > 60*365) +
+    theme_multipanel +
+    ggplot2::theme(
+      axis.title.x = ggplot2::element_blank(),
+      axis.title.y = ggplot2::element_blank(),
+      axis.text.x = ggplot2::element_blank(),
+      axis.text.y = ggplot2::element_blank(),
+      axis.ticks.x = ggplot2::element_blank(),
+      axis.ticks.y = ggplot2::element_blank(),
+      axis.line.x = ggplot2::element_blank(),
+      axis.line.y = ggplot2::element_blank()
+    )
+  
+  receptor_plot <- plot_marker_expression(
+    sce = macro_muscle,
+    markers = receptor,
+    dimred = "UMAP_HARMONY", 
+    ncol = 1,
+    point_size = 0.05,
+    point_alpha = 0.6, 
+    color_scale = receptor_color_scale,
+    rasterise = TRUE,
+    verbose = FALSE, 
+    other_fields = c("age_days", "tissue_groups")
+  ) +
+    ggplot2::facet_wrap(~ age_days > 60*365) +
+    theme_multipanel +
+    ggplot2::theme(
+      axis.title.x = ggplot2::element_blank(),
+      axis.title.y = ggplot2::element_blank(),
+      axis.text.x = ggplot2::element_blank(),
+      axis.text.y = ggplot2::element_blank(),
+      axis.ticks.x = ggplot2::element_blank(),
+      axis.ticks.y = ggplot2::element_blank(),
+      axis.line.x = ggplot2::element_blank(),
+      axis.line.y = ggplot2::element_blank()
+    )
+  
+  # Combine ligand and receptor plots side by side
+  if (!is.null(ligand_plot) && !is.null(receptor_plot)) {
+    ligand_receptor_plots[[i]] <- (ligand_plot | receptor_plot) +
+      patchwork::plot_layout(widths = c(1, 1)) +
+      patchwork::plot_annotation(title = paste("Ligand:", ligand, "| Receptor:", receptor))
+  }
+}
 
 ##  assembly ------------------------------------------------------
 mac_row <- plot_df |>
@@ -2355,21 +2762,57 @@ pyr_plot  <- mac_row$pyramid_plot[[1]]
 err_plot  <- mac_row$top_partner_errorbar_plot[[1]]
 volc_plot <- mac_row$volcano_plot[[1]]
 
-right_block <-  ((volc_plot / fixed_age_bins_se_plot) | pyramid_plot_by_class) +
-  patchwork::plot_layout(widths = c(2,1))
+right_block <-  
+  (
+    (volc_plot / fixed_age_bins_se_plot) + 
+      patchwork::plot_layout(heights = c(2, 1)) | 
+      pyramid_plot_by_class
+  ) +
+  patchwork::plot_layout(widths = c(2,1)) &
+  ggplot2::theme(plot.margin = margin(0, 0, 0, 0, "pt"))
 
-final_combined_plot <-
+upper_combined_plot <-
   (
     (plot_overall | pyr_plot | err_plot | right_block) +
       plot_layout(widths = c(1, 1, 1, 6))
-  ) /
-  adjusted_age_boxplot +
-  plot_layout(heights = c(5, 1), guides = "collect")
+  ) &
+  ggplot2::theme(plot.margin = margin(0, 0, 0, 0, "pt"))
+
+# Combine ligand-receptor plots into a single plot object
+ligand_receptor_combined <- patchwork::wrap_plots(ligand_receptor_plots, ncol = 1)
+
+
+
+last_line = 
+  ((plot_macro_muscle_cluster_umap / plot_macro_muscle_tissue_umap) | ligand_receptor_combined) +
+  patchwork::plot_layout(widths = c(1, 4), guides = "collect") +
+  patchwork::plot_annotation(theme = ggplot2::theme(legend.position = "bottom")) &
+  ggplot2::theme(plot.margin = margin(0, 0, 0, 0, "pt"))
+
+ggsave(
+  plot = last_line,
+  filename = "ligand_receptor_combined.pdf", 
+  units = "mm",
+  width = 183,
+  height = 70,
+  dpi = 500, scale = 5
+)
+
+final_combined_plot =
+  (upper_combined_plot / adjusted_age_boxplot / last_line) +
+  patchwork::plot_layout(heights = c(4, 1, 2.2), guides = "collect", nrow = 3) +
+  patchwork::plot_annotation(tag_levels = c('A'), theme = ggplot2::theme(legend.position = "bottom")) &
+  ggplot2::theme(plot.margin = margin(0, 0, 0, 0, "pt"))
+
+# save.image(file = "macro_muscle_communication_5_tissues_session.RData")
+
 
 ggsave(
   plot = final_combined_plot,
-  filename = "combined_plot_.pdf",
-  width = 40,
-  height = 20
+  filename = "combined_plot.pdf", 
+  units = "mm",
+  width = 183,
+  height = 230,
+  dpi = 500
 )
 
