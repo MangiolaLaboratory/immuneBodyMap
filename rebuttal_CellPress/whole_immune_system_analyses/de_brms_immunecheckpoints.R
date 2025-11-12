@@ -13,7 +13,7 @@ job::job({
     library(crew.cluster)
     
     # Helper (optional) to avoid repetition
-    new_elastic <- function(name, mem_gb, time_min, workers, crashes_max, backup = NULL) {
+    new_elastic <- function(name, mem_gb, time_min, workers, crashes_max, cpus_per_task = 8, backup = NULL) {
       crew_controller_slurm(
         name = name,
         workers = workers,
@@ -21,7 +21,7 @@ job::job({
         seconds_idle = 30,
         options_cluster = crew_options_slurm(
           memory_gigabytes_required = mem_gb,
-          cpus_per_task = 8,
+          cpus_per_task = cpus_per_task,
           time_minutes = time_min
         ),
         backup = backup
@@ -36,9 +36,17 @@ job::job({
     elastic_10  <- new_elastic("elastic_10",   10,  60 * 4,  workers = 48, crashes_max = 1, backup = elastic_20)
     elastic_5   <- new_elastic("elastic_5",     5, 60 * 4,  workers = 64, crashes_max = 6, backup = elastic_10)
     
+    elastic_120_12_cores  <- new_elastic("elastic_120_12_cores",   120,  60 * 4,  workers = 24, crashes_max = 1, backup = NULL, cpus_per_task = 12)
+    elastic_80_12_cores  <- new_elastic("elastic_80_12_cores",   80,  60 * 4,  workers = 24, crashes_max = 1, backup = elastic_120_12_cores, cpus_per_task = 12)
+    elastic_40_12_cores  <- new_elastic("elastic_40_12_cores",   40,  60 * 4,  workers = 24, crashes_max = 1, backup = elastic_80_12_cores, cpus_per_task = 12)
+    
+    
     # Group for targets (small → large)
     controllers <- crew_controller_group(
-      elastic_5, elastic_10, elastic_20, elastic_40, elastic_80, elastic_160
+      elastic_5, elastic_10, elastic_20, elastic_40, elastic_80, elastic_160, 
+      elastic_120_12_cores,
+      elastic_80_12_cores,
+      elastic_40_12_cores
     )
     
     tar_option_set(
@@ -48,7 +56,7 @@ job::job({
       garbage_collection = 100, 
       storage = "worker", 
       retrieval = "worker", 
-      error = "continue", 
+      #error = "continue", 
       
       #cue = tar_cue(mode = "never"), 
       
@@ -57,7 +65,7 @@ job::job({
       
       debug = "estimates_chunk",
       
-      controller = controllers
+      controller = controllers 
       
       
     )
@@ -1033,10 +1041,12 @@ job::job({
                           minimum_cpm = 10
             ) 
           
+          BiocParallel::register(BiocParallel::MulticoreParam(workers = 12, progressbar = TRUE))
+          
           se = se |> 
             
             # Get scaling factor
-            scale_abundance(method = "TMMwsp", reference_sample = reference_sample) 
+            scale_abundance(method = "TMMwsp", reference_sample = reference_sample, chunk_sample_size = 1000) 
           
           se = se |> 
             
@@ -1074,7 +1084,7 @@ job::job({
           
         }, 
         packages = c("tidybulk", "HDF5Array", "tidySummarizedExperiment", "magrittr", "tibble", "forcats", "zellkonverter"),
-        resources = tar_resources(crew = tar_resources_crew("elastic_5")),
+        resources = tar_resources(crew = tar_resources_crew("elastic_40_12_cores")),
         memory = "persistent", 
         error = "stop"
       ),
@@ -1102,7 +1112,7 @@ job::job({
               cell_type_unified_ensemble,
               ~ pseudobulk_sample |> 
                 filter(
-                  ensembl_gene_id == .x, 
+                  .feature == .x, 
                   cell_type_unified_ensemble %in% .y) 
             )
           )  , 
@@ -1586,7 +1596,22 @@ job::job({
 })
 
 tar_workspace(
-  pseudobulk_sample,
+  estimates_chunk_9186958498603c0d,
   script = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/de_brms_checkpoints_target.R",
   store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/de_brms_checkpoints_target"
 )
+
+pseudobulk_sample = tar_read(
+  pseudobulk_sample,
+  store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/de_brms_checkpoints_target"
+  
+)
+
+
+feature_df = tar_read(
+  feature_df,
+  store = "/vast/projects/mangiola_immune_map/PostDoc/immuneHealthyBodyMap/de_brms_checkpoints_target"
+  
+)
+
+feature_df
