@@ -446,12 +446,12 @@ edit_covariates = function(tbl){
           dplyr::rename(disease_groups_further = disease_groups)
       ) |>
       mutate(disease_groups = if_else(!disease_groups_further |> is.na(), disease_groups_further, disease_groups)) |>
-      select(disease,  disease_groups)
+      dplyr::select(disease,  disease_groups)
 
     tbl |>
 
       # TISSUE
-      select(-any_of("tissue_groups")) |>
+      dplyr::select(-any_of("tissue_groups")) |>
       left_join(tissue_grouped, copy=TRUE) |>
 
       # TECH
@@ -498,11 +498,11 @@ edit_covariates = function(tbl){
       # ETHNICITY
       left_join(ethnicity_grouped, copy=TRUE) |>
 
-      dplyr::select(
-        sample_id, donor_id, dataset_id, title, collection_id, age_days, age_bin, age_decade, sex, 
-        ethnicity_groups, tissue_groups, tissue, assay_groups, cell_type_unified_ensemble,
-        cell_type, disease_groups, is_immune
-      ) |>
+      # dplyr::select(
+      #   sample_id, donor_id, dataset_id, title, collection_id, age_days, age_bin, age_decade, sex,
+      #   ethnicity_groups, tissue_groups, tissue, assay_groups, cell_type_unified_ensemble,
+      #   cell_type, disease_groups
+      # ) |>
       as_tibble() |>
 
       # Center based on adolescence
