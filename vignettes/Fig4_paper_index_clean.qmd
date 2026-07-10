@@ -1,0 +1,1090 @@
+---
+title: "Fig 3"
+date: today
+date-format: "DD MMM YYYY"
+title-block-banner: true
+author: 
+  - name: Chen Zhan
+    orcid: 0000-0002-4794-8339
+    email: chen.zhan@adelaide.edu.au
+    affiliation:
+      - id: sgc
+        name: SAiGENCI, The University of Adelaide
+format: 
+  html:
+    theme: minty
+    df-print: paged
+    code-line-numbers: true
+    embed-resources: true
+    code-fold: true
+    code-fold-default: true
+    toc: true
+    toc-location: left
+    toc-title: "Menu"
+knitr:
+  opts_chunk: 
+    message: false
+    warning: false
+comments:
+  hypothesis: 
+    theme: clean
+editor: source
+abstract: |
+  Immunological ageing is asynchronous across tissues
+---
+
+# Overview
+
+This report reproduces **Figure 3** (immunological ageing clocks across tissues).
+The final figure is a patchwork of the following panels:
+
+- **A** – Linear immunological-ageing distance for composition and gene expression.
+- **B** – sccomp 1D credible intervals of the ageing slope per cell type.
+- **C** – UpSet plot of differentially expressed (DE) genes shared across cell types.
+- **D** – Smoothed ageing velocity across tissues (composition vs. gene expression).
+- **E** – Predicted vs. actual age (blood LASSO clock applied to all tissues).
+- **F** – Per-donor predicted age across tissues.
+
+All expensive intermediate results are cached to `report/Fig_files/` and
+`data/age_fig/`. Each analysis chunk **reads the saved object by default** and
+only recomputes it when the file is absent, so the report renders quickly while
+remaining fully reproducible.
+
+# Library
+
+```{r setup-libraries}
+# Set your R library path here if needed
+.libPaths("/hpcfs/users/a1237163/R/x86_64-pc-linux-gnu-library/4.5")
+
+library(here)  # project-root aware paths
+
+# Ensure required output directories exist
+required_dirs <- c(
+  file.path(here::here(), "report", "Fig_files"),
+  file.path(here::here(), "data", "age_fig")
+)
+invisible(lapply(required_dirs, function(d) {
+  if (!dir.exists(d)) dir.create(d, recursive = TRUE, showWarnings = FALSE)
+}))
+
+library(tidySummarizedExperiment)
+library(HDF5Array)          # loadHDF5SummarizedExperiment()
+library(magrittr)
+library(tidyverse)
+library(tidybulk)           # as_SummarizedExperiment(), keep_abundant(), scale_abundance()
+library(sccomp)             # sccomp_predict(), sccomp_test()
+library(glue)
+library(compositions)       # clr()
+library(patchwork)          # figure assembly
+library(ggplotify)          # as.ggplot() for the UpSet panel
+library(ggupset)            # scale_x_upset()
+library(ggnewscale)         # multiple colour scales in one plot
+library(RColorBrewer)
+library(grid)               # unit()
+library(ggplot2)
+library(org.Hs.eg.db)       # gene symbol mapping
+library(cellNexus)          # get_metadata()
+library(dittoSeq)           # colour-blind friendly palette
+# NOTE: `glmnet` and `scImmuAging` are loaded on-demand inside the LASSO clock
+# chunk (panels E & F) so the report still renders from cache without them.
+```
+
+# Setup: theme, palette and helpers
+
+```{r define-theme}
+theme_multipanel <-
+  theme_bw() +
+  theme(
+    panel.border = element_blank(),
+    axis.line = element_line(size = 0.1),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "bottom",
+    strip.background = element_blank(),
+    axis.title.y = element_text(margin = margin(0, 0, 0, 0), size = 7),
+    axis.title.x = element_text(margin = margin(0, 0, 0, 0), size = 7),
+    panel.spacing.x = unit(0.1, "lines"),
+    axis.text.x = element_text(size = 6),
+    axis.text.y = element_text(size = 6),
+    strip.text.x = element_text(size = 7),
+    strip.text.y = element_text(size = 7),
+    legend.key.size = unit(5, 'mm'),
+    legend.title = element_text(size = 7),
+    legend.text = element_text(size = 6),
+    strip.clip = "off",
+    plot.title = element_text(size = 7),
+    axis.line.x = element_line(size = 0.2),
+    axis.line.y = element_line(size = 0.2),
+    axis.ticks.x = element_line(size = 0.2),
+    axis.ticks.y = element_line(size = 0.2)
+  )
+```
+
+```{r define-palette}
+# Fixed colours for the six most-represented tissues; remaining tissues get
+# colour-blind friendly dittoSeq colours.
+top6 <- c(
+  "Blood"         = "#91AD9E",
+  "Respiratory"   = "#979771",
+  "Cerebral Lobes" = "#B0B1B6",
+  "Breast"        = "#C2CEDC",
+  "Skin"          = "#D4BAAD",
+  "Renal"         = "#E1CCB1"
+)
+
+build_tissue_palette_ditto <- function(tissues, top6_map = top6) {
+  rest <- setdiff(tissues, names(top6_map))
+  pal <- dittoSeq::dittoColors()
+  pal <- pal[!pal %in% unname(top6_map)]
+  if (length(pal) < length(rest)) pal <- rep_len(pal, length(rest))
+  rest_map <- stats::setNames(pal[seq_along(rest)], rest)
+  out <- c(rest_map, top6_map)
+  out[unique(tissues)]
+}
+
+cell_metadata <- get_metadata(
+  cache_directory = '/hpcfs/groups/phoenix-hpc-mangiola_laboratory/cellNexus/'
+)
+all_tissues <- cell_metadata |> distinct(tissue_groups) |> pull()
+tissue_colors <- build_tissue_palette_ditto(all_tissues)
+```
+
+```{r define-helpers}
+# Convert per-decade predictions into a cumulative "immunological ageing"
+# distance along the age axis.
+pred_to_age_distance <- function(pred,
+                                 scale = TRUE,
+                                 center = TRUE,
+                                 normalise_by_n_feature = TRUE,
+                                 trans_fx = identity,
+                                 distance_method = "euclidean",
+                                 .abundance,
+                                 ...) {
+
+  se <-
+    pred |>
+    tidybulk::as_SummarizedExperiment(
+      .sample = sample_id,
+      .transcript = L3,
+      .abundance = !!enquo(.abundance)
+    ) |>
+    mutate(age_decade_continuous = age_decade |> as.character() |> as.integer()) |>
+    mutate(age_decade = age_decade |> fct_relevel(as.character(1:9)))
+
+  se_matrix <- se %>% assay() %>% trans_fx() %>% as.matrix() %>% t
+  se_matrix[se_matrix %>% is.na()] <- 0  # patch NA with 0
+
+  if (scale || center) {
+    se_matrix <- scale(se_matrix, center = center, scale = scale)
+  }
+
+  if (distance_method == "euclidean")
+    dist_obj <- dist(se_matrix, method = "euclidean")
+
+  if (normalise_by_n_feature)
+    dist_obj <- dist_obj / sqrt(ncol(se_matrix))
+
+  se_sample <- se %>% pivot_sample() %>% arrange(age_decade_continuous)
+  samps <- se_sample$sample_id
+  dm <- dist_obj %>% as.matrix() %>% as.data.frame %>% .[samps, samps]
+
+  # successive pairs along the age axis
+  prev <- head(samps, -1)
+  nex  <- tail(samps, -1)
+  step_dists <- mapply(function(a, b) dm[b, a], prev, nex)
+  cum_dists  <- cumsum(step_dists)
+
+  se_sample$step_dist <- c(0, step_dists %>% unname())
+  se_sample$cum_dist  <- c(0, cum_dists  %>% unname())
+
+  se_sample <- se_sample %>%
+    mutate(
+      min_age_decade = min(se$age_decade_continuous),
+      max_age_decade = max(se$age_decade_continuous)
+    )
+
+  se_sample %>% filter(step_dist != 0 & cum_dist != 0)
+}
+
+# Detect local maxima of a numeric vector (used to find ageing "velocity" peaks).
+find_peaks <- function(x) {
+  n <- length(x)
+  if (n == 1) return(TRUE)
+  peaks <- rep(FALSE, n)
+  if (n >= 3) {
+    peaks[2:(n - 1)] <- (x[2:(n - 1)] > x[1:(n - 2)] & x[2:(n - 1)] > x[3:n])
+  }
+  peaks[1] <- x[1] > x[2]
+  peaks[n] <- x[n] > x[n - 1]
+  if (all(x == x[1])) peaks[] <- FALSE
+  peaks
+}
+
+# Interpolate + annotate ageing velocity peaks on a fine age grid.
+smooth_ageing_velocity <- function(linear_distance_tissue, fine_grid) {
+  linear_distance_tissue %>%
+    dplyr::select(-data) %>%
+    unnest(distance_df) %>%
+    group_by(tissue_groups) %>%
+    nest() %>%
+    mutate(
+      peaks = map(data, ~ {
+        d <- .
+        d$local_max <- find_peaks(d$step_dist)
+        d %>% filter(local_max)
+      }),
+      main_peak_age = map_dbl(peaks, ~ .x$age_decade_continuous[which.max(.x$step_dist)] %||% NA_real_),
+      secondary_peak_age = map2_dbl(
+        peaks, main_peak_age,
+        ~ {
+          if (nrow(.x) < 2) return(NA_real_)
+          .x2 <- .x %>% filter(abs(age_decade_continuous - .y) >= 3)
+          if (nrow(.x2) == 0) return(NA_real_)
+          .x2$age_decade_continuous[which.max(.x2$cum_dist)]
+        }
+      ),
+      interp = map(data, ~ tibble(
+        age_decade_continuous = fine_grid,
+        step_dist = approx(.x$age_decade_continuous, .x$step_dist, xout = fine_grid, rule = 2)$y,
+        cum_dist  = approx(.x$age_decade_continuous, .x$cum_dist,  xout = fine_grid, rule = 2)$y,
+        min_age_decade = unique(.x$min_age_decade),
+        max_age_decade = unique(.x$max_age_decade)
+      ))
+    ) |>
+    unnest(interp) %>%
+    ungroup() %>%
+    arrange(main_peak_age) %>%
+    mutate(
+      tissue_groups = forcats::fct_relevel(
+        tissue_groups,
+        unique(tissue_groups[order(main_peak_age, decreasing = TRUE)])
+      )
+    )
+}
+
+# Root directory holding the pre-computed brms gene-expression predictions.
+new_pred_root <- "/hpcfs/groups/phoenix-hpc-mangiola_laboratory/chen/HPC_posterior/Age_Clock/new_pred"
+```
+
+# Gene expression ageing distance
+
+Per-decade gene-expression predictions (brms fixed / total effects) are
+pre-computed by the modelling pipeline and read from disk here.
+
+```{r gene-load-hyp}
+# Gene-level monotonic-ageing hypotheses (full table, all cell types).
+gene_hyp_df <- readRDS(
+  "/hpcfs/groups/phoenix-hpc-mangiola_laboratory/chen/HPC_posterior/Age_Clock/new_gene_hyp_df.rds"
+)
+
+# Fixed-effect short list (10 strongest genes per cell type; monocytic excluded
+# to match the pre-computed prediction object below).
+short_list_fixed <-
+  gene_hyp_df %>%
+  filter(cell_type != "monocytic") %>%
+  filter(component == "fixed") %>%
+  group_by(cell_type, .feature) %>%
+  summarise(n = n(), max_abs_est = max(abs_est, na.rm = TRUE), .groups = "drop") %>%
+  group_by(cell_type) %>%
+  arrange(desc(n), desc(max_abs_est), .by_group = TRUE) %>%
+  slice_head(n = 10) %>%
+  ungroup()
+```
+
+```{r gene-fixed-effect}
+pred_fixed <- readRDS(file.path(new_pred_root, "pred_fixed.rds"))
+
+if (!all(pred_fixed$.feature == short_list_fixed$.feature)) {
+  stop("gene list unmatch!")
+}
+
+pred_fixed <-
+  pred_fixed %>%
+  mutate(cell_type = short_list_fixed$cell_type) %>%
+  unnest(pred_df) %>%
+  group_by(cell_type, .feature, age_decade) %>%
+  reframe(
+    count_mean  = mean(count_avg, na.rm = TRUE),
+    count_lower = unname(quantile(count_avg, prob = 0.025, na.rm = TRUE)),
+    count_upper = unname(quantile(count_avg, prob = 0.975, na.rm = TRUE))
+  ) %>%
+  mutate(
+    sample_id = paste0('my_sample_', age_decade),
+    L3 = paste0(cell_type, '_', .feature),
+    age_decade = factor(age_decade, levels = as.character(1:10))
+  )
+
+linear_distance_gene_expr <-
+  pred_fixed |>
+  pred_to_age_distance(scale = TRUE, trans_fx = log1p, .abundance = count_mean)
+```
+
+```{r gene-tissue-total}
+# Tissue-level (total effect) short list.
+short_list_total <-
+  gene_hyp_df %>%
+  filter(cell_type != "monocytic") %>%
+  filter(component == "total") %>%
+  group_by(tissue, cell_type, .feature) %>%
+  summarise(n = n(), max_abs_est = max(abs_est, na.rm = TRUE), .groups = "drop") %>%
+  group_by(tissue, cell_type) %>%
+  arrange(desc(n), desc(max_abs_est), .by_group = TRUE) %>%
+  slice_head(n = 10) %>%
+  ungroup()
+
+pred_total         <- readRDS(file.path(new_pred_root, "pred_total.rds"))
+pred_total_stomach <- readRDS(file.path(new_pred_root, "pred_total_stomach.rds"))
+pred_total_missing <- readRDS(file.path(new_pred_root, "pred_total_missing.rds"))
+
+if (!all(pred_total$.feature == short_list_total$.feature)) {
+  stop("gene list unmatch!")
+}
+
+pred_tissue_gene <-
+  pred_total %>%
+  mutate(cell_type = short_list_total$cell_type) %>%
+  dplyr::select(-tar_group) %>%
+  bind_rows(pred_total_stomach %>% dplyr::select(.feature, pred_df, cell_type)) %>%
+  unnest(pred_df) %>%
+  filter(!tissue_groups %in% unique(pred_total_missing$tissue_groups)) %>%
+  bind_rows(
+    pred_total_missing %>%
+      dplyr::select(-tissue_groups) %>%
+      unnest(pred_df) %>%
+      dplyr::select(.feature, age_decade, tissue_groups, draws, count_avg, cell_type)
+  ) %>%
+  group_by(tissue_groups, cell_type, .feature, age_decade) %>%
+  reframe(
+    count_mean  = mean(count_avg, na.rm = TRUE),
+    count_lower = unname(quantile(count_avg, prob = 0.025, na.rm = TRUE)),
+    count_upper = unname(quantile(count_avg, prob = 0.975, na.rm = TRUE))
+  ) %>%
+  mutate(
+    sample_id = paste0('my_sample_', age_decade),
+    L3 = paste0(cell_type, '_', .feature),
+    age_decade = factor(age_decade, levels = as.character(1:9))
+  )
+
+linear_distance_tissue_gene <-
+  pred_tissue_gene |>
+  filter(age_decade %in% as.character(1:9)) %>%
+  nest(data = -tissue_groups) |>
+  filter(map_int(data, ~ .x |> distinct(age_decade) |> nrow()) > 2) |>
+  filter(tissue_groups |> str_detect("trachea|sensory|endocrine", negate = TRUE)) |>
+  mutate(distance_df = map(
+    data, pred_to_age_distance, trans_fx = log1p, .abundance = count_mean
+  ))
+
+smoothed_df_2D_gene_expr <-
+  smooth_ageing_velocity(linear_distance_tissue_gene, fine_grid = seq(1, 9, by = 0.05))
+```
+
+# Composition ageing distance
+
+Cell-type composition estimates (`sccomp`) are loaded lazily: the raw estimate
+object is only read from disk when a downstream cache is missing.
+
+```{r comp-est-helper}
+# Lazily load (and memoise) the sccomp estimate object only when needed.
+.est_cache <- NULL
+get_est <- function() {
+  if (is.null(.est_cache)) {
+    .est_cache <<- readRDS(
+      "~/lab/Mangiola_ImmuneAtlas/taskforce_shared_folder/sccomp_on_cellNexus_1_0_12/estimates_age_decade___L3___disease_FALSE___immune_only_TRUE.rds"
+    )
+  }
+  .est_cache
+}
+```
+
+```{r comp-significant-cells}
+all_decades <- 1:9
+
+make_contrast_string <- function(k) {
+  left  <- paste0("age_decade", all_decades[1:k], collapse = " + ")
+  right <- paste0("age_decade", all_decades[(k + 1):length(all_decades)], collapse = " + ")
+  sprintf("(%s)/%d - (%s)/%d", right, length(all_decades) - k, left, k)
+}
+
+contrast_strings <- sapply(1:(length(all_decades) - 1), make_contrast_string)
+contrast_strings <- map_chr(contrast_strings,
+                            ~ str_replace_all(.x, "\\b(age_decade\\d+|0)\\b", "`\\1`"))
+contrast_strings <- map_chr(contrast_strings, ~ str_replace_all(.x, "`age_decade5`", "0"))
+names(contrast_strings) <- paste0("split_at_", all_decades[2:length(all_decades)])
+
+path_my_test <- file.path(here::here(), 'data', 'age_fig', 'test_contrast_age.rds')
+
+if (file.exists(path_my_test)) {
+  my_test <- readRDS(path_my_test)
+} else {
+  my_test <- get_est() |> sccomp_test(contrasts = contrast_strings)
+  saveRDS(my_test, file = path_my_test)
+}
+
+cells_of_interest <-
+  my_test |> filter(c_pH0 < 0.05) |> dplyr::count(L3) |> arrange(desc(n)) |> pull(L3)
+```
+
+```{r comp-linear-distance}
+path_sccomp_age_pred <- file.path(here::here(), 'data', 'age_fig', 'sccomp_age_pred.rds')
+
+if (file.exists(path_sccomp_age_pred)) {
+  pred <- readRDS(path_sccomp_age_pred)
+} else {
+  est <- get_est()
+  pred <-
+    est |>
+    sccomp_predict(
+      formula_composition = ~ age_decade * sex + ethnicity_groups_imputed,
+      new_data =
+        est |>
+        attr("count_data") |>
+        sccomp:::.subset(sample_id) |>
+        distinct(age_decade) |>
+        mutate(sex = NA, ethnicity_groups_imputed = NA) |>
+        arrange(age_decade) |>
+        mutate(sample_id = glue("my_sample_{1:n()}")),
+      summary_instead_of_draws = TRUE,
+      robust = TRUE
+    )
+  saveRDS(pred, file = path_sccomp_age_pred)
+}
+
+linear_distance_composition <-
+  pred |>
+  filter(L3 %in% cells_of_interest) |>
+  pred_to_age_distance(scale = TRUE, trans_fx = compositions::clr, .abundance = proportion_mean)
+```
+
+```{r comp-tissue-distance}
+path_sccomp_age_tissue_pred <-
+  file.path(here::here(), 'data', 'age_fig', 'sccomp_age_tissue_pred.rds')
+
+if (file.exists(path_sccomp_age_tissue_pred)) {
+  pred_tissue <- readRDS(path_sccomp_age_tissue_pred)
+} else {
+  est <- get_est()
+  pred_tissue <-
+    est |>
+    sccomp_predict(
+      formula_composition = ~ age_decade * sex + ethnicity_groups_imputed +
+        (age_decade * sex + ethnicity_groups_imputed | tissue_groups),
+      new_data =
+        est |>
+        attr("count_data") |>
+        sccomp:::.subset(sample_id) |>
+        distinct(age_decade, tissue_groups) |>
+        arrange(age_decade) |>
+        mutate(sex = NA, ethnicity_groups_imputed = NA) |>
+        mutate(sample_id = glue("my_sample_{1:n()}")) |>
+        mutate(sample_id = if_else(
+          is.na(sample_id), glue("my_sample_imputed_{row_number()}"), sample_id
+        )),
+      summary_instead_of_draws = TRUE,
+      robust = TRUE
+    )
+  saveRDS(pred_tissue, file = path_sccomp_age_tissue_pred)
+}
+
+linear_distance_tissue_comp <-
+  pred_tissue |>
+  filter(age_decade %in% as.character(1:9)) %>%
+  nest(data = -tissue_groups) |>
+  filter(map_int(data, ~ .x |> distinct(age_decade) |> nrow()) > 2) |>
+  filter(tissue_groups |> str_detect("trachea|sensory|endocrine", negate = TRUE)) |>
+  mutate(distance_df = map(
+    data, pred_to_age_distance, scale = TRUE,
+    trans_fx = compositions::clr, .abundance = proportion_mean
+  ))
+
+smoothed_df_2D_composition <-
+  smooth_ageing_velocity(linear_distance_tissue_comp, fine_grid = seq(1, 10, by = 0.05))
+```
+
+# Panel A – Linear immunological ageing distance
+
+```{r fig.width=6, fig.height=3, label="panel-A-linear-distance"}
+linear_distance_scaled <-
+  bind_rows(
+    linear_distance_composition %>%
+      dplyr::select(age_decade_continuous, cum_dist) %>% mutate(version = 'composition'),
+    linear_distance_gene_expr %>%
+      dplyr::select(age_decade_continuous, cum_dist) %>% mutate(version = 'gene_expr')
+  ) %>%
+  group_by(version) %>%
+  mutate(cum_dist_scaled = scales::rescale(cum_dist, to = c(0, 10))) %>%
+  ungroup()
+
+Plot__linear_distance_all <-
+  ggplot(linear_distance_scaled, aes(x = cum_dist_scaled, y = 0, group = version)) +
+  geom_line() +
+  geom_point(color = "red", size = 3) +
+  geom_text(aes(label = age_decade_continuous * 10 - 10), vjust = -1, size = 3) +
+  facet_grid(rows = vars(version), switch = "y") +
+  theme_minimal() +
+  theme(
+    strip.placement = "outside",
+    strip.text.y.left = element_text(angle = 0, hjust = 1, face = "bold"),
+    axis.title.x = element_blank(), axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+    axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank(),
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank()
+  )
+
+saveRDS(
+  Plot__linear_distance_all,
+  file.path(here::here(), "report", "Fig_files", "Fig3_Plot__linear_distance_all.rds")
+)
+
+Plot__linear_distance_all
+```
+
+# Panel D – Smoothed ageing velocity across tissues
+
+```{r fig.width=12, fig.height=9, label="panel-D-smoothed-velocity"}
+smoothed_df_2D_all <-
+  bind_rows(
+    smoothed_df_2D_composition %>% mutate(version = 'composition'),
+    smoothed_df_2D_gene_expr   %>% mutate(version = 'gene_expr')
+  ) %>%
+  filter(!tissue_groups %in% c('digestive system (general)')) %>%
+  mutate(tissue_version = glue::glue('{tissue_groups} ({version})')) %>%
+  group_by(version) %>%
+  mutate(step_dist_scaled = scales::rescale(step_dist, to = c(0, 10))) %>%
+  ungroup() %>%
+  group_by(tissue_groups) %>%
+  mutate(min_main_peak = min(main_peak_age, na.rm = TRUE)) %>%
+  ungroup() %>%
+  arrange(-min_main_peak, tissue_groups)
+
+version_order <- c("gene_expr", "composition")
+pin_first     <- c("thymus", "blood")   # pinned to the bottom of the axis
+
+tissue_order <-
+  smoothed_df_2D_all %>%
+  group_by(tissue_groups) %>%
+  summarise(min_main_peak = min(main_peak_age, na.rm = TRUE), .groups = "drop") %>%
+  arrange(desc(min_main_peak), tissue_groups) %>%
+  pull(tissue_groups) %>%
+  as.character()
+
+tissue_order <- c(
+  tissue_order[!tissue_order %in% pin_first],
+  pin_first[pin_first %in% tissue_order]
+)
+
+levels_interleaved <-
+  as.vector(unlist(map(tissue_order, ~ paste0(.x, " (", version_order, ")"))))
+
+smoothed_df_2D_all <-
+  smoothed_df_2D_all %>%
+  mutate(tissue_version = factor(tissue_version, levels = levels_interleaved))
+
+Plot__smoothed_age_dist_all <-
+  smoothed_df_2D_all %>%
+  filter(between(age_decade_continuous, min_age_decade, max_age_decade)) |>
+  ggplot(aes(x = age_decade_continuous * 10, y = tissue_version)) +
+  geom_line(
+    data = ~ filter(.x, version == "composition"),
+    aes(color = step_dist_scaled, linewidth = step_dist_scaled)
+  ) +
+  scale_color_gradientn(colors = rev(RColorBrewer::brewer.pal(11, "RdYlBu")), name = "composition") +
+  ggnewscale::new_scale_color() +
+  geom_line(
+    data = ~ filter(.x, version == "gene_expr"),
+    aes(color = step_dist_scaled, linewidth = step_dist_scaled)
+  ) +
+  scale_color_gradientn(colors = rev(RColorBrewer::brewer.pal(11, "RdYlBu")), name = "gene_expr") +
+  scale_linewidth(range = c(0.5, 4), guide = "none") +
+  geom_point(aes(x = main_peak_age * 10), color = "black", size = 0.9) +
+  geom_point(aes(x = secondary_peak_age * 10), shape = 12, size = 0.6, color = "black") +
+  scale_y_discrete(limits = levels_interleaved) +
+  theme_minimal() +
+  labs(x = "Age years", y = "Tissue (version)") +
+  theme(legend.position = "right")
+
+saveRDS(
+  Plot__smoothed_age_dist_all,
+  file.path(here::here(), 'report', 'Fig_files', "Fig3_Plot__smoothed_age_dist_all.rds")
+)
+
+Plot__smoothed_age_dist_all
+```
+
+# Panel B – sccomp 1D credible intervals
+
+```{r fig.width=7, fig.height=7, label="panel-B-sccomp-1d"}
+path_sccomp_1d_colored <-
+  file.path(here::here(), 'report', 'Fig_files', "Fig3_Plot__sccomp_1d_colored.rds")
+
+if (file.exists(path_sccomp_1d_colored)) {
+  Plot__sccomp_1d_colored <- readRDS(path_sccomp_1d_colored)
+} else {
+  significance_threshold <- 0.05
+
+  plot_df <-
+    my_test |>
+    filter(L3 != "cytotoxic") |>
+    mutate(
+      abs_c_effect = abs(c_effect),
+      parameter = str_replace_all(parameter, "_", " ")
+    ) |>
+    group_by(L3) |>
+    slice_max(abs_c_effect, n = 1, with_ties = FALSE) |>
+    ungroup() |>
+    mutate(
+      sig = c_pH0 < significance_threshold,
+      L3 = fct_reorder(L3, c_effect)
+    )
+
+  split_cols <- colorRampPalette(brewer.pal(11, "Spectral")[6:11])(8)
+  names(split_cols) <- paste0("split at ", 2:9)
+
+  Plot__sccomp_1d_colored <-
+    ggplot(plot_df, aes(x = c_effect, y = L3, colour = parameter)) +
+    geom_vline(xintercept = 0, colour = "grey55", linewidth = 0.4) +
+    geom_errorbarh(aes(xmin = c_lower, xmax = c_upper), height = 0.25, linewidth = 0.8) +
+    scale_colour_manual(values = split_cols, labels = paste0("split_at_", 2:9)) +
+    geom_point(size = 2.2) +
+    labs(x = "Credible interval of the slope", y = "Cell group", colour = "Split decade") +
+    theme_multipanel
+
+  saveRDS(Plot__sccomp_1d_colored, path_sccomp_1d_colored)
+}
+
+Plot__sccomp_1d_colored
+```
+
+# Panel C – UpSet plot of shared DE genes
+
+```{r fig.width=8, fig.height=5, label="panel-C-upset"}
+path_upset <- file.path(here::here(), 'report', 'Fig_files', "Fig3_Plot__upset.rds")
+
+if (file.exists(path_upset)) {
+  Plot__upset <- readRDS(path_upset)
+} else {
+  # DE gene sets per cell type (fixed component; drop cytotoxic and NA cell types)
+  gene_sets <-
+    gene_hyp_df %>%
+    filter(component == "fixed", !is.na(cell_type), cell_type != 'cytotoxic') %>%
+    group_by(.feature) %>%
+    summarise(ct_set = list(sort(unique(cell_type))), .groups = "drop") %>%
+    mutate(n_ct = lengths(ct_set))
+
+  Plot__upset <-
+    ggplot(gene_sets, aes(x = ct_set)) +
+    geom_bar() +
+    scale_x_upset(n_intersections = 50) +
+    labs(y = "Number of DE genes", x = NULL) +
+    theme_minimal() +
+    theme(panel.grid = element_blank())
+
+  saveRDS(Plot__upset, path_upset)
+}
+
+Plot__upset
+```
+
+# Panels E & F – Blood ageing clock applied to all tissues
+
+Pre-trained blood LASSO clocks (`scImmuAging`) are applied to pseudobulk
+profiles of the matched cell-type families across all tissues. The predicted-age
+plot and the per-donor summary are cached; the full LASSO pipeline only runs
+when the cache is absent.
+
+```{r define-clock-inputs}
+cell_type_list <- list(
+  CD4T = c("cd4 naive", "cd4 tcm", "cd4 th17 em", "cd4 th1/th17 em",
+           "cd4 th2 em", "cd4 fh em", "cd4 tem", "cd4 th1 em", "t cd4"),
+  CD8T = c("cd8 naive", "cd8 tcm", "cd8 tem", "t cd8"),
+  MONO = c("cd14 mono", "cd16 mono", "monocytic"),
+  NK   = c("nk", "nkt"),
+  B    = c("b naive", "b memory", "b")
+)
+
+path_pred_whole_plot <-
+  file.path(here::here(), 'report', 'Fig_files', "Fig3_Plot__pred_whole.rds")
+path_total_pred_summary <-
+  file.path(here::here(), 'data', 'age_fig', "Fig3_total_pred_summary.rds")
+```
+
+```{r run-age-clock}
+if (file.exists(path_pred_whole_plot) && file.exists(path_total_pred_summary)) {
+
+  Plot__pred_whole   <- readRDS(path_pred_whole_plot)
+  total_pred_summary <- readRDS(path_total_pred_summary)
+
+} else {
+
+  library(glmnet)       # cv.glmnet() LASSO age clock
+  library(scImmuAging)  # pre-trained blood ageing clocks
+
+  # --- Load pseudobulk cell data (HDF5-backed SummarizedExperiment) ----------
+  se <- loadHDF5SummarizedExperiment('~/lab/chen/cell_rebuttal/age_clock/report/data/se_all_cell_type/')
+
+  # Donors profiled in >5 tissues (healthy only) for the per-donor panel.
+  donor_select <-
+    se %>% colData() %>% as.data.frame() %>% rownames_to_column() %>%
+    filter(disease_groups == 'Normal') %>%
+    dplyr::select(donor_id, tissue_groups, age_days) %>%
+    distinct() %>%
+    group_by(donor_id, age_days) %>%
+    summarise(n = n_distinct(tissue_groups), .groups = "drop") %>%
+    filter(n > 5)
+
+  # --- Pre-trained blood clocks ---------------------------------------------
+  feature_set <- readRDS(system.file("data", "all_model_inputfeatures.RDS", package = "scImmuAging"))
+
+  # Apply one blood clock to all tissues, keeping the central 1-99% predictions.
+  run_age_clock <- function(test_model) {
+    se_cur <- se %>% filter(cell_type_unified_ensemble %in% cell_type_list[[test_model]])
+    se_cur <- se_cur %>% keep_abundant() %>% scale_abundance(method = 'TMMwsp')
+    se_cur <- se_cur[intersect(feature_set[[test_model]], rownames(se_cur)), ]
+
+    data <- se_cur %>% assay('counts_scaled') %>% t %>% as.data.frame()
+    data[, setdiff(feature_set[[test_model]], rownames(se_cur))] <- 0
+    meta <- se_cur %>% colData() %>% as.data.frame() %>% rownames_to_column()
+
+    data <- left_join(
+      data %>% rownames_to_column(),
+      meta %>% dplyr::select('rowname', 'tissue_groups', 'age_days')
+    ) %>% column_to_rownames('rowname')
+
+    blood_data <- data %>% filter(tissue_groups == 'blood')
+
+    model <- cv.glmnet(
+      x = as.matrix(blood_data %>% dplyr::select(-c('tissue_groups', 'age_days'))),
+      y = as.matrix(blood_data %>% dplyr::select(age_days)),
+      type.measure = "mae", standardize = FALSE, relax = FALSE, nfolds = 5
+    )
+
+    pred <- predict(
+      model,
+      newx = data %>% dplyr::select(-c('tissue_groups', 'age_days')) %>% as.matrix(),
+      s = "lambda.min"
+    )
+    colnames(pred) <- 'predicted_age'
+
+    pred %>%
+      as.data.frame() %>% rownames_to_column() %>% left_join(meta) %>%
+      filter(between(
+        predicted_age,
+        quantile(predicted_age, 0.01, na.rm = TRUE),
+        quantile(predicted_age, 0.99, na.rm = TRUE)
+      ))
+  }
+
+  pred_list  <- lapply(c("CD8T", "CD4T", "MONO", "NK", "B"), run_age_clock)
+  pred_whole <- bind_rows(pred_list)
+  total_pred <- pred_whole %>% filter(donor_id %in% donor_select$donor_id)
+
+  # Cross-figure export used by Fig 4.
+  saveRDS(pred_whole,
+          file = file.path(here::here(), 'data', 'Fig4_pred_whole.rds'))
+
+  # Panel E: predicted vs actual age (blood highlighted).
+  Plot__pred_whole <-
+    pred_whole %>%
+    mutate(age_years = age_days / 365, predicted_age_scaled = predicted_age / 365) %>%
+    ggplot(aes(x = age_years, y = predicted_age_scaled, color = tissue_groups)) +
+    geom_point(
+      data = ~ filter(.x, tissue_groups == "blood"),
+      alpha = 0.15, size = 0.6, shape = 16, color = "grey50"
+    ) +
+    geom_smooth(
+      data = ~ filter(.x, tissue_groups != "blood"),
+      method = "lm", se = FALSE, linewidth = 0.4, alpha = 0.2
+    ) +
+    geom_smooth(
+      data = ~ filter(.x, tissue_groups == "blood"),
+      method = "lm", se = FALSE, linewidth = 1.2
+    ) +
+    geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+    scale_color_manual(values = tissue_colors) +
+    labs(x = "Predicted Age", y = "Actual Age", color = "Tissue Group") +
+    coord_fixed() +
+    theme_multipanel +
+    expand_limits(x = 0, y = 0) +
+    theme(legend.position = "right")
+
+  # Panel F data: per-donor / per-tissue predicted-age summary.
+  total_pred_summary <-
+    total_pred %>%
+    group_by(donor_id, tissue_groups) %>%
+    reframe(
+      predicted_age_mean  = mean(predicted_age, na.rm = TRUE),
+      predicted_age_upper = max(predicted_age, na.rm = TRUE),
+      predicted_age_lower = min(predicted_age, na.rm = TRUE),
+      actual_age = unique(age_days),
+      n_s = n_distinct(sample_id)
+    )
+
+  saveRDS(Plot__pred_whole,   path_pred_whole_plot)
+  saveRDS(total_pred_summary, path_total_pred_summary)
+}
+```
+
+```{r fig.width=8, fig.height=6, label="panel-E-pred-whole"}
+Plot__pred_whole
+```
+
+```{r fig.width=10, fig.height=6, label="panel-F-donor-lines"}
+Plot__total_pred_line_chart <-
+  total_pred_summary %>%
+  ggplot(aes(x = predicted_age_mean, y = 0)) +
+  geom_line(aes(group = donor_id)) +
+  geom_point(aes(color = tissue_groups, size = n_s)) +
+  geom_point(aes(x = actual_age, y = 0), shape = 8, color = "black", size = 3) +
+  scale_color_manual(values = tissue_colors) +
+  facet_wrap(~ donor_id, ncol = 1, strip.position = "left") +
+  scale_x_continuous(labels = function(x) ceiling(x / 365), name = "Predicted Age (years)") +
+  labs(x = "Age", y = "Donors",
+       title = "Predicted Age by Tissue Group per Donor (Black Star = Actual Age)") +
+  theme_multipanel +
+  theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    panel.grid.major.y = element_blank(),
+    axis.line.y = element_blank(),
+    strip.text.y.left = element_text(angle = 0),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+saveRDS(
+  Plot__total_pred_line_chart,
+  file.path(here::here(), 'report', 'Fig_files', "Fig3_Plot__total_pred_line_chart.rds")
+)
+
+Plot__total_pred_line_chart
+```
+
+# Final assembly
+
+The six panels are stitched into the final Figure 3 with `patchwork` and
+exported as a PDF sized for print (183 mm wide).
+
+```{r fig.width=10, fig.height=10, label="fig3-assembly"}
+# --- Panel A (revised for compact multipanel layout) ------------------------
+Plot__linear_distance_all_revised <-
+  linear_distance_scaled %>%
+  ggplot(aes(x = cum_dist_scaled, y = 0, group = version)) +
+  geom_line() +
+  geom_point(color = "red", size = 2) +
+  geom_text(aes(label = age_decade_continuous * 10 - 10), vjust = -1, size = 2) +
+  facet_grid(rows = vars(version), switch = "y") +
+  theme_multipanel +
+  theme(
+    plot.title = element_blank(),
+    axis.ticks.x.bottom = element_blank(), axis.ticks.y.left = element_blank(),
+    axis.line.x.bottom = element_blank(), axis.line.y.left = element_blank(),
+    axis.text.x.bottom = element_blank(), axis.text.y.left = element_blank(),
+    axis.title.x.bottom = element_blank(), axis.title.y.left = element_blank(),
+    strip.text.y.left = element_text(size = 7, margin = margin(0, 0, 0, 0, "pt"),
+                                     angle = 0, hjust = 1),
+    strip.placement = "inside"
+  )
+
+# --- Panel B (revised) ------------------------------------------------------
+Plot__sccomp_1d_revised <-
+  Plot__sccomp_1d_colored +
+  theme_multipanel +
+  theme(
+    plot.title = element_blank(),
+    axis.ticks.x.bottom = element_blank(),
+    axis.ticks.y.left = element_blank()
+  ) &
+  guides(
+    color    = guide_legend(nrow = 1, keywidth = unit(4, "mm"), keyheight = unit(4, "mm"), override.aes = list(size = 3)),
+    fill     = guide_legend(nrow = 1, keywidth = unit(4, "mm"), keyheight = unit(4, "mm"), override.aes = list(size = 3)),
+    shape    = guide_legend(nrow = 1, keywidth = unit(4, "mm"), keyheight = unit(4, "mm"), override.aes = list(size = 3)),
+    linetype = guide_legend(nrow = 1, keywidth = unit(4, "mm"), keyheight = unit(4, "mm"), override.aes = list(size = 3)),
+    size     = guide_legend(nrow = 1, keywidth = unit(4, "mm"), keyheight = unit(4, "mm"), override.aes = list(size = 3)),
+    alpha    = guide_legend(nrow = 1, keywidth = unit(4, "mm"), keyheight = unit(4, "mm"), override.aes = list(size = 3))
+  )
+
+row1_left_col <-
+  (wrap_elements(Plot__linear_distance_all_revised) / Plot__sccomp_1d_revised) +
+  plot_layout(heights = c(1, 2)) &
+  theme(
+    panel.spacing = unit(0, "pt"),
+    plot.margin = margin(0, 0, 0, 0, "pt"),
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    legend.text.position = "bottom"
+  )
+
+# --- Row 1: (A over B) beside C (UpSet) -------------------------------------
+row1 <-
+  (row1_left_col | as.ggplot(Plot__upset)) +
+  plot_layout(widths = c(2, 3)) &
+  theme(
+    panel.spacing = unit(0, "pt"),
+    plot.margin = margin(0, 0, 0, 0, "pt"),
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    legend.text.position = "bottom"
+  )
+
+# --- Row 3 right column: E over F -------------------------------------------
+Plot__pred_whole_no_legend <-
+  Plot__pred_whole +
+  labs(x = "Predicted Age (years)") +
+  theme(
+    axis.line.x = element_line(),
+    axis.text.x = element_text(size = 6),
+    axis.title.x = element_text(size = 7)
+  )
+
+Plot__total_pred_line_chart_no_legend <-
+  total_pred_summary %>%
+  ggplot(aes(x = predicted_age_mean, y = 0)) +
+  geom_line(aes(group = donor_id), linewidth = 0.25) +
+  geom_point(aes(color = tissue_groups, size = n_s)) +
+  geom_point(aes(x = actual_age, y = 0), shape = 8, color = "black", size = 1) +
+  scale_color_manual(values = tissue_colors) +
+  scale_size_continuous(range = c(0.25, 2)) +
+  facet_wrap(~ donor_id, ncol = 1, strip.position = "left") +
+  scale_x_continuous(labels = function(x) ceiling(x / 365), name = "Predicted Age (years)") +
+  labs(y = "Donors") +
+  theme_multipanel +
+  guides(colour = "none", color = "none", fill = "none", shape = "none",
+         linetype = "none", size = "none", alpha = "none") +
+  theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.ticks.x = element_blank(),
+    panel.grid.major.y = element_blank(),
+    axis.line.y = element_blank(),
+    strip.text.y.left = element_text(angle = 0)
+  )
+
+row3_right_col <-
+  (Plot__pred_whole_no_legend / Plot__total_pred_line_chart_no_legend) +
+  plot_layout(heights = c(1, 1)) &
+  theme(
+    panel.spacing = unit(0, "pt"),
+    plot.margin = margin(0, 0, 0, 0, "pt"),
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    legend.text.position = "bottom"
+  )
+
+# --- Row 3: D beside (E over F) ---------------------------------------------
+Plot__smoothed_age_dist_all_no_legend <-
+  Plot__smoothed_age_dist_all +
+  scale_linewidth(range = c(0.2, 1.5), guide = "none") +
+  guides(colour = "none", color = "none", fill = "none", shape = "none",
+         linetype = "none", size = "none", alpha = "none")
+
+row3 <-
+  (Plot__smoothed_age_dist_all_no_legend | row3_right_col) +
+  plot_layout(widths = c(3, 1)) &
+  theme(
+    panel.spacing = unit(0, "pt"),
+    plot.margin = margin(0, 0, 0, 0, "pt"),
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    legend.text.position = "bottom"
+  )
+
+# --- Final figure -----------------------------------------------------------
+Fig3 <-
+  (row1 / row3) +
+  patchwork::plot_layout(heights = c(3, 3), guides = "collect", nrow = 2) &
+  theme(
+    panel.spacing = unit(0, "pt"),
+    plot.margin = margin(0, 0, 0, 0, "pt"),
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    legend.text.position = "bottom",
+    legend.key.size = unit(5, 'mm'),
+    legend.title = element_text(size = 7),
+    legend.text = element_text(size = 6)
+  )
+
+ggsave(
+  plot = Fig3,
+  filename = file.path(here::here(), 'report', 'Fig_files', "fig3_clean.pdf"),
+  units = "mm", width = 183, height = 180, dpi = 500, scale = 1
+)
+
+Fig3
+```
+
+# Supplementary tables
+
+Export plot statistics from ggplot / heatmap `@data` slots for all Fig 3 panels.
+
+```{r export-supplementary-tables}
+source(file.path(here::here(), "report", "R", "export_supplementary_tables.R"))
+
+suppl_dir <- file.path(here::here(), "Supplementary_files")
+
+fig3_plots <- list(
+  linear_distance_all = Plot__linear_distance_all,
+  smoothed_age_dist_all = Plot__smoothed_age_dist_all,
+  sccomp_1d_colored = Plot__sccomp_1d_colored,
+  upset = Plot__upset,
+  pred_whole = Plot__pred_whole,
+  total_pred_line_chart = Plot__total_pred_line_chart
+)
+
+fig3_extra <- list()
+if (exists("total_pred_summary")) {
+  fig3_extra$total_pred_summary <- total_pred_summary
+}
+
+export_supplementary_workbook(
+  plots = fig3_plots,
+  extra_sheets = fig3_extra,
+  output_path = file.path(suppl_dir, "SupplData_AgeClock_Fig3.xlsx"),
+  prefix = "Fig3_"
+)
+```
+
+# Save panels
+
+```{r save-all-plots, eval=FALSE}
+# Persist all panel objects for downstream figure assembly / re-use.
+save(
+  list = ls(pattern = "Plot__"),
+  file = file.path(here::here(), "report", "Fig_files", "Fig3_plot_data_all.RData")
+)
+
+sessionInfo()
+```
+
+# Appendix: provenance of pre-computed inputs {.appendix}
+
+The following block documents how `new_gene_hyp_df.rds` was assembled (adding the
+`monocytic` cell type from the `targets` modelling store). It is disabled by
+default because it depends on the full modelling pipeline.
+
+```{r gene-hyp-provenance, eval=FALSE}
+library(targets)
+
+root_path <- '/hpcfs/groups/phoenix-hpc-mangiola_laboratory/chen/HPC_posterior/NEW_CELL_TYPE'
+.x <- 'monocytic'
+
+adjust_tissue <- tar_meta(
+  contains('adjust_tissue'),
+  store = glue::glue('{root_path}/V1_{make.names(.x)}/_targets/')
+) %>% filter(type == 'pattern') %>% pull(name) %>% unique
+
+adjust_tissue <- tar_read_raw(
+  adjust_tissue, store = glue::glue('{root_path}/V1_{make.names(.x)}/_targets/')
+)
+
+gene_hyp_missing <-
+  adjust_tissue %>% dplyr::select(-contains('tissue')) %>%
+  unnest(hypothesis_age_monotonic) %>%
+  mutate(star = sign(ci_lower) == sign(ci_upper)) %>%
+  mutate(cell_type = .x, abs_est = abs(estimate)) %>%
+  filter(star)
+
+gene_hyp_df <-
+  readRDS("/hpcfs/groups/phoenix-hpc-mangiola_laboratory/chen/HPC_posterior/Age_Clock/new_gene_hyp_df.rds") %>%
+  bind_rows(gene_hyp_missing)
+
+saveRDS(gene_hyp_df,
+        file = "/hpcfs/groups/phoenix-hpc-mangiola_laboratory/chen/HPC_posterior/Age_Clock/new_gene_hyp_df.rds")
+```
