@@ -242,9 +242,9 @@ if (file.exists(path_bar)) {
   donor_count_df <-
     donor_metadata |>
     mutate(age_groups = case_when(
-      age_decade %in% c('1', ' 2', '3') ~ 'Young',
-      age_decade %in% c('4', ' 5', '6') ~ 'Mid',
-      age_decade %in% c('7', ' 8', '9') ~ 'Old',
+      age_decade %in% c('1', '2', '3') ~ 'Young',
+      age_decade %in% c('4', '5', '6') ~ 'Mid',
+      age_decade %in% c('7', '8', '9') ~ 'Old',
       .default = 'Old'
     )) |>
     dplyr::count(ethnicity_groups, age_groups, sex, tissue_groups) |>
