@@ -1,0 +1,190 @@
+---
+title: "Figure 2 supplementary plots"
+date: today
+date-format: "DD MMM YYYY"
+format:
+  html:
+    theme: minty
+    toc: true
+    code-fold: true
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+---
+
+# Purpose
+
+This report uses the finalized Figure 2 source-data workbook. It adds two
+inferential views that are not visible in full in the main figure:
+
+1. all body-level immune-composition age effects with posterior intervals; and
+2. the complete tissue-level myeloid-minus-lymphoid contrast underlying the
+   anatogram.
+
+The plasma-cell trajectory panel is not repeated because the main Figure 2
+already displays every tissue meeting its age-coverage criterion.
+
+```{r setup}
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(scales)
+library(here)
+
+source(file.path("..", "R", "paths.R"))
+workbook <- path_source_tables("SupplData_AgeClock_Fig2.xlsx")
+if (!file.exists(workbook)) stop("Figure 2 source-data workbook not found: ", workbook)
+
+plot_object_dir <- file.path(here::here(), "vignettes", "supplementary_plot_objects")
+dir.create(plot_object_dir, recursive = TRUE, showWarnings = FALSE)
+
+read_panel_sheet <- function(sheet) {
+  if (!sheet %in% excel_sheets(workbook)) stop("Missing worksheet: ", sheet)
+  read_xlsx(workbook, sheet = sheet, guess_max = 1000000L)
+}
+
+save_plot_object <- function(plot, filename) {
+  path <- file.path(plot_object_dir, filename)
+  saveRDS(plot, path, compress = "xz")
+  message("Saved ggplot object: ", path)
+  invisible(path)
+}
+
+theme_supplementary <- theme_bw(base_size = 9) +
+  theme(
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_blank(),
+    strip.background = element_blank(),
+    legend.position = "bottom",
+    plot.title.position = "plot"
+  )
+
+format_cell_type <- function(x) {
+  out <- tools::toTitleCase(gsub("_", " ", x, fixed = TRUE))
+  out <- gsub("^Cd", "CD", out)
+  out <- gsub(" Mono$", " Mono", out)
+  out <- gsub("^Nk$", "NK", out)
+  out <- gsub("^Nkt$", "NKT", out)
+  out <- gsub("^Ilc$", "ILC", out)
+  out <- gsub("^Mait$", "MAIT", out)
+  out <- gsub("^Tgd$", "TGD", out)
+  out
+}
+```
+
+```{r read-source-data}
+composition_tests <- read_panel_sheet("Fig2_B_age_composition_tests")
+lineage_tests <- read_panel_sheet("Fig2_C_lineage_and_contrast_tes")
+```
+
+# All body-level compositional age effects
+
+The main boxplots show selected high-ranking enriched and depleted cell types.
+This forest plot retains every tested cell type and therefore separates the
+selection used for display from the complete inferential result.
+
+```{r fig2-all-composition-forest, fig.width=8, fig.height=7}
+composition_forest_data <- composition_tests |>
+  mutate(
+    cell_label = format_cell_type(L3),
+    supported = !is.na(c_FDR) & c_FDR < 0.05
+  ) |>
+  arrange(c_effect) |>
+  mutate(cell_label = factor(cell_label, levels = unique(cell_label)))
+
+Plot_SFig2_all_composition_forest <-
+  ggplot(composition_forest_data, aes(y = cell_label)) +
+  geom_vline(xintercept = 0, colour = "grey55", linewidth = 0.35) +
+  geom_segment(
+    aes(x = c_lower, xend = c_upper, yend = cell_label, colour = supported),
+    linewidth = 0.6
+  ) +
+  geom_point(aes(x = c_effect, fill = supported), shape = 21, size = 2.2) +
+  scale_colour_manual(values = c(`TRUE` = "#B24A3B", `FALSE` = "grey65"), guide = "none") +
+  scale_fill_manual(
+    values = c(`TRUE` = "#B24A3B", `FALSE` = "white"),
+    name = "FDR < 0.05"
+  ) +
+  labs(
+    x = "Age-associated composition effect",
+    y = NULL,
+    title = "Complete body-level immune-composition age effects",
+    subtitle = "Points are posterior estimates; horizontal lines are posterior intervals"
+  ) +
+  theme_supplementary +
+  theme(legend.position = "right")
+
+Plot_SFig2_all_composition_forest
+save_plot_object(
+  Plot_SFig2_all_composition_forest,
+  "Fig2_supp_all_composition_forest.rds"
+)
+```
+
+# Tissue-level myeloid-minus-lymphoid contrast
+
+This plot exposes the complete contrast table behind the anatomical summary.
+Point size encodes contrast FDR. At present no tissue passes FDR < 0.05, so the
+main anatogram should be interpreted as a descriptive spatial summary.
+
+```{r fig2-lineage-contrast, fig.width=9, fig.height=8}
+lineage_contrast_data <- lineage_tests |>
+  distinct(tissue_groups, c_delta, contrast_FDR, significant) |>
+  filter(!is.na(tissue_groups), is.finite(c_delta), is.finite(contrast_FDR)) |>
+  mutate(
+    direction = ifelse(c_delta >= 0, "Myeloid relative increase", "Lymphoid relative increase"),
+    neg_log10_fdr = -log10(pmax(contrast_FDR, .Machine$double.xmin))
+  ) |>
+  arrange(c_delta) |>
+  mutate(tissue_groups = factor(tissue_groups, levels = unique(tissue_groups)))
+
+minimum_contrast_fdr <- min(lineage_contrast_data$contrast_FDR, na.rm = TRUE)
+
+Plot_SFig2_lineage_contrast <-
+  ggplot(lineage_contrast_data, aes(x = c_delta, y = tissue_groups)) +
+  geom_vline(xintercept = 0, colour = "grey55", linewidth = 0.35) +
+  geom_segment(
+    aes(x = 0, xend = c_delta, yend = tissue_groups, colour = direction),
+    linewidth = 0.45
+  ) +
+  geom_point(aes(size = neg_log10_fdr, fill = significant), shape = 21, colour = "black") +
+  scale_colour_manual(
+    values = c(
+      "Myeloid relative increase" = "#B24A3B",
+      "Lymphoid relative increase" = "#3B6FB6"
+    ),
+    name = "Contrast direction"
+  ) +
+  scale_fill_manual(values = c(`TRUE` = "black", `FALSE` = "white"), name = "FDR < 0.05") +
+  scale_size_continuous(name = expression(-log[10](FDR)), range = c(1.5, 4.5)) +
+  labs(
+    x = "Myeloid-minus-lymphoid age contrast",
+    y = NULL,
+    title = "Tissue-level myeloid–lymphoid ageing contrast",
+    subtitle = sprintf("No contrast passes FDR < 0.05; minimum FDR = %.3f", minimum_contrast_fdr)
+  ) +
+  theme_supplementary +
+  theme(legend.position = "right")
+
+Plot_SFig2_lineage_contrast
+save_plot_object(
+  Plot_SFig2_lineage_contrast,
+  "Fig2_supp_lineage_contrast.rds"
+)
+```
+
+# Output objects
+
+```{r output-manifest}
+data.frame(
+  object = c(
+    "Plot_SFig2_all_composition_forest",
+    "Plot_SFig2_lineage_contrast"
+  ),
+  rds_file = c(
+    "Fig2_supp_all_composition_forest.rds",
+    "Fig2_supp_lineage_contrast.rds"
+  )
+)
+```

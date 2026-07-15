@@ -1,0 +1,348 @@
+---
+title: "Figure 5 supplementary plots"
+date: today
+date-format: "DD MMM YYYY"
+format:
+  html:
+    theme: minty
+    toc: true
+    code-fold: true
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+---
+
+# Purpose
+
+This report uses the finalized Figure 5 source-data workbook to show:
+
+1. age-by-sex donor coverage across all 36 mapped tissue groups;
+2. every body-level sex contrast across age decades;
+3. a full-resolution tissue-by-cell-type sex-effect heatmap; and
+4. a plasma-cell tissue audit showing which tested tissues have trajectories in
+   the main panel.
+
+The main plasma trajectories are not duplicated. The exported workbook contains
+only the trajectories that passed the main panel's display rules, so omitted
+trajectories cannot be reconstructed faithfully from that sheet alone.
+
+```{r setup}
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(scales)
+library(here)
+library(knitr)
+
+source(file.path("..", "R", "paths.R"))
+workbook <- path_source_tables("SupplData_AgeClock_Fig5.xlsx")
+if (!file.exists(workbook)) stop("Figure 5 source-data workbook not found: ", workbook)
+
+plot_object_dir <- file.path(here::here(), "vignettes", "supplementary_plot_objects")
+dir.create(plot_object_dir, recursive = TRUE, showWarnings = FALSE)
+
+read_panel_sheet <- function(sheet) {
+  if (!sheet %in% excel_sheets(workbook)) stop("Missing worksheet: ", sheet)
+  read_xlsx(workbook, sheet = sheet, guess_max = 1000000L)
+}
+
+save_plot_object <- function(plot, filename) {
+  path <- file.path(plot_object_dir, filename)
+  saveRDS(plot, path, compress = "xz")
+  message("Saved ggplot object: ", path)
+  invisible(path)
+}
+
+clean_label <- function(x) {
+  x <- gsub("_", " ", x, fixed = TRUE)
+  tools::toTitleCase(x)
+}
+
+theme_supplementary <- theme_bw(base_size = 8.5) +
+  theme(
+    panel.grid.minor = element_blank(),
+    strip.background = element_blank(),
+    legend.position = "bottom",
+    plot.title.position = "plot"
+  )
+```
+
+```{r read-source-data}
+cohort_counts <- read_panel_sheet("Fig5_A_all_tissue_donor_counts")
+global_sex_tests <- read_panel_sheet("Fig5_B_all_global_sex_tests_by_")
+tissue_sex_tests <- read_panel_sheet("Fig5_C_tissue_sex_effect_tests")
+plasma_trajectories <- read_panel_sheet("Fig5_D_plotted_estimates")
+```
+
+# Complete age-by-sex cohort coverage
+
+The three records with missing tissue-group mapping are excluded from the
+36-tissue display and reported separately below.
+
+```{r fig5-full-cohort-coverage, fig.width=8, fig.height=12}
+unmapped_donor_records <- cohort_counts |>
+  filter(is.na(tissue_groups)) |>
+  summarise(donor_count = sum(donor_count, na.rm = TRUE)) |>
+  pull(donor_count)
+
+tissue_map <- cohort_counts |>
+  filter(!is.na(tissue_groups), !is.na(tissue_label)) |>
+  distinct(tissue_groups, tissue_label)
+
+coverage_data <- cohort_counts |>
+  filter(!is.na(tissue_groups)) |>
+  select(tissue_groups, age_groups, sex, donor_count) |>
+  complete(
+    tissue_groups,
+    age_groups = c("Young", "Mid", "Old"),
+    sex = c("female", "male"),
+    fill = list(donor_count = 0)
+  ) |>
+  left_join(tissue_map, by = "tissue_groups")
+
+tissue_order <- coverage_data |>
+  group_by(tissue_label) |>
+  summarise(total = sum(donor_count), .groups = "drop") |>
+  arrange(total) |>
+  pull(tissue_label)
+
+coverage_data <- coverage_data |>
+  mutate(
+    tissue_label = factor(tissue_label, levels = tissue_order),
+    age_groups = factor(age_groups, levels = c("Young", "Mid", "Old")),
+    sex = factor(sex, levels = c("female", "male"), labels = c("Female", "Male"))
+  )
+
+Plot_SFig5_full_cohort_coverage <-
+  ggplot(coverage_data, aes(x = age_groups, y = tissue_label, fill = donor_count)) +
+  geom_tile(colour = "white", linewidth = 0.25) +
+  geom_text(aes(label = ifelse(donor_count == 0, "", donor_count)), size = 2.2) +
+  facet_grid(. ~ sex) +
+  scale_fill_viridis_c(trans = "sqrt", option = "C", name = "Unique donors") +
+  labs(
+    x = "Age group",
+    y = NULL,
+    title = "Donor coverage across all mapped tissues, age groups and sexes",
+    subtitle = sprintf(
+      "Thirty-six mapped tissue groups are shown; %d donor records have missing tissue-group mapping",
+      unmapped_donor_records
+    )
+  ) +
+  theme_supplementary +
+  theme(panel.grid.major = element_blank())
+
+Plot_SFig5_full_cohort_coverage
+save_plot_object(
+  Plot_SFig5_full_cohort_coverage,
+  "Fig5_supp_full_cohort_coverage.rds"
+)
+```
+
+# Complete body-level sex effects across age decades
+
+Positive effects indicate male enrichment relative to the female baseline.
+Stars denote FDR-supported contrasts.
+
+```{r fig5-all-global-sex-effects, fig.width=9, fig.height=8}
+global_effect_data <- global_sex_tests |>
+  filter(!is.na(cell_type_unified_ensemble), !is.na(Age)) |>
+  mutate(
+    cell_label = clean_label(cell_type_unified_ensemble),
+    age_decade = factor(as.character(Age), levels = as.character(1:10)),
+    supported = !is.na(c_FDR) & c_FDR < 0.05
+  )
+
+cell_order <- global_effect_data |>
+  group_by(cell_label) |>
+  summarise(mean_effect = mean(c_effect, na.rm = TRUE), .groups = "drop") |>
+  arrange(mean_effect) |>
+  pull(cell_label)
+
+global_effect_data <- global_effect_data |>
+  mutate(cell_label = factor(cell_label, levels = cell_order))
+
+global_effect_limit <- max(abs(global_effect_data$c_effect), na.rm = TRUE)
+
+Plot_SFig5_all_global_sex_effects <-
+  ggplot(global_effect_data, aes(x = age_decade, y = cell_label, fill = c_effect)) +
+  geom_tile(colour = "white", linewidth = 0.2) +
+  geom_point(
+    data = filter(global_effect_data, supported),
+    shape = 8,
+    size = 1.4,
+    colour = "black"
+  ) +
+  scale_fill_gradient2(
+    low = "#D7907B", mid = "white", high = "#0A014F", midpoint = 0,
+    limits = c(-global_effect_limit, global_effect_limit),
+    name = "Male − female\neffect"
+  ) +
+  labs(
+    x = "Age decade",
+    y = NULL,
+    title = "Complete body-level sex effects across age decades",
+    subtitle = "The fifth decade is the model reference; stars denote FDR < 0.05"
+  ) +
+  theme_supplementary +
+  theme(panel.grid.major = element_blank())
+
+Plot_SFig5_all_global_sex_effects
+save_plot_object(
+  Plot_SFig5_all_global_sex_effects,
+  "Fig5_supp_all_global_sex_effects.rds"
+)
+```
+
+# Full-resolution tissue-by-cell-type sex effects
+
+This is intended as the legible supplementary counterpart to the compressed
+main Figure 5C. Non-significant estimates remain visible; black points denote
+FDR-supported effects.
+
+```{r fig5-full-tissue-sex-heatmap, fig.width=13, fig.height=10}
+tissue_effect_data <- tissue_sex_tests |>
+  filter(!is.na(Tissue), !is.na(cell_type_unified_ensemble)) |>
+  mutate(
+    tissue_label = ifelse(is.na(tissue_short), clean_label(Tissue), tissue_short),
+    cell_label = ifelse(
+      is.na(cell_type_abbrev),
+      clean_label(cell_type_unified_ensemble),
+      cell_type_abbrev
+    ),
+    supported = !is.na(c_FDR) & c_FDR < 0.05
+  )
+
+tissue_order <- tissue_effect_data |>
+  group_by(tissue_label) |>
+  summarise(mean_effect = mean(c_effect, na.rm = TRUE), .groups = "drop") |>
+  arrange(mean_effect) |>
+  pull(tissue_label)
+cell_order <- tissue_effect_data |>
+  group_by(cell_label) |>
+  summarise(mean_effect = mean(c_effect, na.rm = TRUE), .groups = "drop") |>
+  arrange(mean_effect) |>
+  pull(cell_label)
+
+tissue_effect_data <- tissue_effect_data |>
+  mutate(
+    tissue_label = factor(tissue_label, levels = tissue_order),
+    cell_label = factor(cell_label, levels = cell_order)
+  )
+
+tissue_effect_limit <- max(abs(tissue_effect_data$c_effect), na.rm = TRUE)
+
+Plot_SFig5_full_tissue_sex_heatmap <-
+  ggplot(tissue_effect_data, aes(x = cell_label, y = tissue_label, fill = c_effect)) +
+  geom_tile(colour = "white", linewidth = 0.15) +
+  geom_point(
+    data = filter(tissue_effect_data, supported),
+    size = 0.8,
+    colour = "black"
+  ) +
+  scale_fill_gradient2(
+    low = "#D7907B", mid = "white", high = "#0A014F", midpoint = 0,
+    limits = c(-tissue_effect_limit, tissue_effect_limit),
+    name = "Male − female\neffect"
+  ) +
+  labs(
+    x = NULL,
+    y = NULL,
+    title = "Full tissue-resolved landscape of sex effects",
+    subtitle = "All estimates are shown; black points denote FDR < 0.05"
+  ) +
+  theme_supplementary +
+  theme(
+    panel.grid.major = element_blank(),
+    axis.text.x = element_text(angle = 55, hjust = 1)
+  )
+
+Plot_SFig5_full_tissue_sex_heatmap
+save_plot_object(
+  Plot_SFig5_full_tissue_sex_heatmap,
+  "Fig5_supp_full_tissue_sex_heatmap.rds"
+)
+```
+
+# Plasma-cell trajectory inclusion audit
+
+This audit avoids drawing unsupported trajectories. It shows all tissues with a
+plasma-cell sex-effect estimate and identifies which tissues are represented in
+the main trajectory panel.
+
+```{r fig5-plasma-inclusion-audit, fig.width=9, fig.height=7}
+trajectory_tissues <- unique(plasma_trajectories$Tissue)
+
+plasma_audit_data <- tissue_effect_data |>
+  filter(cell_type_unified_ensemble == "plasma") |>
+  mutate(
+    trajectory_displayed = Tissue %in% trajectory_tissues,
+    tissue_label = as.character(tissue_label)
+  ) |>
+  arrange(c_effect) |>
+  mutate(tissue_label = factor(tissue_label, levels = unique(tissue_label)))
+
+Plot_SFig5_plasma_tissue_audit <-
+  ggplot(plasma_audit_data, aes(x = c_effect, y = tissue_label)) +
+  geom_vline(xintercept = 0, colour = "grey55", linewidth = 0.35) +
+  geom_segment(aes(x = 0, xend = c_effect, yend = tissue_label), colour = "grey75") +
+  geom_point(
+    aes(
+      fill = trajectory_displayed,
+      shape = supported,
+      size = NSamplesTissue
+    ),
+    colour = "black"
+  ) +
+  scale_fill_manual(
+    values = c(`TRUE` = "#4C9F70", `FALSE` = "white"),
+    name = "Trajectory displayed"
+  ) +
+  scale_shape_manual(values = c(`TRUE` = 21, `FALSE` = 24), name = "FDR < 0.05") +
+  scale_size_continuous(name = "Tissue samples", range = c(1.5, 5)) +
+  labs(
+    x = "Male − female plasma-cell effect",
+    y = NULL,
+    title = "Plasma-cell tissue effects and trajectory availability"
+  ) +
+  theme_supplementary
+
+Plot_SFig5_plasma_tissue_audit
+save_plot_object(
+  Plot_SFig5_plasma_tissue_audit,
+  "Fig5_supp_plasma_tissue_audit.rds"
+)
+```
+
+```{r excluded-plasma-tissues}
+plasma_audit_data |>
+  filter(!trajectory_displayed) |>
+  transmute(
+    tissue = as.character(tissue_label),
+    effect = c_effect,
+    FDR = c_FDR,
+    tissue_samples = NSamplesTissue,
+    reason = "No trajectory exported under the main-panel display rules"
+  ) |>
+  kable(digits = 3, caption = "Tissues tested for plasma-cell sex effects without a displayed trajectory")
+```
+
+# Output objects
+
+```{r output-manifest}
+data.frame(
+  object = c(
+    "Plot_SFig5_full_cohort_coverage",
+    "Plot_SFig5_all_global_sex_effects",
+    "Plot_SFig5_full_tissue_sex_heatmap",
+    "Plot_SFig5_plasma_tissue_audit"
+  ),
+  rds_file = c(
+    "Fig5_supp_full_cohort_coverage.rds",
+    "Fig5_supp_all_global_sex_effects.rds",
+    "Fig5_supp_full_tissue_sex_heatmap.rds",
+    "Fig5_supp_plasma_tissue_audit.rds"
+  )
+)
+```

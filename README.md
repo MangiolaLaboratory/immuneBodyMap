@@ -18,3 +18,18 @@ The presence of immune cells in non-lymphoid tissues throughout the body is vita
 The data used for this study is available at `CuratedAtlasQueryR` version v0.99.2
 
 https://github.com/stemangiola/CuratedAtlasQueryR/releases/tag/v0.99.2
+
+
+---
+
+## Nature Aging figure reproducibility (Age Clock)
+
+Publication-facing Quarto reports, small reproducibility data, and Zenodo
+manifests live under [`vignettes/`](vignettes/README.md).
+
+Configure data roots with `IMMUNE_HEALTHY_BODY_MAP_DATA` (see
+`vignettes/config/paths.example.env`). Large intermediate files are **not**
+stored in this GitHub repository; see `vignettes/manifests/`.
+
+Pseudobulk: https://doi.org/10.5281/zenodo.15798373
+sccomp estimates and other companions: `<ZENODO_DOI_PENDING>`.

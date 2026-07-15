@@ -1,0 +1,274 @@
+---
+title: "Figure 4 supplementary plots"
+date: today
+date-format: "DD MMM YYYY"
+format:
+  html:
+    theme: minty
+    toc: true
+    code-fold: true
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+---
+
+# Purpose
+
+This report uses the finalized Figure 4 source-data workbook to provide:
+
+1. individual prediction points and regression diagnostics for every tissue;
+2. the full tissue distribution of blood-clock prediction error; and
+3. a donor-by-tissue error map for every donor represented in at least three
+   tissues, rather than only the nine donors shown in the main figure.
+
+The ageing-distance trajectories are not duplicated because the main Figure 4
+already shows all eligible tissues. A feature-count sensitivity plot should be
+added only when feature counts per tissue are exported to source data.
+
+```{r setup}
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(scales)
+library(here)
+library(knitr)
+
+source(file.path("..", "R", "paths.R"))
+workbook <- path_source_tables("SupplData_AgeClock_Fig4.xlsx")
+if (!file.exists(workbook)) stop("Figure 4 source-data workbook not found: ", workbook)
+
+plot_object_dir <- file.path(here::here(), "vignettes", "supplementary_plot_objects")
+dir.create(plot_object_dir, recursive = TRUE, showWarnings = FALSE)
+
+read_panel_sheet <- function(sheet) {
+  if (!sheet %in% excel_sheets(workbook)) stop("Missing worksheet: ", sheet)
+  read_xlsx(workbook, sheet = sheet, guess_max = 1000000L)
+}
+
+save_plot_object <- function(plot, filename) {
+  path <- file.path(plot_object_dir, filename)
+  saveRDS(plot, path, compress = "xz")
+  message("Saved ggplot object: ", path)
+  invisible(path)
+}
+
+pretty_tissue <- function(x) {
+  x <- gsub(" and ", "/", x, fixed = TRUE)
+  x <- gsub(" system$", "", x)
+  x <- gsub(" structures$", "", x)
+  tools::toTitleCase(x)
+}
+
+theme_supplementary <- theme_bw(base_size = 8) +
+  theme(
+    panel.grid.minor = element_blank(),
+    strip.background = element_blank(),
+    legend.position = "bottom",
+    plot.title.position = "plot"
+  )
+```
+
+```{r read-source-data}
+clock_predictions <- read_panel_sheet("Fig4_E_plotted_predictions") |>
+  filter(is.finite(age_years), is.finite(predicted_age_scaled), !is.na(tissue_groups)) |>
+  transmute(
+    donor_id,
+    tissue_groups,
+    tissue_label = pretty_tissue(tissue_groups),
+    age_years,
+    predicted_age_scaled,
+    prediction_error_years
+  )
+
+clock_models <- read_panel_sheet("Fig4_E_tissue_linear_models") |>
+  filter(is.finite(n), n >= 2, is.finite(correlation), is.finite(rmse_identity)) |>
+  transmute(
+    tissue_groups,
+    tissue_label = pretty_tissue(tissue_groups),
+    n,
+    correlation,
+    r_squared,
+    rmse_identity,
+    mae_identity,
+    metric_label = sprintf(
+      "n=%s\nr=%.2f; R²=%.2f\nRMSE=%.1f; MAE=%.1f",
+      format(n, big.mark = ","), correlation, r_squared, rmse_identity, mae_identity
+    )
+  )
+
+clock_predictions <- clock_predictions |>
+  semi_join(clock_models, by = "tissue_groups")
+```
+
+# Per-tissue clock performance
+
+The main panel shows individual points for blood but mainly fitted lines for
+non-blood tissues. These small multiples restore the individual observations
+and report the same model and identity-error statistics exported with the
+figure.
+
+```{r fig4-clock-by-tissue, fig.width=12, fig.height=13}
+age_limits <- range(
+  c(clock_predictions$age_years, clock_predictions$predicted_age_scaled),
+  na.rm = TRUE
+)
+
+Plot_SFig4_clock_by_tissue <-
+  ggplot(clock_predictions, aes(x = age_years, y = predicted_age_scaled)) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", colour = "grey55", linewidth = 0.3) +
+  geom_point(alpha = 0.10, size = 0.25, colour = "#315A7D") +
+  geom_smooth(method = "lm", se = FALSE, colour = "#B24A3B", linewidth = 0.55) +
+  geom_text(
+    data = clock_models,
+    aes(x = -Inf, y = Inf, label = metric_label),
+    inherit.aes = FALSE,
+    hjust = -0.05,
+    vjust = 1.05,
+    size = 2.15,
+    lineheight = 0.9
+  ) +
+  facet_wrap(~ tissue_label, ncol = 5) +
+  coord_cartesian(xlim = age_limits, ylim = age_limits) +
+  labs(
+    x = "Chronological age (years)",
+    y = "Blood-clock predicted age (years)",
+    title = "Blood-derived immune-age clock performance in each tissue",
+    subtitle = "Dashed line denotes identity; red line is the tissue-specific linear fit"
+  ) +
+  theme_supplementary
+
+Plot_SFig4_clock_by_tissue
+save_plot_object(Plot_SFig4_clock_by_tissue, "Fig4_supp_clock_by_tissue.rds")
+rm(Plot_SFig4_clock_by_tissue)
+invisible(gc())
+```
+
+# Prediction-error distributions
+
+```{r fig4-clock-errors, fig.width=9, fig.height=8}
+tissue_order <- clock_models |>
+  arrange(rmse_identity) |>
+  pull(tissue_label)
+
+clock_error_data <- clock_predictions |>
+  mutate(tissue_label = factor(tissue_label, levels = tissue_order))
+
+Plot_SFig4_clock_error_distribution <-
+  ggplot(clock_error_data, aes(x = prediction_error_years, y = tissue_label)) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "grey50", linewidth = 0.35) +
+  geom_boxplot(
+    width = 0.65,
+    outlier.shape = NA,
+    fill = "#C9D9E8",
+    colour = "#315A7D",
+    linewidth = 0.35
+  ) +
+  coord_cartesian(xlim = quantile(clock_error_data$prediction_error_years, c(0.01, 0.99), na.rm = TRUE)) +
+  labs(
+    x = "Prediction error (predicted − chronological age; years)",
+    y = NULL,
+    title = "Blood-clock prediction error across tissues",
+    subtitle = "Tissues are ordered by identity-line RMSE; display is limited to the 1st–99th error percentiles"
+  ) +
+  theme_supplementary
+
+Plot_SFig4_clock_error_distribution
+save_plot_object(
+  Plot_SFig4_clock_error_distribution,
+  "Fig4_supp_clock_error_distribution.rds"
+)
+rm(Plot_SFig4_clock_error_distribution, clock_error_data)
+invisible(gc())
+```
+
+# Multi-tissue donors represented in at least three tissues
+
+The source-data workbook permits a broader donor audit than panel F. The heatmap
+below includes all donors with predictions in at least three tissues.
+
+```{r fig4-multitissue-donor-errors, fig.width=13, fig.height=8}
+donor_tissue_predictions <- clock_predictions |>
+  filter(!is.na(donor_id)) |>
+  group_by(donor_id, tissue_groups, tissue_label) |>
+  summarise(
+    chronological_age = median(age_years, na.rm = TRUE),
+    predicted_age = mean(predicted_age_scaled, na.rm = TRUE),
+    prediction_error = predicted_age - chronological_age,
+    n_profiles = n(),
+    .groups = "drop"
+  )
+
+eligible_donors <- donor_tissue_predictions |>
+  count(donor_id, name = "n_tissues") |>
+  filter(n_tissues >= 3)
+
+donor_key <- donor_tissue_predictions |>
+  semi_join(eligible_donors, by = "donor_id") |>
+  group_by(donor_id) |>
+  summarise(chronological_age = median(chronological_age, na.rm = TRUE), .groups = "drop") |>
+  left_join(eligible_donors, by = "donor_id") |>
+  arrange(chronological_age, donor_id) |>
+  mutate(donor_label = sprintf("D%02d", row_number()))
+
+multitissue_error_data <- donor_tissue_predictions |>
+  semi_join(eligible_donors, by = "donor_id") |>
+  left_join(donor_key, by = "donor_id", suffix = c("", "_donor")) |>
+  mutate(
+    donor_label = factor(donor_label, levels = donor_key$donor_label),
+    tissue_label = factor(tissue_label, levels = rev(sort(unique(tissue_label))))
+  )
+
+error_limit <- max(abs(multitissue_error_data$prediction_error), na.rm = TRUE)
+
+Plot_SFig4_multitissue_donor_errors <-
+  ggplot(multitissue_error_data, aes(x = donor_label, y = tissue_label, fill = prediction_error)) +
+  geom_tile(colour = "white", linewidth = 0.2) +
+  scale_fill_gradient2(
+    low = "#3B6FB6", mid = "white", high = "#B24A3B", midpoint = 0,
+    limits = c(-error_limit, error_limit),
+    name = "Prediction\nerror (years)"
+  ) +
+  labs(
+    x = sprintf("Donor (ordered by chronological age; n = %d)", nrow(eligible_donors)),
+    y = NULL,
+    title = "Blood-clock errors in donors represented across at least three tissues"
+  ) +
+  theme_supplementary +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 5))
+
+Plot_SFig4_multitissue_donor_errors
+save_plot_object(
+  Plot_SFig4_multitissue_donor_errors,
+  "Fig4_supp_multitissue_donor_errors.rds"
+)
+rm(Plot_SFig4_multitissue_donor_errors)
+invisible(gc())
+```
+
+```{r fig4-multitissue-donor-key}
+donor_key |>
+  select(donor_label, donor_id, chronological_age, n_tissues) |>
+  kable(
+    digits = 1,
+    caption = "Donor labels used in the multi-tissue clock-error heatmap"
+  )
+```
+
+# Output objects
+
+```{r output-manifest}
+data.frame(
+  object = c(
+    "Plot_SFig4_clock_by_tissue",
+    "Plot_SFig4_clock_error_distribution",
+    "Plot_SFig4_multitissue_donor_errors"
+  ),
+  rds_file = c(
+    "Fig4_supp_clock_by_tissue.rds",
+    "Fig4_supp_clock_error_distribution.rds",
+    "Fig4_supp_multitissue_donor_errors.rds"
+  )
+)
+```

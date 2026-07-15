@@ -1,0 +1,1610 @@
+---
+title: "Fig 2"
+date: 28 July 2025
+title-block-banner: true
+author: 
+  - name: Chen Zhan
+    orcid: 0000-0002-4794-8339
+    email: chen.zhan@adelaide.edu.au
+    affiliation:
+      - id: sgc
+        name: SAiGENCI, The University of Adelaide
+format: 
+  html:
+    theme: minty
+    df-print: paged
+    code-line-numbers: true
+    embed-resources: true
+    code-fold: true
+    code-fold-default: true
+    toc: true
+    toc-location: left
+    toc-title: "Menu"
+knitr:
+  opts_chunk: 
+    message: false
+    warning: false
+comments:
+  hypothesis: 
+    theme: clean
+editor: source
+abstract: |
+  Immunological ageing is asynchronous across tissues
+---
+
+# Library
+
+
+```{r publication-paths}
+# Portable publication data roots (no HPC absolute paths).
+.path_candidates <- c(
+  file.path("..", "R", "paths.R"),
+  if (requireNamespace("here", quietly = TRUE)) {
+    file.path(here::here(), "vignettes", "R", "paths.R")
+  },
+  file.path("R", "paths.R")
+)
+.path_candidates <- .path_candidates[!is.na(.path_candidates) & nzchar(.path_candidates)]
+.path_file <- .path_candidates[file.exists(.path_candidates)][1]
+if (is.na(.path_file)) {
+  stop(
+    "Cannot find vignettes/R/paths.R. Render from the immuneHealthyBodyMap ",
+    "repository root or from vignettes/reports/, or set IMMUNE_HEALTHY_BODY_MAP_ROOT."
+  )
+}
+source(.path_file)
+fig_cache_dir <- path_figure_ready()
+dir.create(path_intermediate("fig2"), recursive = TRUE, showWarnings = FALSE)
+dir.create(path_intermediate("fig4"), recursive = TRUE, showWarnings = FALSE)
+dir.create(path_intermediate("fig5"), recursive = TRUE, showWarnings = FALSE)
+dir.create(path_figure_ready("fig1"), recursive = TRUE, showWarnings = FALSE)
+dir.create(path_figure_ready("fig2"), recursive = TRUE, showWarnings = FALSE)
+dir.create(path_figure_ready("fig4"), recursive = TRUE, showWarnings = FALSE)
+dir.create(path_figure_ready("fig5"), recursive = TRUE, showWarnings = FALSE)
+```
+
+```{r setup-libraries}
+# Set your R library path here if needed
+# .libPaths removed for portability; use renv/conda or site library
+# Ensure required directories exist
+required_dirs <- c(
+  path_figure_ready("fig2"),
+  path_intermediate("fig2")
+)
+sapply(required_dirs, function(d) {
+  if (!dir.exists(d)) {
+    dir.create(d, recursive = TRUE, showWarnings = FALSE)
+    message(paste("Created directory:", d))
+  }
+})
+
+library(tidySummarizedExperiment)
+library(tidySingleCellExperiment)
+library(HDF5Array)
+library(magrittr)
+library(sccomp)
+library(targets)
+library(tidyverse)
+library(tidybulk)
+library(brms)
+library(rstan)
+library(cmdstanr)
+library(here)  # For path management
+library(plotly)
+library(ggplot2)
+library(ggforce)  # for geom_bspline
+library(grid)     # for unit()
+library(gganatogram)
+library(zellkonverter)
+library(cellNexus)
+library(Seurat)
+library(tidyseurat)
+library(schex)
+library(patchwork)
+library(ComplexHeatmap)
+library(tidyHeatmap)
+library(ggnewscale)  # For multiple color scales in one plot
+
+```
+
+# Age range across tissue
+
+```{r load-data}
+# Path to the pseudobulk SummarizedExperiment (update to your data location)
+hdf5_path = path_pseudobulk_h5ad()
+
+if (!file.exists(hdf5_path)) {
+  warning(paste("HDF5 file not found at:", hdf5_path, "\nPlease update the path."))
+}
+
+# Path to edit_covariates.R (update to your location)
+edit_covariates_path = path_edit_covariates()
+
+if (file.exists(edit_covariates_path)) {
+  source(edit_covariates_path)
+} else {
+  warning(paste("edit_covariates.R not found at:", edit_covariates_path, "\nPlease update the path."))
+}
+
+cell_metadata <-
+  get_publication_metadata() %>% filter(disease=="normal") |> filter(age_days > 365) 
+
+samples = cell_metadata |>
+  distinct(sample_id,
+           self_reported_ethnicity,
+           assay,
+           age_days,
+           sex,
+           tissue,
+           disease) |> as_tibble() %>%
+  edit_covariates() %>%
+  filter(sex %in% c("female", "male")) %>%
+  mutate(
+    age_groups = case_when(
+      age_decade  %in% c('1', ' 2', '3') ~ 'Young',
+      age_decade  %in% c('4', ' 5', '6') ~ 'Mid',
+      age_decade  %in% c('7', ' 8', '9') ~ 'Old',
+      .default = 'Old',
+    )
+  ) %>% distinct(sample_id, tissue_groups, age_years)
+
+# Create dictionary of shortened tissue names (shared across plots)
+tissue_name_dict <- c(
+  "blood" = "Blood",
+  "sensory-related structures" = "Sensory",
+  "cerebral lobes and cortical areas" = "Cerebral cortex",
+  "limbic and basal systems" = "Limbic/basal",
+  "liver" = "Liver",
+  "bone marrow" = "Bone marrow",
+  "large intestine" = "Large int",
+  "lymphatic system" = "Lymphatic",
+  "small intestine" = "Small int",
+  "respiratory system" = "Respiratory",
+  "renal system" = "Renal",
+  "brainstem and cerebellar structures" = "Hindbrain",
+  "cardiovascular system" = "Cardiovascular",
+  "general brain and major structures" = "Brain",
+  "vasculature" = "Vasculature",
+  "ovary" = "Ovary",
+  "integumentary system (skin)" = "Skin",
+  "nasal, oral, and pharyngeal regions" = "Pharyngeal",
+  "muscular system (skeletal muscles)" = "Skeletal muscle",
+  "prostate" = "Prostate",
+  "breast" = "Breast",
+  "digestive system (general)" = "Digestive",
+  "digestive tract junctions and connections" = "Digestive junction",
+  "oesophagus" = "Oesophagus",
+  "female reproductive system" = "Female repro",
+  "spleen" = "Spleen",
+  "peritoneal and abdominal cavity structures" = "Peritoneal",
+  "thymus" = "Thymus",
+  "adipose tissue" = "Adipose",
+  "trachea" = "Trachea",
+  "endocrine system" = "Endocrine",
+  "pancreas" = "Pancreas",
+  "miscellaneous glands" = "Glands",
+  "stomach" = "Stomach",
+  "gallbladder" = "Gallbladder",
+  "connective tissue" = "Connective"
+)
+
+```
+
+```{r define-theme}
+theme_multipanel =
+  theme_bw() +
+  theme(
+    panel.border = element_blank(),
+    axis.line = element_line(size = 0.1),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "bottom",
+    strip.background = element_blank(),
+    axis.title.y = element_text(margin = margin(
+      t = 0,
+      r = 0,
+      b = 0,
+      l = 0
+    ), size = 7),
+    axis.title.x = element_text(margin = margin(
+      t = 0,
+      r = 0,
+      b = 0,
+      l = 0
+    ), size = 7),
+    panel.spacing.x = unit(0.1, "lines"),
+    axis.text.x = element_text(size = 6),
+    axis.text.y = element_text(size = 6),
+    strip.text.x = element_text(size = 7),
+    strip.text.y = element_text(size = 7),
+    
+    # legend
+    legend.key.size = unit(5, 'mm'),
+    legend.title = element_text(size = 7),
+    legend.text = element_text(size = 6),
+    
+    # Avoid text clipping for facets. Currently not merged remotes::install_github("tidyverse/ggplot2#4223")
+    strip.clip = "off",
+    
+    # Title
+    plot.title = element_text(size = 7),
+    
+    axis.line.x = element_line(size = 0.2),
+    axis.line.y = element_line(size = 0.2),
+    axis.ticks.x = element_line(size = 0.2),
+    axis.ticks.y = element_line(size = 0.2)
+  )
+```
+
+```{r fig.width=6, fig.height=5, label="age-range-plot"}
+
+# 1. summarize
+Plot__sample_summary <-
+  samples %>%
+  group_by(tissue_groups) %>%
+  summarise(
+    n          = n(),
+    min_age    = min(age_years, na.rm = TRUE),
+    max_age    = max(age_years, na.rm = TRUE),
+    median_age = median(age_years, na.rm = TRUE)
+  ) %>%
+  # Apply shortened names
+  mutate(tissue_groups_short = recode(tissue_groups, !!!tissue_name_dict)) %>%
+  # optional: order tissues by descending median age
+  mutate(tissue_groups_short = fct_reorder(tissue_groups_short, -median_age)) %>%
+  # 2. plot
+  ggplot(aes(x = tissue_groups_short)) +
+  # errorbar for [min, max]
+  geom_errorbar(aes(ymin = min_age, ymax = max_age),
+                width = 0,
+                colour = "grey50") +
+  
+  # dot at median, sized by sample count
+  geom_point(aes(y    = median_age, size = n), colour = "black") +
+  
+  scale_size_area(max_size = 3, name     = "Sample size") +
+  
+  labs(x = "Tissue", y = "Age (years)", title = "Age distribution by tissue") +
+  theme_multipanel +
+  theme(
+    axis.text.x = element_text(
+      angle = 90,
+      vjust = 0.5,
+      hjust = 1
+    )
+  )
+
+Plot__sample_summary
+
+```
+
+# Volcano plot
+
+```{r volcano-theme}
+
+# Signed square-root transform for the x axis
+signed_sqrt_trans <- scales::trans_new(
+  name = "signed_sqrt",
+  transform = function(x) sign(x) * sqrt(abs(x)),
+  inverse = function(x) sign(x) * (x^2)
+)
+
+path_binary_test = file.path(path_intermediate("fig2"), "sccomp_binary_test_v2.rds")
+
+if (file.exists(path_binary_test)) {
+  binary_test = readRDS(path_binary_test)
+} else {
+  # Update path to your sccomp estimates file
+  est <- readRDS(
+    path_sccomp_estimates("estimates_age_decade___L3___disease_FALSE___immune_only_TRUE.rds")
+  )
+  # Old (young: decades 1-4) vs late (decades 6-9), age_decade5 as reference
+  binary_test = est |> sccomp_test(contrasts = '(0 + `age_decade6` + `age_decade7` + `age_decade8` + `age_decade9`)/5 - (`age_decade1` + `age_decade2` + `age_decade3` + `age_decade4`)/4')
+  saveRDS(binary_test, file = path_binary_test)
+}
+
+# Dictionary of cell type abbreviations (consistent with Fig4.qmd)
+cell_type_abbrev_dict <- c(
+  # Red cell types
+  "macrophage" = "Mac",
+  "cd4 th1 em" = "CD4\nTh1\nEM",
+  "cd4 th1/th17 em" = "CD4\nTh1/17 EM",
+  "cd4 th17 em" = "CD4\nTh17 EM",
+  "cd4 th2 em" = "CD4\nTh2 EM",
+  "cd8 naive" = "CD8\nNaive",
+  "plasma" = "Plasma",
+  # Blue cell types
+  "granulocyte" = "Gran",
+  "cd4 naive" = "CD4\nNaive",
+  "b naive" = "B\nNaive",
+  "nk" = "NK",
+  "nkt" = "NKT",
+  "cdc" = "CDC",
+  "pdc" = "PDC",
+  # Additional cell types
+  "b memory" = "B\nMemory",
+  "cd14 mono" = "CD14\nMono",
+  "cd16 mono" = "CD16\nMono",
+  "cd4 fh em" = "CD4\nFH EM",
+  "cd4 tcm" = "CD4\nTCM",
+  "cd8 tcm" = "CD8\nTCM",
+  "cd8 tem" = "CD8\nTEM",
+  "ilc" = "ILC",
+  "mait" = "MAIT",
+  "mast" = "Mast",
+  "tgd" = "TGD",
+  "treg" = "Treg"
+)
+
+
+Plot__volcano <-
+  binary_test |> # use sccomp test
+  filter(L3 != "cytotoxic") %>% 
+  mutate(
+    naive_experienced = case_when(
+      L3 |> str_detect("naive") ~ "Antigen naive lymphcites",
+      L3 |> str_detect("cd4|cd8|memory") ~ "Antigen experienced lymphcites"
+    )
+  ) |>
+  mutate(significant = c_FDR < 0.05) |>
+  mutate(
+    L3_abbrev = recode(L3, !!!cell_type_abbrev_dict),
+    L3_abbrev = case_when(c_FDR < 0.05 ~ L3_abbrev)
+  ) |>
+  ggplot(aes(c_effect, c_FDR)) +
+  geom_hline(yintercept = 0.05, linetype = "dashed", color = "black", alpha = 0.5, linewidth = 0.3) +
+  geom_point(aes(color = naive_experienced, size = significant), alpha = 0.6) +
+  ggrepel::geom_text_repel(aes(label = L3_abbrev), size = 2, point.padding = 1.5) +
+  ylab("False discovery rate
+(inverse log scale)") +
+  xlab("Composition change") +
+  scale_y_continuous(trans = tidybulk::log10_reverse_trans()) +
+  scale_x_continuous(trans = signed_sqrt_trans) +
+  scale_color_brewer(palette = "Set1", na.value = "grey50") +
+  scale_size_manual(values = c(`FALSE` = 0.5, `TRUE` = 1.5), guide = "none") +
+  theme_multipanel
+
+
+```
+
+```{r fig.width = 7, fig.height = 6, label="volcano-plot"}
+print(Plot__volcano)
+```
+
+# Anatogram
+
+```{r load-anatogram-libs}
+
+library(gganatogram)
+
+# Path to the L0 (lineage-level) sccomp estimates (update to your location)
+est_l0_path = path_sccomp_estimates("estimates_age_decade___L0___disease_FALSE___immune_only_TRUE.rds")
+if (file.exists(est_l0_path)) {
+  est_l0 = readRDS(est_l0_path)
+} else {
+  stop(paste("Estimates file not found at:", est_l0_path, "\nPlease update the path."))
+}
+
+new_df <-
+  est_l0 |>
+  attr("count_data") |>
+  sccomp:::.subset(sample_id) |>
+  distinct(age_decade, tissue_groups) |>
+  arrange(age_decade) |>
+  mutate(sex = NA, ethnicity_groups_imputed = NA) |>
+  mutate(sample_id = glue::glue("my_sample_{1:n()}")) |>
+  mutate(sample_id = if_else(
+    sample_id |> is.na(),
+    glue::glue("my_sample_imputed_{row_number()}") ,
+    sample_id
+  )) 
+
+
+pred =
+    est_l0 |>
+    sccomp_predict(
+      formula_composition = ~ age_decade + sex + age_decade:sex + ethnicity_groups_imputed + (age_decade + sex + age_decade:sex | tissue_groups),
+      new_data = new_df,
+      summary_instead_of_draws = F,
+      robust = TRUE
+    )
+
+myeloid_types  <- c("dc", "granulocyte", "macrophage", "mast", "monocytic")
+lymphoid_types <- c("b", "t", "nk", "nkt", "ilc", "cytotoxic")
+
+pred <- 
+  pred %>% 
+  mutate(lineage = case_when(
+    L0 %in% myeloid_types  ~ "myeloid",
+    L0 %in% lymphoid_types ~ "lymphoid",
+    TRUE                   ~ NA_character_
+  )) %>% 
+  mutate(
+    age_group = case_when(
+      as.numeric(as.character(age_decade)) < 5 ~ 'young',
+      as.numeric(as.character(age_decade)) >= 5 ~ 'old'
+    )
+  )
+
+
+
+# 1. Define your mapping: your organ names → gganatogram keys
+organ_map <- c(
+  "adipose tissue"                       = "adipose_tissue",
+  "blood"                                 = "leukocyte",
+  "bone marrow"                           = "bone_marrow",
+  "brainstem and cerebellar structures"   = "cerebellum",
+  # choose one; adjust if needed
+  "breast"                                = "breast",
+  "cerebral lobes and cortical areas"     = "brain",
+  "endocrine system"                      = "pituitary_gland",
+  # representative; adjust if you prefer thyroid_gland, etc.
+  "female reproductive system"            = NA_character_,
+  # no male equivalent in hgMale_key
+  "integumentary system (skin)"           = "skin",
+  "large intestine"                       = "colon",
+  "liver"                                 = "liver",
+  "lymphatic system"                      = "lymph_node",
+  "nasal, oral, and pharyngeal regions"   = "nasal_pharynx",
+  "oesophagus"                            = "esophagus",
+  "pancreas"                              = "pancreas",
+  "prostate"                              = "prostate",
+  "renal system"                          = "kidney",
+  # or "renal_cortex"
+  "respiratory system"                    = "lung",
+  "sensory-related structures"            = NA_character_,
+  # map manually if you pick eye, ear, etc.
+  "small intestine"                       = "small_intestine",
+  "spleen"                                = "spleen",
+  "stomach"                               = "stomach",
+  "thymus"                                = "thymus",
+  "trachea"                               = "trachea"
+)
+
+# ---------------------------------------------------------------------------
+# Draw-level statistical test of the age-related lineage shift per tissue.
+#
+# Instead of averaging `proportion` across draws first (which discards all
+# uncertainty and forces every tissue to be plotted), we keep the posterior
+# draws and, for each tissue, estimate:
+#   * the fold change / effect of the old-vs-young shift per lineage, and
+#   * a posterior probability + sccomp-style FDR for that shift,
+# so that only tissues with a credible myeloid-vs-lymphoid shift are shown.
+# ---------------------------------------------------------------------------
+
+# Tissues are kept for plotting when their myeloid-vs-lymphoid contrast FDR is
+# below this threshold.
+fdr_threshold <- 0.05
+
+# 1. Aggregate the L0-level proportions up to the lineage level for every
+#    posterior draw (sum the cell types that belong to each lineage), then
+#    average across the age decades that make up each age group.
+draw_lineage <-
+  pred %>%
+  filter(!is.na(lineage)) %>%
+  group_by(.draw, tissue_groups, age_decade, age_group, lineage) %>%
+  summarise(proportion = sum(proportion, na.rm = TRUE), .groups = "drop") %>%
+  group_by(.draw, tissue_groups, lineage, age_group) %>%
+  summarise(proportion = mean(proportion, na.rm = TRUE), .groups = "drop")
+
+# 2. Per draw: old-vs-young effect (difference) and log2 fold change per lineage.
+draw_effect <-
+  draw_lineage %>%
+  pivot_wider(names_from = age_group, values_from = proportion) %>%
+  filter(!is.na(old), !is.na(young)) %>%
+  mutate(
+    effect = old - young,
+    lfc    = log2((old + 1e-6) / (young + 1e-6))
+  )
+
+# 3. Summarise the posterior per tissue x lineage:
+#    fold change / effect (median across draws) and the posterior probability
+#    of the shift together with a sccomp-style Bayesian FDR (sorted cumulative
+#    mean of the probability that the effect lies on the opposite side of 0).
+lineage_stats <-
+  draw_effect %>%
+  group_by(tissue_groups, lineage) %>%
+  summarise(
+    median_young = median(young),
+    median_old   = median(old),
+    c_effect     = median(effect),
+    c_lfc        = median(lfc),
+    fc           = 2 ^ median(lfc),
+    p_increase   = mean(effect > 0),
+    p_decrease   = mean(effect < 0),
+    .groups      = "drop"
+  ) %>%
+  mutate(pH0 = pmin(p_increase, p_decrease)) %>%
+  group_by(lineage) %>%
+  arrange(pH0, .by_group = TRUE) %>%
+  mutate(FDR = cummean(pH0)) %>%
+  ungroup()
+
+# 4. Directly contrast the two lineages within each tissue for each draw
+#    (delta > 0 => myeloid increases relative to lymphoid, delta < 0 => the
+#    reverse). This is the quantity that drives the anatogram colouring, so its
+#    FDR is what decides whether a tissue is "significant".
+draw_contrast <-
+  draw_effect %>%
+  dplyr::select(.draw, tissue_groups, lineage, effect) %>%
+  pivot_wider(names_from = lineage, values_from = effect) %>%
+  filter(!is.na(myeloid), !is.na(lymphoid)) %>%
+  mutate(delta = myeloid - lymphoid)
+
+contrast_stats <-
+  draw_contrast %>%
+  group_by(tissue_groups) %>%
+  summarise(
+    c_delta    = median(delta),
+    p_myeloid  = mean(delta > 0),   # P(myeloid increase relative to lymphoid)
+    p_lymphoid = mean(delta < 0),   # P(lymphoid increase relative to myeloid)
+    .groups    = "drop"
+  ) %>%
+  mutate(pH0 = pmin(p_myeloid, p_lymphoid)) %>%
+  arrange(pH0) %>%
+  mutate(
+    FDR         = cummean(pH0),
+    significant = FDR < fdr_threshold
+  ) %>%
+  ungroup()
+
+# 5. Assemble the plot data. Keep the per-lineage effect (`value`) that the
+#    downstream anatogram code expects and attach the contrast statistics.
+df <-
+  lineage_stats %>%
+  left_join(
+    contrast_stats %>%
+      dplyr::select(tissue_groups, c_delta, contrast_FDR = FDR, significant),
+    by = "tissue_groups"
+  ) %>%
+  mutate(organ = recode(tissue_groups, !!!organ_map)) %>%
+  rename(value = c_effect)
+  
+
+
+data("hgMale_key", package = "gganatogram")
+
+# 3. Merge your values & lineage onto the key
+df_merged <- hgMale_key %>%
+  dplyr::select(-value) %>% 
+  left_join(df, by = "organ") %>% 
+  filter(!is.na(value))
+
+```
+
+## myeloid vs lymphoid
+
+```{r fig.width=8, fig.height=6, label="myeloid-lymphoid-plot"}
+
+# 1. define your palette
+colour_scheme <- c(
+  myeloid_pos_lymphoid_neg = "#d73027", # red
+  lymphoid_pos_myeloid_neg = "#4575b4", # blue
+  both_positive            = "#1a9850", # green
+  both_negative            = "#762a83"   # purple
+)
+
+# 2. pivot + classify + assign colour
+df_coloured <- df_merged %>%
+  dplyr::select(organ, lineage, value) %>%
+  pivot_wider(
+    names_from = lineage,
+    values_from = value
+  ) %>%
+  mutate(
+    effect_category = case_when(
+      lymphoid >  0 & myeloid >  0 ~ "both_positive",
+      lymphoid <  0 & myeloid <  0 ~ "both_negative",
+      myeloid >  0 & lymphoid <  0 ~ "myeloid increase\nlymphoid decrease",
+      lymphoid >  0 & myeloid <  0 ~ "lymphoid increase\nmyeloid decrease",
+      TRUE                          ~ NA_character_
+    ),
+    colour = colour_scheme[effect_category]
+  ) %>% 
+  mutate(value = abs(myeloid - lymphoid)) 
+
+df_coloured %<>%
+  mutate(
+    value = ifelse(effect_category == 'lymphoid increase\nmyeloid decrease', -value, value)
+  )
+
+Plot__df_coloured <- 
+  df_coloured %>% 
+  rename(c_delta  = value) %>% 
+  dplyr::select(-colour) %>% 
+  left_join(df_merged) %>% 
+  mutate(
+    lineage_to_keep = case_when(
+      lymphoid > myeloid ~ "lymphoid",
+      myeloid > lymphoid ~ "myeloid",
+      TRUE ~ lineage   # keeps both if exactly tied
+    )
+  ) %>%
+  filter(lineage == lineage_to_keep) %>%
+  select(-lineage_to_keep)
+
+Plot__anatogram <-
+  gganatogram(
+    data = Plot__df_coloured  %>% 
+      mutate(
+        type = effect_category,
+        value = c_delta 
+      )
+    %>% arrange(desc(organ == "skin"))
+    ,
+    fillOutline = 'lightgray', 
+    organism = 'human',
+    sex = 'male',
+    fill = "value", ggplot2_only = T
+  ) +
+  facet_wrap( ~ type) +
+  scale_fill_gradientn(
+    colors = rev(RColorBrewer::brewer.pal(11, "RdBu")),
+    # low=blue, high=red
+    values = scales::rescale(c(
+      min(df_coloured$value, na.rm = TRUE),
+      0,
+      max(df_coloured$value, na.rm = TRUE)
+    )),
+    limits = c(
+      min(df_coloured$value, na.rm = TRUE),
+      max(df_coloured$value, na.rm = TRUE)
+    ),
+    name   = NULL,
+    # remove default "value"
+    labels = c("Lymphoid increase", "Myeloid increase"),
+    # bottom, top
+    breaks = c(
+      min(df_coloured$value, na.rm = TRUE),
+      max(df_coloured$value, na.rm = TRUE)
+    )              # only show two ticks
+  ) +
+  guides(
+    fill = guide_colorbar(
+      title = NULL,
+      direction = "horizontal", 
+      position = 'bottom',
+      title.position = "bottom",
+      title.hjust = 0.5,
+      barwidth = 8,
+      barheight = 0.8,
+      # custom labels at ends
+      label.position = "bottom"
+    )
+  ) +
+  theme_void() 
+
+```
+
+## Add organ labels to the anatogram
+
+Extract each organ's centroid from the built plot (using the panel where the
+organ is actually coloured) and draw a leader line + text label just outside
+the body outline. Ported from `report/Fig_files/Fig2.R`.
+
+```{r fig.width=8, fig.height=6, label="anatogram-labels"}
+
+# Thin borders for ALL polygon and path layers (body outline + organs)
+Plot__anatogram$layers <- lapply(Plot__anatogram$layers, function(layer) {
+  if (inherits(layer$geom, "GeomPolygon") || inherits(layer$geom, "GeomPath")) {
+    layer$aes_params$linewidth <- 0.1
+    layer$aes_params$colour <- "grey40"
+  }
+  layer
+})
+
+# Use ggplot_build to extract organ centroids WITH correct panel/facet assignments
+built <- ggplot_build(Plot__anatogram)
+facet_layout <- built$layout$layout
+facet_layout$PANEL <- as.integer(as.character(facet_layout$PANEL))
+
+# For each organ layer, find the panel where it has a visible (non-grey) fill and
+# use that panel's polygon centroid as the label anchor. Layers 1-2 are the body
+# outline + path, so organ layers start at index 3.
+organ_centroids <- do.call(rbind, lapply(3:length(built$data), function(i) {
+  d <- built$data[[i]]
+  if (is.null(d) || nrow(d) == 0) return(NULL)
+  if (!"x" %in% names(d) || !"y" %in% names(d)) return(NULL)
+
+  raw_d <- Plot__anatogram$layers[[i]]$data
+  organ_name <- if (is.data.frame(raw_d) && "id" %in% names(raw_d)) {
+    unique(na.omit(raw_d$id))[1]
+  } else {
+    NA_character_
+  }
+  if (is.na(organ_name) || organ_name == "human_male_outline") return(NULL)
+
+  d$PANEL_int <- as.integer(as.character(d$PANEL))
+  panel_fills <- d %>%
+    group_by(PANEL_int) %>%
+    summarise(fill_val = unique(fill)[1], .groups = "drop")
+
+  active_panel <- panel_fills %>%
+    filter(fill_val != "lightgray" & fill_val != "#D3D3D3" & fill_val != "grey") %>%
+    pull(PANEL_int)
+
+  if (length(active_panel) == 0) active_panel <- panel_fills$PANEL_int[1]
+  active_panel <- active_panel[1]
+
+  panel_d <- d %>% filter(PANEL_int == active_panel)
+  tibble(
+    organ = organ_name,
+    x = mean(panel_d$x, na.rm = TRUE),
+    y = mean(panel_d$y, na.rm = TRUE),
+    PANEL = active_panel
+  )
+}))
+
+# Manually anchor "skin" (for label only, otherwise it will cover all other tissues on plot).
+organ_centroids <-
+  bind_rows(
+    tibble(organ = "skin", x = 54.1, y = -103, PANEL = 1L),
+    organ_centroids
+  )
+
+if (!is.null(organ_centroids) && nrow(organ_centroids) > 0) {
+  organ_centroids <- organ_centroids %>%
+    left_join(facet_layout %>% dplyr::select(PANEL, type), by = "PANEL") %>%
+    mutate(label = gsub("_", " ", organ)) %>%
+    filter(!is.na(type)) %>%
+    distinct(organ, .keep_all = TRUE)
+
+  # Panel 1 = left body, Panel 2 = right body
+  left_facet  <- as.character(facet_layout$type[facet_layout$PANEL == 1])
+  right_facet <- as.character(facet_layout$type[facet_layout$PANEL == 2])
+  organ_centroids$type <- as.character(organ_centroids$type)
+
+  left_labels  <- organ_centroids %>% filter(type == left_facet)
+  right_labels <- organ_centroids %>% filter(type == right_facet)
+
+  # Position labels just outside body edges, spread evenly in y
+  if (nrow(left_labels) > 0) {
+    left_labels <- left_labels %>%
+      arrange(desc(y)) %>%
+      mutate(
+        label_x = 15,
+        label_y = seq(from = max(y) + 5, to = min(y) - 5, length.out = n())
+      )
+  }
+
+  if (nrow(right_labels) > 0) {
+    right_labels <- right_labels %>%
+      arrange(desc(y)) %>%
+      mutate(
+        label_x = 102,
+        label_y = seq(from = max(y) + 5, to = min(y) - 5, length.out = n())
+      )
+  }
+
+  Plot__anatogram <- Plot__anatogram +
+    geom_segment(
+      data = left_labels,
+      aes(x = x, y = y, xend = label_x, yend = label_y),
+      linewidth = 0.15, colour = "grey60", inherit.aes = FALSE
+    ) +
+    geom_text(
+      data = left_labels,
+      aes(x = label_x, y = label_y, label = label),
+      size = 5 / .pt, hjust = 1, colour = "grey20", inherit.aes = FALSE
+    ) +
+    geom_segment(
+      data = right_labels,
+      aes(x = x, y = y, xend = label_x, yend = label_y),
+      linewidth = 0.15, colour = "grey60", inherit.aes = FALSE
+    ) +
+    geom_text(
+      data = right_labels,
+      aes(x = label_x, y = label_y, label = label),
+      size = 5 / .pt, hjust = 0, colour = "grey20", inherit.aes = FALSE
+    ) +
+    coord_cartesian(clip = "off") +
+    theme(panel.spacing.x = unit(0, "pt"))
+}
+
+print(Plot__anatogram)
+
+```
+
+# Heatmap: Binarised age (early vs late)
+
+Age effects (fixed and random) across different tissue
+
+```{r}
+#| label: heatmap load data
+#| eval: false
+
+# This chunk documents how `effect_by_tissue_fixed_plus_random.rds`
+# (loaded in the plotting chunk below) was generated. Update the path to your
+# sccomp estimates file to reproduce.
+est <- readRDS(
+  path_sccomp_estimates("estimates_age_decade___L3___disease_FALSE___immune_only_TRUE.rds")
+)
+
+cell_type_col = 'L3'
+
+combination_fn_diff <- function(terms, age_split) {
+  uq_split = unique(na.omit(age_split))
+  if (length(uq_split) > 2) {
+    stop("only binary splits supported")
+  }
+  if (!all(age_split %in% c("Early", "Late"))) {
+    stop("age split should be either 'Early', 'Late' or NA")
+  }
+
+  # remove NAs
+  terms = terms[!is.na(age_split)]
+  age_split = na.omit(age_split)
+
+  terms_split = split(terms, age_split)
+  terms = lapply(names(terms_split), function(group_name) {
+    x = terms_split[[group_name]]
+    denom = if (group_name == "Late") length(x) + 1 else length(x)
+    sprintf("((%s) / %d)", paste(x, collapse = " + "), denom)
+  })
+  names(terms) = names(terms_split)
+  
+  if (length(terms) == 1) {
+    contr = terms[[1]]
+    if (names(terms) == "Early") {
+      contr = paste0("-", contr)
+    }
+  } else {
+    contr = paste(terms$Late, terms$Early, sep = " - ")
+  }
+  
+  return(contr)
+}
+
+age_bins_all = c("1", "2", "3", "4", "5", "6", "7", "8", '9', '10')
+age_bins = c("1", "2", "3", "4", "6", "7", "8", '9', '10') # bins without intercept - Senior_50
+age_binary = setNames(c("Early", "Early", "Early", "Early", "Late", "Late", "Late", "Late", "Late"), age_bins)
+
+load(file.path(path_intermediate("fig2"), "df_cell_statistics.RData"))
+
+param_df = est |>
+  filter(grepl("age_decade", parameter) &
+           !grepl(":", parameter)) |>
+  mutate(params = str_split(parameter, "___", simplify = TRUE),
+         params = (\(x) {
+           colnames(x) = c("Age", "Tissue")
+           as.data.frame(x)
+         })(params)) |>
+  dplyr::select(params, parameter) |>
+  tidyr::unpack(params) %>%
+  mutate(
+    Age = str_replace(Age, "age_decade", ""),
+    Age = str_replace(Age, ":.+", ""),
+    Tissue = if_else(Tissue == "", "global", Tissue),
+    AgeBinary = age_binary[Age]
+  ) |>
+  distinct()
+
+param_df
+
+contrasts = list()
+
+# Age_only effect
+contrasts = param_df %>% 
+  drop_na() |>
+  mutate(
+    Tissue = sprintf("Age_only effect (%s)", Tissue),
+    term = sprintf("`%s`", parameter)
+  ) |>
+  group_by(Tissue) |>
+  reframe(
+    contr = combination_fn_diff(term, AgeBinary)
+  ) |>
+  drop_na() |>
+  deframe() |>
+  c(contrasts)
+
+contrasts2 = contrasts[setdiff(names(contrasts), "Age_only effect (global)")]
+contrasts2_names = names(contrasts2)
+
+contrasts2 = contrasts2 %>% paste('+', contrasts["Age_only effect (global)"]) %>% as.list()
+names(contrasts2) = contrasts2_names
+
+effect_by_tissue_fixed_plus_random = est |>
+  sccomp_test(contrasts = contrasts2) |>
+  mutate(
+    test_type = gsub("^(.+effect) \\((.+)\\)$", "\\1", parameter),
+    tissue = gsub("^(.+effect) \\((.+)\\)$", "\\2", parameter)
+  ) |>
+  dplyr::rename(cell_type_unified_ensemble = !!sym(cell_type_col))
+```
+
+## Plot__Heatmap_Binarised_age
+
+```{r fig.height=9, fig.width=10}
+#| label: Plot__Heatmap_Binarised_age
+
+load(file.path(path_intermediate("fig2"), "df_cell_statistics.RData"))
+
+effect_by_tissue_fixed_plus_random <- readRDS(file.path(path_intermediate("fig2"), "effect_by_tissue_fixed_plus_random.rds"))
+
+fdr = effect_by_tissue_fixed_plus_random$c_FDR
+min_fdr = fdr[fdr > 0] %>% min
+
+effect_by_tissue_fixed_plus_random$c_FDR[fdr == 0] = min_fdr
+
+# Cell type abbreviations for the heatmap (single line, no line breaks)
+cell_type_abbrev_dict_heatmap <- c(
+  "macrophage" = "Mac",
+  "cd4 th1 em" = "CD4 Th1 EM",
+  "cd4 th1/th17 em" = "CD4 Th1/17 EM",
+  "cd4 th17 em" = "CD4 Th17 EM",
+  "cd4 th2 em" = "CD4 Th2 EM",
+  "cd8 naive" = "CD8 Naive",
+  "plasma" = "Plasma",
+  "granulocyte" = "Gran",
+  "cd4 naive" = "CD4 Naive",
+  "b naive" = "B Naive",
+  "nk" = "NK",
+  "nkt" = "NKT",
+  "cdc" = "CDC",
+  "pdc" = "PDC",
+  "b memory" = "B Memory",
+  "cd14 mono" = "CD14 Mono",
+  "cd16 mono" = "CD16 Mono",
+  "cd4 fh em" = "CD4 FH EM",
+  "cd4 tcm" = "CD4 TCM",
+  "cd8 tcm" = "CD8 TCM",
+  "cd8 tem" = "CD8 TEM",
+  "ilc" = "ILC",
+  "mait" = "MAIT",
+  "mast" = "Mast",
+  "tgd" = "TGD",
+  "treg" = "Treg"
+)
+
+library(grid)
+
+bar_size_top  <- grid::unit(3, "mm")
+bar_size_side <- grid::unit(5, "mm")
+
+anno_axis_none <- list(
+  labels = FALSE,
+  at = NULL
+)
+
+anno_name_gp <- grid::gpar(
+  fontsize = 7,
+  fontface = "plain"
+)
+
+Plot__Heatmap_Binarised_age <-
+  effect_by_tissue_fixed_plus_random |>
+  as_tibble() |>
+  mutate(size = -log10(c_FDR)) |>
+  left_join(df_cells_ct, by = "cell_type_unified_ensemble") |>
+  left_join(df_cells_tissue, by = "tissue") |>
+  mutate(
+    tissue_short = recode(tissue, !!!tissue_name_dict),
+    cell_type_abbrev = recode(
+      cell_type_unified_ensemble,
+      !!!cell_type_abbrev_dict_heatmap
+    ),
+    cell_type_abbrev = factor(
+      cell_type_abbrev,
+      levels = unname(cell_type_abbrev_dict_heatmap)
+    )
+  ) |>
+  heatmap(
+    .row = tissue_short,
+    .column = cell_type_abbrev,
+    .value = c_effect,
+    name = "Effect\nsize",
+    palette_value = circlize::colorRamp2(
+      seq(-1, 1, length.out = 7),
+      scico::scico(7, palette = "vik")
+    ),
+    row_title = NULL,
+    column_title = NULL,
+
+    row_dend_width = grid::unit(3, "mm"),
+    column_dend_height = grid::unit(4, "mm"),
+
+    row_names_gp = grid::gpar(fontsize = 7, fontface = "plain"),
+    column_names_gp = grid::gpar(fontsize = 7, fontface = "plain"),
+    row_title_gp = grid::gpar(fontsize = 8, fontface = "plain"),
+    column_title_gp = grid::gpar(fontsize = 8, fontface = "plain")
+  ) |>
+  layer_point(c_FDR < 0.05, .size = size) |>
+  annotation_bar(
+    NCellsCellType,
+    annotation_label = "log(Cells)",
+    size = bar_size_top,
+    annotation_name_gp = anno_name_gp,
+    axis_param = anno_axis_none,
+    axis = FALSE
+  ) |>
+  annotation_bar(
+    NSamplesCellType,
+    annotation_label = "log(Samples)",
+    size = bar_size_top,
+    annotation_name_gp = anno_name_gp,
+    axis_param = anno_axis_none,
+    axis = FALSE
+  ) |>
+  annotation_bar(
+    NCellsTissue,
+    annotation_label = "log(Cells)",
+    annotation_name_rot = 90,
+    width = bar_size_side,
+    annotation_name_gp = anno_name_gp,
+    axis_param = anno_axis_none,
+    axis = FALSE
+  ) |>
+  annotation_bar(
+    NSamplesTissue,
+    annotation_label = "log(Samples)",
+    annotation_name_rot = 90,
+    width = bar_size_side,
+    annotation_name_gp = anno_name_gp,
+    axis_param = anno_axis_none,
+    axis = FALSE
+  )
+
+Plot__Heatmap_Binarised_age
+```
+
+
+# Boxplot of Up and Down cell type
+
+```{r load-predictions}
+
+path_sccomp_age_pred_draws = file.path(path_intermediate("fig2"), "sccomp_age_pred_draws.rds")
+
+if (file.exists(path_sccomp_age_pred_draws)) {
+  pred_draws = readRDS(path_sccomp_age_pred_draws)
+} else {
+  # Update path to your sccomp estimates file
+  est <- readRDS(
+    path_sccomp_estimates("estimates_age_decade___L3___disease_FALSE___immune_only_TRUE.rds")
+  )
+
+  cell_type_col = 'L3'
+  
+  pred_draws =
+    est |>
+    sccomp_predict(
+      formula_composition = ~ age_decade * sex + ethnicity_groups_imputed,
+      new_data =
+        est |>
+        attr("count_data") |>
+        sccomp:::.subset(sample_id) |>
+        distinct(age_decade) |>
+        arrange(age_decade) |>
+        mutate(sex = NA, ethnicity_groups_imputed = NA) |>
+        mutate(sample_id = glue("my_sample_{1:n()}")),
+      number_of_draws = 100,
+      summary_instead_of_draws = FALSE
+    ) |>
+    rename(proportion_mean = proportion) |>
+    mutate(sample_id_original = sample_id) |>
+    unite("sample_id", c(sample_id, .draw), remove = FALSE)
+  
+  saveRDS(pred_draws, file = path_sccomp_age_pred_draws)
+}
+
+path_sccomp_age_adjusted = file.path(path_intermediate("fig2"), "sccomp_age_adjusted.rds")
+
+if (file.exists(path_sccomp_age_adjusted)) {
+  age_adjusted = readRDS(path_sccomp_age_adjusted)
+} else {
+  age_adjusted =
+    est |>
+    sccomp_predict(
+      formula_composition = ~ age_decade * sex + ethnicity_groups_imputed,
+      new_data =
+        est |>
+        attr("count_data") |>
+        sccomp:::.subset(sample_id),
+      number_of_draws = 100,
+      summary_instead_of_draws = FALSE
+    ) |>
+    rename(proportion_mean = proportion) |>
+    mutate(sample_id_original = sample_id) |>
+    unite("sample_id", c(sample_id, .draw), remove = FALSE)
+  
+  saveRDS(age_adjusted, file = path_sccomp_age_adjusted)
+}
+
+```
+
+## upregulated
+
+```{r define-upregulated}
+
+path_binary_test = file.path(path_intermediate("fig2"), "sccomp_binary_test_v2.rds")
+
+binary_test = readRDS(path_binary_test)
+
+prop_upregulated_cell_type_df <- 
+  binary_test %>% 
+  as_tibble() %>% 
+  filter(c_FDR < 0.05 & c_effect > 0) %>% 
+  filter(L3 != 'cytotoxic') %>% 
+  arrange(c_FDR) %>% 
+  head(5) 
+
+prop_upregulated_cell_type <- prop_upregulated_cell_type_df$L3
+
+
+df_up = bind_rows(
+    pred_draws %>%
+      filter(L3 %in% prop_upregulated_cell_type) %>%
+      dplyr::select(sample_id, L3, age_decade, proportion_mean) %>%
+      mutate(version = 'prediction'), 
+    age_adjusted %>% 
+      filter(L3 %in% prop_upregulated_cell_type) %>% 
+      group_by(sample_id, L3, age_decade) %>% 
+      summarise(proportion_mean = mean(proportion, na.rm =T)) %>%
+      ungroup %>% 
+      dplyr::select(sample_id, L3, age_decade, proportion_mean) %>%
+      mutate(version = 'adjusted')
+  ) %>% 
+  mutate(
+    L3_abbrev_base = recode(L3, !!!cell_type_abbrev_dict)
+  ) %>%
+  left_join(
+    prop_upregulated_cell_type_df %>% 
+      dplyr::select(L3, c_FDR),
+    by = "L3"
+  ) %>%
+  mutate(
+    c_FDR = replace_na(c_FDR, 0),
+    # Format FDR for strip title
+    # Use better formatting: scientific notation for very small values, decimal for larger ones
+    # Remove leading zero before decimal point
+    fdr_formatted = case_when(
+      c_FDR == 0 ~ "0",
+      c_FDR < 0.001 ~ gsub("^0\\.", ".", formatC(c_FDR, format = "e", digits = 2)),
+      TRUE ~ gsub("^0\\.", ".", formatC(c_FDR, format = "f", digits = 3))
+    ),
+    # Format strip title: cell type, then FDR (2 lines)
+    L3_abbrev = paste0(L3_abbrev_base, "\n(FDR: ", fdr_formatted, ')')
+  ) %>%
+  # Create factor levels in the specified order
+  {
+    # Get unique L3_abbrev values in the desired order: cd4 th1/th17 em, nkt, granulocyte, cd16 mono, nk
+    desired_order <- c("cd4 th1/th17 em", "nkt", "granulocyte", "cd16 mono", "nk")
+    df_temp <- .
+    unique_levels <- df_temp %>%
+      distinct(L3, L3_abbrev) %>%
+      arrange(match(L3, desired_order)) %>%
+      pull(L3_abbrev)
+    
+    df_temp %>%
+      mutate(L3_abbrev = factor(L3_abbrev, levels = unique_levels)) %>%
+      dplyr::select(-L3_abbrev_base, -fdr_formatted)
+  }
+
+Plot__boxplot_up_cell_type <-
+  df_up %>% 
+  mutate(age_decade = factor(age_decade, levels = as.character(1:10))) %>%
+  ggplot(aes(x = age_decade, y = proportion_mean)) + 
+  
+  # dots for the other version
+  ggbeeswarm::geom_quasirandom(
+    data = . %>% filter(version == "adjusted"),
+    width = 0.3,
+    colour = "grey60",
+    shape  = '.',
+    size   = 0.15,
+    alpha  = 0.6
+  ) +
+  
+  # boxplot for one version only
+  geom_boxplot(
+    aes(fill = version),
+    data = . %>% filter(version == "prediction"),  
+    outlier.shape = NA,
+    alpha = 0.4,
+    linewidth = 0.15,
+    width = 0.7
+  ) +
+  scale_y_continuous(
+    trans = scales::trans_new(
+      name = "asin_sqrt",
+      transform = function(x) asin(sqrt(x)),
+      inverse = function(y) sin(y)^2
+    ),
+    expand = expansion(mult = c(0, 0.05)),
+    labels = function(x) {
+      # Remove leading zero before decimal point
+      gsub("^0\\.", ".", format(x, nsmall = 1))
+    }
+  ) +
+  scale_x_discrete(labels = function(x) x) +
+  guides(fill = 'none') +
+  facet_wrap(
+    ~ L3_abbrev,
+    nrow    = 1,
+    scales  = "free_y"
+  ) +
+  labs(title = '', x = "Age Decade", y = "Proportion Mean (arcsin-sqrt scale)") +
+  theme_multipanel +
+  theme(
+    strip.text.x.top = element_text(margin = margin(0, 0, 0, 0, "mm")),
+    strip.placement = "inside",
+    axis.ticks.x = element_blank(),
+    panel.spacing.x = unit(0, "mm"),
+    panel.spacing.y = unit(0, "mm"),
+    legend.position = "none"
+  ) 
+  
+
+```
+
+```{r fig.width = 10, fig.height = 4, label="boxplot-upregulated"}
+
+print(Plot__boxplot_up_cell_type)
+
+```
+
+## downregulated
+
+```{r define-downregulated}
+prop_downregulated_cell_type_df <- 
+  binary_test %>% 
+  as_tibble() %>% 
+  filter(c_FDR < 0.05 & c_effect < 0) %>% 
+  filter(L3 != 'cytotoxic') %>% 
+  arrange(c_FDR) %>% 
+  head(5) 
+
+prop_downregulated_cell_type <- prop_downregulated_cell_type_df$L3 
+  
+
+df_down = bind_rows(
+    pred_draws %>%
+      filter(L3 %in% prop_downregulated_cell_type) %>%
+      dplyr::select(sample_id, L3, age_decade, proportion_mean) %>%
+      mutate(version = 'prediction'), 
+    age_adjusted %>% 
+      filter(L3 %in% prop_downregulated_cell_type) %>% 
+      group_by(sample_id, L3, age_decade) %>% 
+      summarise(proportion_mean = mean(proportion, na.rm =T)) %>%
+      ungroup %>%  
+      dplyr::select(sample_id, L3, age_decade, proportion_mean) %>%
+      mutate(version = 'adjusted')
+  ) %>% 
+  mutate(
+    L3_abbrev_base = recode(L3, !!!cell_type_abbrev_dict)
+  ) %>%
+  left_join(
+    prop_downregulated_cell_type_df %>% 
+      dplyr::select(L3, c_FDR),
+    by = "L3"
+  ) %>%
+  mutate(
+    c_FDR = replace_na(c_FDR, 0),
+    # Format FDR for strip title
+    # Use better formatting: scientific notation for very small values, decimal for larger ones
+    # Remove leading zero before decimal point
+    fdr_formatted = case_when(
+      c_FDR == 0 ~ "0",
+      c_FDR < 0.001 ~ gsub("^0\\.", ".", formatC(c_FDR, format = "e", digits = 0)),
+      TRUE ~ gsub("^0\\.", ".", formatC(c_FDR, format = "f", digits = 3))
+    ),
+    # Format strip title: cell type, then FDR (2 lines)
+    L3_abbrev = paste0(L3_abbrev_base, "\n(FDR: ", fdr_formatted, ')')
+  ) %>%
+  # Create factor levels in the specified order
+  {
+    # Get unique L3_abbrev values in the desired order
+    desired_order <- c("cd8 naive", "cd4 naive", "b naive", "plasma", "b memory")
+    df_temp <- .
+    unique_levels <- df_temp %>%
+      distinct(L3, L3_abbrev) %>%
+      arrange(match(L3, desired_order)) %>%
+      pull(L3_abbrev)
+    
+    df_temp %>%
+      mutate(L3_abbrev = factor(L3_abbrev, levels = unique_levels)) %>%
+      dplyr::select(-L3_abbrev_base, -fdr_formatted)
+  }
+
+Plot__boxplot_down_cell_type <-
+  df_down %>% 
+  mutate(age_decade = factor(age_decade, levels = as.character(1:10))) %>%
+  ggplot(aes(x = age_decade, y = proportion_mean)) + 
+  
+  # dots for the other version
+  ggbeeswarm::geom_quasirandom(
+    data = . %>% filter(version == "adjusted"),
+    width = 0.3,
+    colour = "grey60",
+    shape  = '.',
+    size   = 0.15,
+    alpha  = 0.6
+  ) +
+  
+  # boxplot for one version only
+  geom_boxplot(
+    aes(fill = version),
+    data = . %>% filter(version == "prediction"),  
+    outlier.shape = NA,
+    alpha = 0.4,
+    linewidth = 0.15,
+    width = 0.7
+  ) +
+  scale_fill_manual(values = c("prediction" = "#ADD8E6")) +
+  scale_y_continuous(
+    trans = scales::trans_new(
+      name = "asin_sqrt",
+      transform = function(x) asin(sqrt(x)),
+      inverse = function(y) sin(y)^2
+    ),
+    expand = expansion(mult = c(0, 0.05)),
+    labels = function(x) {
+      # Remove leading zero before decimal point
+      gsub("^0\\.", ".", format(x, nsmall = 1))
+    }
+  ) +
+  scale_x_discrete(labels = function(x) x) +
+  guides(fill = 'none') +
+  facet_wrap(
+    ~ L3_abbrev,
+    nrow    = 1,
+    scales  = "free_y"
+  ) +
+  labs(title = '', x = "Age Decade", y = "Proportion Mean (arcsin-sqrt scale)") +
+  theme_multipanel +
+  theme(
+    strip.text.x.top = element_text(margin = margin(0, 0, 0, 0, "mm")),
+    strip.placement = "inside",
+    axis.ticks.x = element_blank(),
+    panel.spacing.x = unit(0, "mm"),
+    panel.spacing.y = unit(0, "mm"),
+    legend.position = "none"
+  ) 
+  
+```
+
+```{r fig.width = 10, fig.height = 4, label="boxplot-downregulated"}
+print(Plot__boxplot_down_cell_type)
+```
+
+# Line chart
+
+```{r}
+#| label: sccomp_prediction
+
+path_sccomp_prediction = file.path(path_intermediate("fig2"), "sccomp_prediction____age_decade___L3___disease_FALSE___immune_only_TRUE.rds")
+
+if (file.exists(path_sccomp_prediction)) {
+  sccomp_df = readRDS(path_sccomp_prediction)
+} else {
+  # Update path to your sccomp estimates file
+  est <- readRDS(
+    path_sccomp_estimates("estimates_age_decade___L3___disease_FALSE___immune_only_TRUE.rds")
+  )
+
+  cell_type_col = 'L3'
+  
+  new_df = est %>%  attr("count_data") 
+  new_df$disease_groups___altered = NA
+  new_df$ethnicity_groups_imputed = NA
+  new_df$assay_groups___altered = NA
+  new_df$dataset_id___altered = NA
+  new_df$sex = NA
+  new_df = new_df %>% dplyr::select(-!!cell_type_col) %>% dplyr::select(-n) %>% distinct()
+  
+  sccomp_df = sccomp_predict(
+    est, 
+    new_data = new_df,
+    formula_composition = ~ 1 + age_decade + sex + age_decade:sex + ethnicity_groups_imputed + assay_groups___altered  + ( 1 + age_decade + sex + age_decade:sex + ethnicity_groups_imputed | tissue_groups),
+    number_of_draws = 100,
+    summary_instead_of_draws = F
+  ) |>
+    dplyr::rename(cell_type_unified_ensemble = !!sym(cell_type_col))
+  
+  saveRDS(sccomp_df, file = path_sccomp_prediction)
+}
+```
+
+```{r}
+#| label: create plasma line chart
+
+transform_fn = \(x) x
+
+x = 'plasma'
+age_bins_all = c("1", "2", "3", "4", "5", "6", "7", "8", '9', '10')
+
+tissue_groups_of_interest <-
+  sccomp_df %>%
+  filter(cell_type_unified_ensemble == x) %>%
+  distinct(tissue_groups, age_decade) %>% group_by(tissue_groups) %>% count(tissue_groups) %>% filter(n > 3)  %>% pull(tissue_groups)
+
+# Prepare c_FDR data for age_decade 5
+c_fdr_data <- effect_by_tissue_fixed_plus_random |>
+  as_tibble() |>
+  filter(cell_type_unified_ensemble == x) |>
+  dplyr::select(tissue, cell_type_unified_ensemble, c_FDR, c_effect) |>
+  mutate(
+    tissue_groups = tissue,
+    size = -log10(c_FDR),
+    significant = c_FDR < 0.05,
+    tissue_groups_short = recode(tissue_groups, !!!tissue_name_dict),
+    age_decade = "5"
+  ) 
+
+# Prepare data for the plot
+plot_data <- sccomp_df |>
+  filter(
+    tissue_groups %in% tissue_groups_of_interest,
+    cell_type_unified_ensemble == x
+  ) |>
+  mutate(
+    age_decade = factor(age_decade, age_bins_all),
+    proportion_mean = transform_fn(proportion_mean),
+    proportion_lower = transform_fn(proportion_lower),
+    proportion_upper = transform_fn(proportion_upper),
+    # Apply shortened tissue names using the same dictionary
+    tissue_groups_short = recode(tissue_groups, !!!tissue_name_dict),
+    tissue_groups_short = factor(
+      tissue_groups_short,
+      levels = c(setdiff(unique(tissue_groups_short), "Large intestine"), "Large intestine")
+    )
+  )
+
+# Prepare points data for age_decade 5 (only significant)
+# Start with c_fdr_data for all significant tissues, then get proportion_mean
+# For tissues without data at age_decade 5, interpolate from nearby age_decades
+points_data <- c_fdr_data |>
+  filter(
+    tissue_groups %in% tissue_groups_of_interest,
+    cell_type_unified_ensemble == x
+  ) %>% 
+  filter(significant == TRUE) |>
+  left_join(
+    plot_data |>
+      filter(age_decade == "5") |>
+      dplyr::select(tissue_groups, cell_type_unified_ensemble, proportion_mean),
+    by = c("tissue_groups", "cell_type_unified_ensemble")
+  ) %>% distinct()
+
+# Calculate interpolation values for tissues missing data at age_decade 5
+interp_values <- points_data |>
+  filter(is.na(proportion_mean)) |>
+  distinct(tissue_groups, cell_type_unified_ensemble) |>
+   rowwise() |>
+   mutate(
+     row_tissue = tissue_groups,
+     row_cell = cell_type_unified_ensemble,
+     interp_value = {
+       tissue_data <- plot_data |>
+         filter(
+           tissue_groups == row_tissue,
+           cell_type_unified_ensemble == row_cell
+         ) |>
+         arrange(as.numeric(age_decade))
+      
+      if (nrow(tissue_data) > 0) {
+        ages <- as.numeric(tissue_data$age_decade)
+        values <- tissue_data$proportion_mean
+        
+        # Find closest younger age (age < 5)
+        younger_idx <- which(ages < 5)
+        younger_age <- if (length(younger_idx) > 0) max(ages[younger_idx]) else NULL
+        younger_value <- if (!is.null(younger_age)) values[ages == younger_age][1] else NULL
+        
+        # Find closest older age (age > 5)
+        older_idx <- which(ages > 5)
+        older_age <- if (length(older_idx) > 0) min(ages[older_idx]) else NULL
+        older_value <- if (!is.null(older_age)) values[ages == older_age][1] else NULL
+        
+        # Linear interpolation between the two closest points
+        if (!is.null(younger_age) && !is.null(older_age)) {
+          # Linear interpolation: y = y1 + (y2 - y1) * (x - x1) / (x2 - x1)
+          younger_value + (older_value - younger_value) * (5 - younger_age) / (older_age - younger_age)
+        } else {
+          NA_real_
+        }
+      } else {
+        NA_real_
+      }
+     }
+   ) |>
+   ungroup() |>
+   select(-row_tissue, -row_cell)
+
+# Join interpolation values back and update proportion_mean
+points_data <- points_data |>
+  left_join(
+    interp_values |>
+      dplyr::select(tissue_groups, cell_type_unified_ensemble, interp_value),
+    by = c("tissue_groups", "cell_type_unified_ensemble")
+  ) |>
+  mutate(
+    proportion_mean = if_else(is.na(proportion_mean), interp_value, proportion_mean)
+  ) |>
+  dplyr::select(-interp_value) |>
+  filter(!is.na(proportion_mean))
+
+plot_data <-
+  plot_data %>% 
+  mutate(significant = tissue_groups %in% (points_data %>% filter(significant) %>% pull(tissue_groups))) %>%
+  # sccomp returns one identical prediction row per source sample. Collapse to
+  # the unique tissue-by-age estimate actually represented by each trajectory,
+  # while retaining the cohort size for the supplementary table.
+  group_by(
+    tissue_groups, tissue_groups_short, cell_type_unified_ensemble,
+    age_decade, significant
+  ) %>%
+  summarise(
+    n_source_rows = n(),
+    n_samples = n_distinct(sample_id),
+    proportion_mean = first(proportion_mean),
+    proportion_lower = first(proportion_lower),
+    proportion_upper = first(proportion_upper),
+    .groups = "drop"
+  )
+
+Plot__plasma_line_chart <-
+  plot_data |>
+  ggplot() +
+  geom_point(aes(x = age_decade, y = proportion_mean), shape = NA) +
+  geom_line(
+    aes(x = as.numeric(age_decade), y = proportion_mean, colour = significant), 
+    show.legend = FALSE, linewidth = 0.15
+  ) +
+  geom_ribbon(aes(x = as.numeric(age_decade), ymin = proportion_lower, ymax = proportion_upper), colour = NA, alpha = 0.1, fill = "grey80") +
+  scale_size_continuous(range = c(0.5, 2), guide = guide_legend(title = "-log10(FDR)")) +
+  scale_y_continuous(
+    trans = scales::trans_new(
+      name = "asin_sqrt",
+      transform = function(x) asin(sqrt(x)),
+      inverse = function(y) sin(y)^2
+    ),
+    expand = expansion(mult = c(0, 0.05)),
+    labels = function(x) {
+      # Remove leading zero before decimal point
+      gsub("^0\\.", ".", format(x, nsmall = 1))
+    }
+  ) + 
+  scale_colour_manual(values = c(
+      "TRUE" = "#B24A3B",
+      "FALSE" = "black"
+    ), guide = guide_legend(override.aes = list(alpha = 1))) +
+  labs(x = "Age decade", y = "Proportion Mean (arcsin-sqrt scale)") +
+  ggh4x::facet_wrap2(~ tissue_groups_short, ncol = 6, scales = 'free_y', axes = "margins") +
+  theme_multipanel +
+  theme(
+    legend.position = "bottom",
+    axis.ticks.x.bottom = element_blank(),
+    axis.text.x = element_text(angle = 0, hjust = 1)
+  )
+
+```
+
+```{r fig.width=15, fig.height=12}
+#| label: plot plasma line chart
+
+Plot__plasma_line_chart
+```
+
+# Supplementary tables
+
+Export plot statistics from ggplot / heatmap `@data` slots for all Fig 2 panels.
+
+```{r export-supplementary-tables}
+message(
+  "Panel caches updated. Run `Rscript report/build_supplementary_workbooks.R` ",
+  "to rebuild the split-tab workbooks with separate plot-data, summary and test sheets."
+)
+```
+
+# Save panels
+
+```{r save-all-plots, eval=FALSE}
+# Save all Plot__ objects for figure assembly
+save(
+  list = ls(pattern = "Plot__"),
+  file = file.path(path_figure_ready("fig2"), "Fig2_plot_data_all.RData")
+)
+
+sessionInfo()
+```
