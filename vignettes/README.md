@@ -1,18 +1,22 @@
-# Nature Aging — figure reproducibility package
+# Figure reproducibility package
 
-Code and small artefacts to reproduce the Age Clock / multi-tissue immune ageing
-figures for:
+Code and small artefacts supporting the manuscript:
 
-> *A body reference map of immune cell composition and communication tracks
-> inflammation and plasticity loss through ageing*
+> *A multi-tissue immune map across 4,240 single-cell donors resolves
+> asynchronous immune ageing*
 
-**Reduced mode** (default for reviewers): render Quarto reports using the shipped
+**Target journal:** *Nature Aging*
+
+The `Age_Clock` label remains in a few filenames and environment variables as a
+legacy analysis-tree name; it is not the manuscript title.
+
+**Reduced mode** (default): render Quarto reports using the shipped
 panel RDS and SI workbooks (~60 MB under `data/` + Extended Data plot objects).
 
 **Full recompute** (HPC): start from public checkpoints + optional targets rebuild.
 
 - Pseudobulk: [10.5281/zenodo.15798373](https://doi.org/10.5281/zenodo.15798373)
-- sccomp estimates / other large companions: **`<ZENODO_DOI_PENDING>`**
+- sccomp L3/L0 model record: **`<ZENODO_DOI_PENDING>`**
 
 ---
 
@@ -63,7 +67,7 @@ Reduced mode uses:
 | Input | Role |
 |-------|------|
 | [Zenodo `pseudobulk_se.h5ad`](https://doi.org/10.5281/zenodo.15798373) | Full recompute / targets (md5 `88c71c0f…`) |
-| Zenodo sccomp L3 + L0 RDS | Full recompute of composition panels (`<ZENODO_DOI_PENDING>`) |
+| Zenodo sccomp L3 + L0 RDS | Full recompute of composition panels; companion record pending (`<ZENODO_DOI_PENDING>`) |
 | cellNexus metadata (cloud) | Auto via `get_publication_metadata()` |
 | `NEW_CELL_TYPE/_targets/` | **Exemption** — code in `targets_pipeline/`; reduced mode does not need the store |
 
@@ -90,11 +94,11 @@ and substantial HPC resources for sccomp fits and per-gene brms targets.
 
 ## Path policy
 
-Publication code resolves paths via `R/paths.R` and environment variables.
+Manuscript code resolves paths via `R/paths.R` and environment variables.
 There are no hard-coded `/hpcfs` paths in `reports/` or `targets_pipeline/`.
 
-Missing large files raise an error that names the file, override variable, and
-Zenodo placeholder.
+Missing large files raise an error that names the file, override variable and,
+where applicable, the pending Zenodo record.
 
 ---
 

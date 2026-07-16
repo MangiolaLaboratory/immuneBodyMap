@@ -7,8 +7,8 @@
 #   file: pseudobulk_se.h5ad
 #   md5:  88c71c0fd1d6ce2fe15eccdd7b36110f
 #
-# sccomp estimates and other companions: set ZENODO_DOI / download manually
-# when those records are minted (<ZENODO_DOI_PENDING>).
+# sccomp L3/L0 estimates: set SCCOMP_ESTIMATES_DIR or download the companion
+# model record after its DOI is minted (<ZENODO_DOI_PENDING>).
 
 args <- commandArgs(trailingOnly = TRUE)
 download_pseudobulk <- "--pseudobulk" %in% args || "--all" %in% args

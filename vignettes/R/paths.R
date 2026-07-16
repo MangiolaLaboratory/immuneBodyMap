@@ -1,4 +1,4 @@
-# Portable path resolution for Nature Aging publication vignettes.
+# Portable path resolution for the manuscript reproducibility vignettes.
 #
 # Primary configuration:
 #   IMMUNE_HEALTHY_BODY_MAP_DATA  - root for publication data (default: vignettes/data)
@@ -84,7 +84,7 @@ require_publication_file <- function(
       msg,
       "  Pseudobulk: https://doi.org/10.5281/zenodo.15798373 ",
       "(pseudobulk_se.h5ad; md5 88c71c0fd1d6ce2fe15eccdd7b36110f).\n",
-      "  Other large companions may still use <ZENODO_DOI_PENDING>.\n",
+      "  The sccomp L3/L0 companion record is <ZENODO_DOI_PENDING>.\n",
       "  Place files under IMMUNE_HEALTHY_BODY_MAP_DATA/zenodo_release/ ",
       "or set the env override above, then retry.\n"
     )
@@ -135,18 +135,7 @@ path_new_cell_type_root <- function() {
 path_edit_covariates <- function() {
   candidates <- c(
     Sys.getenv("EDIT_COVARIATES_PATH", unset = ""),
-    path_targets_pipeline("functions", "edit_covariates.R"),
-    file.path(
-      publication_repo_root(),
-      "rebuttal_CellPress",
-      "edit_covariates.R"
-    ),
-    file.path(
-      publication_repo_root(),
-      "vignettes",
-      "R",
-      "edit_covariates.R"
-    )
+    path_targets_pipeline("functions", "edit_covariates.R")
   )
   candidates <- candidates[nzchar(candidates)]
   for (p in candidates) {
@@ -156,8 +145,8 @@ path_edit_covariates <- function() {
   }
   stop(
     "Could not find edit_covariates.R.\n",
-    "Expected rebuttal_CellPress/edit_covariates.R in the repository, ",
-    "or set EDIT_COVARIATES_PATH.",
+    "Expected vignettes/targets_pipeline/functions/edit_covariates.R in ",
+    "the repository, or set EDIT_COVARIATES_PATH.",
     call. = FALSE
   )
 }

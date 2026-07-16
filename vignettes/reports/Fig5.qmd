@@ -1,5 +1,5 @@
 ---
-title: "Fig 5"
+title: "Figure 5 — Sex differences in immune ageing across tissues"
 date: today
 date-format: "DD MMM YYYY"
 title-block-banner: true
@@ -30,13 +30,13 @@ comments:
     theme: clean
 editor: source
 abstract: |
-  Sex-differences in immune composition ageing across tissues
+  Sex differences in immune-cell composition across age and tissues.
 ---
 
 # Overview
 
-This report reproduces **Figure 5** (sex differences in immune-composition
-ageing across tissues). The final figure is a patchwork of:
+This report reproduces **Figure 5** (sex differences in immune-cell composition
+across age and tissues). The final figure is a patchwork of:
 
 - **A** – Donor counts by age group and sex across tissues (signed log bar chart).
 - **B** – Sex differences in composition for the three most male- and three most
@@ -213,7 +213,7 @@ colmap_sex <- c("female" = "#D7907B", "male" = "#0A014F")
 
 ```{r define-paths-and-loaders}
 # --- sccomp estimates (large; loaded lazily only when a cache is missing) -----
-# Update this path to your sccomp estimates object.
+# Resolve the configured L3 sccomp estimates object.
 estimates_file <-
   path_sccomp_estimates("estimates_age_decade___L3___disease_FALSE___immune_only_TRUE.rds")
 cell_type_col <- "L3"
@@ -855,7 +855,7 @@ fig5
 
 # Supplementary tables
 
-Export plot statistics from ggplot / heatmap `@data` slots for all Fig 5 panels.
+Export plot statistics from ggplot / heatmap `@data` slots for all Figure 5 panels.
 
 ```{r export-supplementary-tables}
 message(

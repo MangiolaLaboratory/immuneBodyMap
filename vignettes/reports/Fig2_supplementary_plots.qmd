@@ -18,7 +18,7 @@ execute:
 This report uses the finalized Figure 2 source-data workbook. It adds two
 inferential views that are not visible in full in the main figure:
 
-1. all body-level immune-composition age effects with posterior intervals; and
+1. all body-level age effects on immune-cell composition with posterior intervals; and
 2. the complete tissue-level myeloid-minus-lymphoid contrast underlying the
    anatogram.
 
@@ -109,7 +109,7 @@ Plot_SFig2_all_composition_forest <-
   labs(
     x = "Age-associated composition effect",
     y = NULL,
-    title = "Complete body-level immune-composition age effects",
+    title = "Complete body-level age effects on immune-cell composition",
     subtitle = "Points are posterior estimates; horizontal lines are posterior intervals"
   ) +
   theme_supplementary +

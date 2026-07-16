@@ -36,6 +36,7 @@ edit_covariates_path <- Sys.getenv(
 disease_override_path <- Sys.getenv("DISEASE_GROUP_OVERRIDE_PATH", unset = "")
 if (!nzchar(disease_override_path)) {
   candidates <- c(
+    path_source_tables("disease_data_grouped_further.csv"),
     file.path(publication_data_root(), "processed", "disease_data_grouped_further.csv"),
     file.path(publication_data_root(), "zenodo_release", "metadata", "disease_data_grouped_further.csv")
   )
@@ -282,24 +283,40 @@ mapping_summary <- tribble(
 
 source_md5 <- unname(tools::md5sum(edit_covariates_path))
 override_md5 <- unname(tools::md5sum(disease_override_path))
+
+publication_source_label <- function(path) {
+  path <- normalizePath(path, winslash = "/", mustWork = TRUE)
+  repo_prefix <- paste0(
+    normalizePath(publication_repo_root(), winslash = "/", mustWork = TRUE),
+    "/"
+  )
+  if (startsWith(path, repo_prefix)) {
+    substring(path, nchar(repo_prefix) + 1L)
+  } else {
+    basename(path)
+  }
+}
+
+manuscript_title <- paste(
+  "A multi-tissue immune map across 4,240 single-cell donors resolves",
+  "asynchronous immune ageing"
+)
+
 readme <- tribble(
   ~item, ~value,
   "Workbook purpose",
-  paste(
-    "Metadata mappings and transformations used for the manuscript",
-    "A multi-tissue map of human immune aging_2026"
-  ),
+  paste("Metadata mappings and transformations used for", manuscript_title),
   "Methods section", "Data source, metadata harmonisation and sample inclusion",
   "Methods wording",
   paste(
     "For the present study, selected metadata fields were further transformed",
     "or grouped to improve model stability and interpretability."
   ),
-  "Manuscript document",
-  "https://docs.google.com/document/d/1Ri2Dyr4Rhv1rvgIXeUm5NI27IrdPKJS1jI2J-SJjk9I",
-  "Mapping code", edit_covariates_path,
+  "Analysis repository",
+  "https://github.com/MangiolaLaboratory/immuneHealthyBodyMap",
+  "Mapping code", publication_source_label(edit_covariates_path),
   "Mapping code MD5", source_md5,
-  "Disease override source", disease_override_path,
+  "Disease override source", publication_source_label(disease_override_path),
   "Disease override MD5", override_md5,
   "Generated on", as.character(Sys.Date()),
   "Join semantics",

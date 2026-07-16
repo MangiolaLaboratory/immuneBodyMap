@@ -1,5 +1,5 @@
 ---
-title: "Fig 4"
+title: "Figure 4 — Immune-ageing trajectories and clocks across tissues"
 date: today
 date-format: "DD MMM YYYY"
 title-block-banner: true
@@ -30,7 +30,7 @@ comments:
     theme: clean
 editor: source
 abstract: |
-  Immunological ageing is asynchronous across tissues
+  Immune ageing is asynchronous across tissues.
 ---
 
 # Overview

@@ -73,15 +73,7 @@ if (!exists("cur_ct", envir = .GlobalEnv)) {
 .resolve_edit_covariates <- function() {
   candidates <- c(
     Sys.getenv("EDIT_COVARIATES_PATH", unset = ""),
-    file.path(.fun_dir, "edit_covariates.R"),
-    {
-      root <- Sys.getenv("IMMUNE_HEALTHY_BODY_MAP_ROOT", unset = "")
-      if (nzchar(root)) {
-        file.path(root, "rebuttal_CellPress", "edit_covariates.R")
-      } else {
-        ""
-      }
-    }
+    file.path(.fun_dir, "edit_covariates.R")
   )
   candidates <- candidates[nzchar(candidates)]
   for (p in candidates) {
@@ -135,11 +127,6 @@ tar_script_expr <-
       # library(qs)
       library(crew)
       library(crew.cluster)
-      
-      # Set file path -----
-      ## Phoenix HPC setting -----
-      # hdf5_path = "/hpcfs/groups/phoenix-hpc-mangiola_laboratory/Mangiola_ImmuneAtlas/taskforce_shared_folder/pseudobulk_sample_is_immune"
-      # metadata_path = "/hpcfs/groups/phoenix-hpc-mangiola_laboratory/Mangiola_ImmuneAtlas/taskforce_shared_folder/cell_metadata_1_0_6_sccomp_input_counts.rds"
       
       ## Input paths (injected absolute paths at script-write time) -----
       hdf5_path = HDF5_ABS
@@ -393,9 +380,6 @@ tar_script_expr <-
             cli::cli_alert_info("\n se dimensions: {nrow(se)} x {ncol(se)}")
             
             se
-            
-            # load process data to save time when testing
-            # loadHDF5SummarizedExperiment('/hpcfs/groups/phoenix-hpc-mangiola_laboratory/Mangiola_ImmuneAtlas/taskforce_shared_folder/pseduobulk_sample_tar_load_altered/')
           },
           packages = c(
             "tidybulk",
@@ -430,8 +414,6 @@ tar_script_expr <-
           feature_df,
           pseudobulk_sample |>
             distinct(.feature) |>
-            # testing genes that ran for long time
-            # filter(.feature %in% readRDS('/hpcfs/groups/phoenix-hpc-mangiola_laboratory/Mangiola_ImmuneAtlas/ning_data/ethnicity_umap_selected_genes.rds')) |>
             # slice_sample(n=10) %>%
             group_by(.feature) |>
             tar_group(),
