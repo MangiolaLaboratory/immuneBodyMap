@@ -12,7 +12,6 @@ split_files.makeflow
 inst/doc
 /doc/
 /Meta/
-
 # --- Nature Aging vignettes: local secrets / render clutter ---
 .Renviron
 vignettes/config/paths.local.env
@@ -22,7 +21,6 @@ vignettes/reports/*.html
 vignettes/*.html
 vignettes/**/.Rhistory
 vignettes/**/.RData
-
 # Large companion inputs downloaded after Zenodo mint (not in git)
 vignettes/data/zenodo_release/
 vignettes/data/processed/
@@ -30,9 +28,9 @@ vignettes/data/example/
 vignettes/data/processed/**
 vignettes/data/**/*.parquet
 vignettes/data/**/cellNexus_cache/
-
 # Internal packaging records (kept locally; not needed to reproduce)
 vignettes/manifests/CHANGELOG.md
 vignettes/manifests/VALIDATION.md
 vignettes/manifests/ZENODO_REAUDIT.md
 vignettes/manifests/file_manifest.csv
+immuneHealthyBodyMap.Rproj
