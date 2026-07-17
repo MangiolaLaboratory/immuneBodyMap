@@ -7,8 +7,10 @@
 #   file: pseudobulk_se.h5ad
 #   md5:  88c71c0fd1d6ce2fe15eccdd7b36110f
 #
-# sccomp L3/L0 estimates: set SCCOMP_ESTIMATES_DIR or download the companion
-# model record after its DOI is minted (<ZENODO_DOI_PENDING>).
+# sccomp L3/L0 estimates:
+#   DOI 10.5281/zenodo.21389126
+#   https://doi.org/10.5281/zenodo.21389126
+# Download the model record and set SCCOMP_ESTIMATES_DIR to its RDS directory.
 
 args <- commandArgs(trailingOnly = TRUE)
 download_pseudobulk <- "--pseudobulk" %in% args || "--all" %in% args
@@ -48,7 +50,8 @@ if (!download_pseudobulk) {
     "Re-run with --pseudobulk to download (~10 GB), or set:\n",
     "  export PSEUDOBULK_H5AD=/path/to/pseudobulk_se.h5ad\n",
     "\n",
-    "sccomp L3/L0 estimates: still <ZENODO_DOI_PENDING> — set SCCOMP_ESTIMATES_DIR.\n",
+    "sccomp L3/L0 estimates: https://doi.org/10.5281/zenodo.21389126\n",
+    "  Download the model record and set SCCOMP_ESTIMATES_DIR.\n",
     "See vignettes/manifests/README.md.\n"
   )
   quit(save = "no", status = 0L)
