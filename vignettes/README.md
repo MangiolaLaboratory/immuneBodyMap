@@ -7,16 +7,14 @@ Code and small artefacts supporting the manuscript:
 
 **Target journal:** *Nature Aging*
 
-The `Age_Clock` label remains in a few filenames and environment variables as a
-legacy analysis-tree name; it is not the manuscript title.
-
 **Reduced mode** (default): render Quarto reports using the shipped
-panel RDS and SI workbooks (~60 MB under `data/` + Extended Data plot objects).
+panel RDS and SI workbooks (~80–100 MB under `data/` plus Extended Data
+plot objects).
 
 **Full recompute** (HPC): start from public checkpoints + optional targets rebuild.
 
 - Pseudobulk: [10.5281/zenodo.15798373](https://doi.org/10.5281/zenodo.15798373)
-- sccomp L3/L0 model record: [10.5281/zenodo.21389126](https://doi.org/10.5281/zenodo.21389126)
+- sccomp L3/L0 model record: [10.5281/zenodo.21389127](https://doi.org/10.5281/zenodo.21389127)
 
 ---
 
@@ -26,10 +24,10 @@ panel RDS and SI workbooks (~60 MB under `data/` + Extended Data plot objects).
 vignettes/
 ├── README.md
 ├── reports/                  # Quarto figure reports (canonical)
-├── R/                        # paths.R + SI helpers
+├── R/                        # paths.R (portable path helpers)
 ├── config/paths.example.env
 ├── data/
-│   ├── source_tables/        # SI Excel + small auxiliaries
+│   ├── source_tables/        # journal SI Excel (exact submission names) + report_inputs
 │   ├── figure_ready/         # panel ggplot RDS
 │   ├── intermediate/         # compact caches
 │   └── processed/            # generated local data (gitignored)
@@ -58,7 +56,7 @@ Reduced mode uses:
 
 1. `data/figure_ready/**`
 2. `data/intermediate/**`
-3. `data/source_tables/*.xlsx`
+3. `data/source_tables/Supplementary_File_*.xlsx` (journal SI + `*_report_inputs.xlsx`)
 4. `supplementary_plot_objects/*.rds`
 
 ---
@@ -68,7 +66,7 @@ Reduced mode uses:
 | Input | Role |
 |-------|------|
 | [Zenodo `pseudobulk_se.h5ad`](https://doi.org/10.5281/zenodo.15798373) | Full recompute / targets (md5 `88c71c0fd1d6ce2fe15eccdd7b36110f`) |
-| [Zenodo sccomp L3 + L0 RDS](https://doi.org/10.5281/zenodo.21389126) | Full recompute of composition panels |
+| [Zenodo sccomp L3 + L0 RDS](https://doi.org/10.5281/zenodo.21389127) | Full recompute of composition panels |
 | cellNexus metadata (cloud) | Auto via `get_publication_metadata()` |
 | cellNexus single-cell matrices (cloud/cache) | Plasma-niche pseudobulk generation via `get_single_cell_experiment()` |
 | `NEW_CELL_TYPE/_targets/` | **Exemption** — code in `targets_pipeline/`; reduced mode does not need the store |

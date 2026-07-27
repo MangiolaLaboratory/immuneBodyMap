@@ -10,8 +10,7 @@ materials for the manuscript:
 
 The manuscript-facing package focuses on multi-tissue immune composition,
 gene-expression ageing trajectories, immune-age clocks and sex-associated
-differences in immune ageing. Historical `Age_Clock` names are retained only
-where changing them would break paths to archived analyses or cached objects.
+differences in immune ageing. 
 
 ## Reproducibility package
 
@@ -60,7 +59,7 @@ Generated data and QC summaries are written to the gitignored
 Large inputs are not stored in Git:
 
 - Harmonised pseudobulk data: [Zenodo 10.5281/zenodo.15798373](https://doi.org/10.5281/zenodo.15798373)
-- Fitted `sccomp` L3 and L0 models: [Zenodo 10.5281/zenodo.21389126](https://doi.org/10.5281/zenodo.21389126)
+- Fitted `sccomp` L3 and L0 models: [Zenodo 10.5281/zenodo.21389127](https://doi.org/10.5281/zenodo.21389127)
 - Public cellNexus metadata 1.0.12: resolved by `get_publication_metadata()`
 - Per-cell-type gene-model target stores: computational-data exemption requested;
   pipeline code is provided under `vignettes/targets_pipeline/`

@@ -2,9 +2,9 @@ figure,panel,source_data,generating_script,upstream_model,notes
 Fig1,B_tissue_UMAP,data/figure_ready/fig1/Plot___umap_tissue_groups_fig1.rds,reports/Fig1_umap.qmd,targets adjust_tissue / exemption,Reduced mode: use shipped RDS
 Fig1,B_age_UMAP,data/figure_ready/fig1/Plot___umap_age_fig1.rds,reports/Fig1_umap.qmd,targets adjust_age / exemption,Reduced mode: use shipped RDS
 Fig2,A_sample_summary,data/figure_ready/fig2/Fig2_Plot__sample_summary.rds,reports/Fig2.qmd,cellNexus metadata,
-Fig2,B_composition_tests,data/source_tables/SupplData_AgeClock_Fig2.xlsx,reports/Fig2.qmd,sccomp L3 (Zenodo),
+Fig2,B_composition_tests,data/source_tables/Supplementary_File_Figure_2.xlsx,reports/Fig2.qmd,sccomp L3 (Zenodo),
 Fig2,C_anatogram,data/figure_ready/fig2/Fig2_Plot__anatogram.rds,reports/Fig2.qmd,sccomp L0 (Zenodo),
-Fig2,D_heatmap,data/source_tables/SupplData_AgeClock_Fig2.xlsx (preferred),reports/Fig2.qmd,sccomp L3 effect contrasts,Multi-GB heatmap RDS not shipped
+Fig2,D_heatmap,data/source_tables/Supplementary_File_Figure_2.xlsx (preferred),reports/Fig2.qmd,sccomp L3 effect contrasts,Multi-GB heatmap RDS not shipped
 Fig2,E_boxplots,data/figure_ready/fig2/Fig2_Plot__boxplot_*.rds,reports/Fig2.qmd,sccomp L3,
 Fig2,F_plasma_trajectories,data/figure_ready/fig2/Fig2_Plot__plasma_line_chart.rds,reports/Fig2.qmd,sccomp_predict from L3,
 Fig4,A_linear_distance,data/figure_ready/fig4/Fig3_Plot__linear_distance_all.rds,reports/Fig4.qmd,gene preds / targets exemption,
@@ -13,9 +13,9 @@ Fig4,C_upset,data/figure_ready/fig4/Fig3_Plot__upset.rds,reports/Fig4.qmd,gene h
 Fig4,D_velocity,data/figure_ready/fig4/Fig3_Plot__smoothed_age_dist_all.rds,reports/Fig4.qmd,pred_total rebuild optional,
 Fig4,E_clock_scatter,data/intermediate/fig4/Fig4_pred_whole.rds,reports/Fig4.qmd,scImmuAging + SE,
 Fig4,F_error_line,data/figure_ready/fig4/Fig3_Plot__total_pred_line_chart.rds,reports/Fig4.qmd,Fig3_total_pred_summary.rds,
-Fig5,A_donor_bars,data/figure_ready/fig5/Fig4_Plot__age_sex_ethnicity_tissue_bar_consensus.rds,reports/Fig5.qmd,cellNexus metadata,
-Fig5,B_sex_boxplots,data/figure_ready/fig5/Fig4_Plot__boxplot_uniformly_*.rds,reports/Fig5.qmd,sccomp sex contrasts,
-Fig5,C_sex_heatmap,data/figure_ready/fig5/Fig4_Plot__heatmap_male_vs_female.rds,reports/Fig5.qmd,Fig4_global_sex_tests_compact.rds,
-Fig5,D_plasma_sex,data/figure_ready/fig5/Fig4_Plot__line_chart_plasma.rds,reports/Fig5.qmd,sccomp sex predictions,
-SI,source_tables,"data/source_tables/SupplData_AgeClock_Fig{1,2,4,5}.xlsx",R/build_panel_supplementary_workbooks.R,figure_ready RDS,Already shipped
+Fig5,A_donor_bars,data/figure_ready/fig5/Fig4_Plot__age_sex_ethnicity_tissue_bar_consensus.rds,reports/Fig5.qmd,cellNexus metadata,Legacy Fig4_ filename retained
+Fig5,B_sex_boxplots,data/figure_ready/fig5/Fig5_Plot__boxplot_uniformly_*.rds,reports/Fig5.qmd,sccomp sex contrasts,
+Fig5,C_sex_heatmap,data/figure_ready/fig5/Fig4_Plot__heatmap_male_vs_female.rds,reports/Fig5.qmd,Fig4_global_sex_tests_compact.rds,Legacy Fig4_ filename retained
+Fig5,D_plasma_sex,data/figure_ready/fig5/Fig5_Plot__line_chart_plasma.rds,reports/Fig5.qmd,sccomp sex predictions,
+SI,source_tables,"data/source_tables/Supplementary_File_Figure_{1,2,4,5}.xlsx + Metadata_Mappings.xlsx",reports/Fig*_supplementary_plots.qmd,journal SI (exact submission names),report_inputs companions for dropped sheets
 ED,supplementary_plots,supplementary_plot_objects/*.rds,reports/Fig*_supplementary_plots.qmd,SI xlsx,

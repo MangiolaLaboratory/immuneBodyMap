@@ -209,6 +209,13 @@ cell_type_abbrev_dict_heatmap <- c(
 )
 
 colmap_sex <- c("female" = "#D7907B", "male" = "#0A014F")
+
+# Keep raw proportions in the data; transform only the axis (same as Fig2).
+asin_sqrt_trans <- scales::trans_new(
+  name = "asin_sqrt",
+  transform = function(x) asin(sqrt(x)),
+  inverse = function(y) sin(y)^2
+)
 ```
 
 ```{r define-paths-and-loaders}
@@ -229,12 +236,20 @@ get_estimates_renamed <- function() {
 
 # --- Cached panel objects -----------------------------------------------------
 fig_files <- path_figure_ready("fig5")
+# Prefer Fig5_-prefixed caches; historical Fig4_* names remain for older panels.
 path_bar        <- file.path(fig_files, "Fig4_Plot__age_sex_ethnicity_tissue_bar_consensus.rds")
 path_bar_all_counts <- file.path(fig_files, "Fig5_A_donor_counts_all_tissues.rds")
 path_heatmap    <- file.path(fig_files, "Fig4_Plot__heatmap_male_vs_female.rds")
-path_box_red    <- file.path(fig_files, "Fig4_Plot__boxplot_uniformly_red.rds")
-path_box_blue   <- file.path(fig_files, "Fig4_Plot__boxplot_uniformly_blue.rds")
-path_line       <- file.path(fig_files, "Fig4_Plot__line_chart_plasma.rds")
+path_box_red    <- file.path(fig_files, "Fig5_Plot__boxplot_uniformly_red.rds")
+path_box_blue   <- file.path(fig_files, "Fig5_Plot__boxplot_uniformly_blue.rds")
+path_line       <- file.path(fig_files, "Fig5_Plot__line_chart_plasma.rds")
+
+save_fig5_proportion_plot <- function(plot, path) {
+  dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
+  saveRDS(plot, path)
+  message("Saved ", path)
+  invisible(plot)
+}
 ```
 
 # Panel A – Donor counts by age group and sex
@@ -529,7 +544,7 @@ build_sex_boxplot <- function(cell_types) {
       mutate(., L3_abbrev = factor(L3_abbrev, levels = lv)) %>%
         dplyr::select(-L3_abbrev_base, -fdr_formatted)
     } %>%
-    ggplot(aes(x = sex, y = proportion_mean %>% sqrt %>% asin)) +
+    ggplot(aes(x = sex, y = proportion_mean)) +
     geom_jitter(
       data = . %>% filter(version == "adjusted"),
       width = 0.15, colour = "grey50", shape = '.', size = 0.6, alpha = 0.9
@@ -540,9 +555,13 @@ build_sex_boxplot <- function(cell_types) {
       outlier.shape = NA, alpha = 0.3, size = 0.25
     ) +
     scale_fill_manual(values = colmap_sex) +
-    scale_y_continuous(expand = expansion(mult = c(0.02, 0.02))) +
+    scale_y_continuous(
+      trans = asin_sqrt_trans,
+      expand = expansion(mult = c(0.02, 0.02)),
+      labels = function(x) gsub("^0\\.", ".", format(x, nsmall = 1))
+    ) +
     facet_wrap(~ L3_abbrev, nrow = 1, scales = "fixed") +
-    labs(title = '', x = "Sex", y = "Proportion Mean (arcsin sqrt)") +
+    labs(title = '', x = "Sex", y = "Proportion Mean (arcsin-sqrt scale)") +
     theme_multipanel +
     theme(
       strip.text.x.top = element_text(margin = margin(0, 0, 0, 0, "pt")),
@@ -552,7 +571,17 @@ build_sex_boxplot <- function(cell_types) {
 ```
 
 ```{r fig.width=14, fig.height=4, label="panel-B-boxplot-red"}
-if (file.exists(path_box_red)) {
+rebuild_fig5_boxplots <- tolower(Sys.getenv("REBUILD_FIG5_BOXPLOTS", "false")) %in%
+  c("1", "true", "yes")
+# Rebuild when missing or when an older pre-transformed y mapping is still cached.
+needs_boxplot_rebuild <- function(path) {
+  if (!file.exists(path) || rebuild_fig5_boxplots) return(TRUE)
+  p <- readRDS(path)
+  y_map <- tryCatch(rlang::as_label(p$mapping$y), error = function(e) "")
+  grepl("asin|sqrt", y_map)
+}
+
+if (!needs_boxplot_rebuild(path_box_red)) {
   Plot__boxplot_uniformly_red <- readRDS(path_box_red)
 } else {
   # Three cell types with the strongest positive (male-biased) global effect
@@ -560,13 +589,13 @@ if (file.exists(path_box_red)) {
     test_mixed_max2 %>% filter(sig, c_effect > 0) %>%
     arrange(-c_effect) %>% head(3) %>% pull(cell_type_unified_ensemble)
   Plot__boxplot_uniformly_red <- build_sex_boxplot(uniformly_red_cell_types)
-  saveRDS(Plot__boxplot_uniformly_red, path_box_red)
+  save_fig5_proportion_plot(Plot__boxplot_uniformly_red, path_box_red)
 }
 print(Plot__boxplot_uniformly_red)
 ```
 
 ```{r fig.width=14, fig.height=4, label="panel-B-boxplot-blue"}
-if (file.exists(path_box_blue)) {
+if (!needs_boxplot_rebuild(path_box_blue)) {
   Plot__boxplot_uniformly_blue <- readRDS(path_box_blue)
 } else {
   # Three cell types with the strongest negative (female-biased) global effect
@@ -574,7 +603,7 @@ if (file.exists(path_box_blue)) {
     test_mixed_max2 %>% filter(sig, c_effect < 0) %>%
     arrange(c_effect) %>% head(3) %>% pull(cell_type_unified_ensemble)
   Plot__boxplot_uniformly_blue <- build_sex_boxplot(uniformly_blue_cell_types)
-  saveRDS(Plot__boxplot_uniformly_blue, path_box_blue)
+  save_fig5_proportion_plot(Plot__boxplot_uniformly_blue, path_box_blue)
 }
 print(Plot__boxplot_uniformly_blue)
 ```
@@ -619,7 +648,17 @@ Plot__heatmap_male_vs_female
 # Panel D – Plasma-cell proportion trajectories by sex
 
 ```{r fig.width=15, fig.height=10, label="panel-D-line-chart"}
-if (file.exists(path_line)) {
+rebuild_fig5_line <- tolower(Sys.getenv("REBUILD_FIG5_LINE", "false")) %in%
+  c("1", "true", "yes")
+needs_line_rebuild <- function(path) {
+  if (!file.exists(path) || rebuild_fig5_line) return(TRUE)
+  p <- readRDS(path)
+  ysc <- tryCatch(p$scales$get_scales("y"), error = function(e) NULL)
+  tr <- tryCatch(ysc$get_transformation()$name, error = function(e) NA_character_)
+  !identical(tr, "asin_sqrt")
+}
+
+if (!needs_line_rebuild(path_line)) {
 
   Plot__line_chart_plasma <- readRDS(path_line)
 
@@ -695,7 +734,7 @@ if (file.exists(path_line)) {
   Plot__line_chart_plasma <-
     plasma_plot_data |>
     ggplot() +
-    geom_hline(yintercept = 0, lwd = 0.1) +
+    geom_hline(yintercept = 0, linewidth = 0.1) +
     geom_point(aes(x = Age, y = proportion_mean), shape = NA) +
     geom_line(aes(x = as.numeric(Age), y = proportion_mean, colour = Sex, fill = Sex),
               show.legend = FALSE) +
@@ -707,12 +746,18 @@ if (file.exists(path_line)) {
                         guide = guide_legend(override.aes = list(alpha = 1))) +
     ggnewscale::new_scale_colour() +
     scale_colour_brewer(palette = "Set2", name = "Comparison") +
-    scale_y_continuous(expand = expansion(mult = c(0.02, 0.02))) +
+    scale_y_continuous(
+      trans = asin_sqrt_trans,
+      limits = c(0, NA),
+      expand = expansion(mult = c(0, 0.05)),
+      labels = function(x) gsub("^0\\.", ".", format(x, nsmall = 1))
+    ) +
+    labs(x = "Age decade", y = "Proportion Mean (arcsin-sqrt scale)") +
     facet_wrap(~ tissue_groups_short, ncol = 4, scales = 'free_y') +
     theme_multipanel +
     theme(legend.position = "bottom", axis.text.x = element_text(angle = 45, hjust = 1))
 
-  saveRDS(Plot__line_chart_plasma, path_line)
+  save_fig5_proportion_plot(Plot__line_chart_plasma, path_line)
 }
 
 print(Plot__line_chart_plasma)
@@ -770,7 +815,12 @@ Plot__line$layers <- lapply(Plot__line$layers, function(layer) {
 })
 Plot__line <-
   Plot__line +
-  scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.05))) +
+  scale_y_continuous(
+    trans = asin_sqrt_trans,
+    limits = c(0, NA),
+    expand = expansion(mult = c(0, 0.05)),
+    labels = function(x) gsub("^0\\.", ".", format(x, nsmall = 1))
+  ) +
   theme(
     plot.title = element_blank(),
     axis.text.x.bottom = element_text(angle = 0),

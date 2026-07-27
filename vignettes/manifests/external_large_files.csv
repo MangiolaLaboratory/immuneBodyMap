@@ -1,7 +1,7 @@
 file_id,zenodo_path,description,approx_size,action,env_override,notes
 pseudobulk_se.h5ad,https://doi.org/10.5281/zenodo.15798373,cellNexus pseudobulk SummarizedExperiment (h5ad),10.0 GB,DEPOSITED,PSEUDOBULK_H5AD,"Zenodo record 15798373; md5 88c71c0fd1d6ce2fe15eccdd7b36110f; matches lab .../Mangiola_ImmuneAtlas/zenodo/pseudobulk_se.h5ad (used by Fig2/targets). Unpack to zenodo_release/pseudobulk/ or set PSEUDOBULK_H5AD."
-estimates_age_decade_L3.rds,https://doi.org/10.5281/zenodo.21389126,Fitted sccomp age-decade model (L3),~5 GB,DEPOSITED,SCCOMP_ESTIMATES_DIR,Primary input for Fig2/4/5 full recompute; SI xlsx covers reduced mode
-estimates_age_decade_L0.rds,https://doi.org/10.5281/zenodo.21389126,Fitted sccomp age-decade model (L0 lineage),~2 GB,DEPOSITED,SCCOMP_ESTIMATES_DIR,Fig2 anatogram / lineage; SI covers reduced mode
+estimates_age_decade_L3.rds,https://doi.org/10.5281/zenodo.21389127,Fitted sccomp age-decade model (L3),~5 GB,DEPOSITED,SCCOMP_ESTIMATES_DIR,Primary input for Fig2/4/5 full recompute; SI xlsx covers reduced mode
+estimates_age_decade_L0.rds,https://doi.org/10.5281/zenodo.21389127,Fitted sccomp age-decade model (L0 lineage),~2 GB,DEPOSITED,SCCOMP_ESTIMATES_DIR,Fig2 anatogram / lineage; SI covers reduced mode
 metadata.1.0.12.parquet,,cellNexus metadata,~,CLOUD_NOT_ZENODO,CELLNEXUS_METADATA,Use cellNexus::get_metadata_url(); do not deposit
 NEW_CELL_TYPE_targets,,Per cell-type brms gene fits (_targets stores),multi-TB class,EXEMPT,NEW_CELL_TYPE_ROOT,Code in vignettes/targets_pipeline/; reduced mode uses shipped RDS/xlsx
 adjust_tissue_list.rds,,Tissue-adjusted expression for Fig1 UMAP,~3 GB,EXEMPT_REBUILD,,Rebuild from targets or use figure_ready UMAP RDS

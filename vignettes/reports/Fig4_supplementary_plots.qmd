@@ -36,15 +36,16 @@ library(here)
 library(knitr)
 
 source(file.path("..", "R", "paths.R"))
-workbook <- path_source_tables("SupplData_AgeClock_Fig4.xlsx")
-if (!file.exists(workbook)) stop("Figure 4 source-data workbook not found: ", workbook)
+workbook <- path_source_tables("Supplementary_File_Figure_4.xlsx")
+if (!file.exists(workbook)) stop("Figure 4 supplementary file not found: ", workbook)
 
-plot_object_dir <- file.path(here::here(), "vignettes", "supplementary_plot_objects")
+plot_object_dir <- file.path(publication_vignette_root(), "supplementary_plot_objects")
 dir.create(plot_object_dir, recursive = TRUE, showWarnings = FALSE)
 
+# Submission workbooks store a caption in row 1 and headers in row 2.
 read_panel_sheet <- function(sheet) {
   if (!sheet %in% excel_sheets(workbook)) stop("Missing worksheet: ", sheet)
-  read_xlsx(workbook, sheet = sheet, guess_max = 1000000L)
+  read_xlsx(workbook, sheet = sheet, skip = 1, guess_max = 1000000L)
 }
 
 save_plot_object <- function(plot, filename) {
@@ -54,11 +55,54 @@ save_plot_object <- function(plot, filename) {
   invisible(path)
 }
 
-pretty_tissue <- function(x) {
-  x <- gsub(" and ", "/", x, fixed = TRUE)
-  x <- gsub(" system$", "", x)
-  x <- gsub(" structures$", "", x)
-  tools::toTitleCase(x)
+# Same short tissue labels used for Fig2 / Fig5 supplementary line charts.
+tissue_name_dict <- c(
+  "blood" = "Blood",
+  "sensory-related structures" = "Sensory",
+  "cerebral lobes and cortical areas" = "Cerebral cortex",
+  "limbic and basal systems" = "Limbic/basal",
+  "liver" = "Liver",
+  "bone marrow" = "Bone marrow",
+  "large intestine" = "Large int",
+  "lymphatic system" = "Lymphatic",
+  "small intestine" = "Small int",
+  "respiratory system" = "Respiratory",
+  "renal system" = "Renal",
+  "brainstem and cerebellar structures" = "Hindbrain",
+  "cardiovascular system" = "Cardiovascular",
+  "general brain and major structures" = "Brain",
+  "vasculature" = "Vasculature",
+  "ovary" = "Ovary",
+  "integumentary system (skin)" = "Skin",
+  "nasal, oral, and pharyngeal regions" = "Pharyngeal",
+  "muscular system (skeletal muscles)" = "Skeletal muscle",
+  "prostate" = "Prostate",
+  "breast" = "Breast",
+  "digestive system (general)" = "Digestive",
+  "oesophagus" = "Oesophagus",
+  "female reproductive system" = "Female repro",
+  "spleen" = "Spleen",
+  "peritoneal and abdominal cavity structures" = "Peritoneal",
+  "thymus" = "Thymus",
+  "adipose tissue" = "Adipose",
+  "trachea" = "Trachea",
+  "endocrine system" = "Endocrine",
+  "pancreas" = "Pancreas",
+  "miscellaneous glands" = "Glands",
+  "stomach" = "Stomach",
+  "gallbladder" = "Gallbladder"
+)
+
+short_tissue_label <- function(x) {
+  key <- tolower(as.character(x))
+  key <- ifelse(
+    key == "nasal, oral and pharyngeal regions",
+    "nasal, oral, and pharyngeal regions",
+    key
+  )
+  key <- ifelse(key == "skin", "integumentary system (skin)", key)
+  out <- unname(tissue_name_dict[key])
+  ifelse(is.na(out), tools::toTitleCase(gsub("_", " ", key, fixed = TRUE)), out)
 }
 
 theme_supplementary <- theme_bw(base_size = 8) +
@@ -71,27 +115,33 @@ theme_supplementary <- theme_bw(base_size = 8) +
 ```
 
 ```{r read-source-data}
-clock_predictions <- read_panel_sheet("Fig4_E_plotted_predictions") |>
-  filter(is.finite(age_years), is.finite(predicted_age_scaled), !is.na(tissue_groups)) |>
+clock_predictions <- read_panel_sheet("Fig4_E_predictions") |>
   transmute(
-    donor_id,
-    tissue_groups,
-    tissue_label = pretty_tissue(tissue_groups),
-    age_years,
-    predicted_age_scaled,
-    prediction_error_years
+    donor_id = .data[["Donor ID"]],
+    tissue_groups = .data[["Tissue group"]],
+    tissue_label = short_tissue_label(tissue_groups),
+    age_years = .data[["Chronological age (years)"]],
+    predicted_age_scaled = .data[["Predicted age (years)"]],
+    prediction_error_years = .data[["Prediction error (years)"]]
+  ) |>
+  filter(
+    is.finite(age_years),
+    is.finite(predicted_age_scaled),
+    !is.na(tissue_groups)
   )
 
-clock_models <- read_panel_sheet("Fig4_E_tissue_linear_models") |>
-  filter(is.finite(n), n >= 2, is.finite(correlation), is.finite(rmse_identity)) |>
+clock_models <- read_panel_sheet("Fig4_E_performance") |>
   transmute(
-    tissue_groups,
-    tissue_label = pretty_tissue(tissue_groups),
-    n,
-    correlation,
-    r_squared,
-    rmse_identity,
-    mae_identity,
+    tissue_groups = .data[["Tissue group"]],
+    tissue_label = short_tissue_label(tissue_groups),
+    n = .data[["Number of prediction rows"]],
+    correlation = .data[["Pearson correlation"]],
+    r_squared = .data[["R²"]],
+    rmse_identity = .data[["Root-mean-square error (years)"]],
+    mae_identity = .data[["Mean absolute error (years)"]]
+  ) |>
+  filter(is.finite(n), n >= 2, is.finite(correlation), is.finite(rmse_identity)) |>
+  mutate(
     metric_label = sprintf(
       "n=%s\nr=%.2f; R²=%.2f\nRMSE=%.1f; MAE=%.1f",
       format(n, big.mark = ","), correlation, r_squared, rmse_identity, mae_identity
@@ -134,8 +184,7 @@ Plot_SFig4_clock_by_tissue <-
   labs(
     x = "Chronological age (years)",
     y = "Blood-clock predicted age (years)",
-    title = "Blood-derived immune-age clock performance in each tissue",
-    subtitle = "Dashed line denotes identity; red line is the tissue-specific linear fit"
+    title = "Blood-derived immune-age clock performance in each tissue"
   ) +
   theme_supplementary
 
@@ -148,31 +197,40 @@ invisible(gc())
 # Prediction-error distributions
 
 ```{r fig4-clock-errors, fig.width=9, fig.height=8}
-tissue_order <- clock_models |>
-  arrange(rmse_identity) |>
+tissue_order <- clock_predictions |>
+  group_by(tissue_label) |>
+  summarise(median_error = median(prediction_error_years, na.rm = TRUE), .groups = "drop") |>
+  arrange(median_error) |>
   pull(tissue_label)
 
 clock_error_data <- clock_predictions |>
-  mutate(tissue_label = factor(tissue_label, levels = tissue_order))
+  mutate(
+    tissue_label = factor(tissue_label, levels = tissue_order),
+    is_blood = tissue_label == "Blood"
+  )
+
+# Highlight blood on the y-axis (factor levels run bottom → top).
+y_axis_colours <- ifelse(as.character(tissue_order) == "Blood", "#B24A3B", "black")
 
 Plot_SFig4_clock_error_distribution <-
   ggplot(clock_error_data, aes(x = prediction_error_years, y = tissue_label)) +
   geom_vline(xintercept = 0, linetype = "dashed", colour = "grey50", linewidth = 0.35) +
   geom_boxplot(
+    aes(fill = is_blood, colour = is_blood),
     width = 0.65,
     outlier.shape = NA,
-    fill = "#C9D9E8",
-    colour = "#315A7D",
     linewidth = 0.35
   ) +
+  scale_fill_manual(values = c(`FALSE` = "#C9D9E8", `TRUE` = "#E8B4AD"), guide = "none") +
+  scale_colour_manual(values = c(`FALSE` = "#315A7D", `TRUE` = "#B24A3B"), guide = "none") +
   coord_cartesian(xlim = quantile(clock_error_data$prediction_error_years, c(0.01, 0.99), na.rm = TRUE)) +
   labs(
     x = "Prediction error (predicted − chronological age; years)",
     y = NULL,
-    title = "Blood-clock prediction error across tissues",
-    subtitle = "Tissues are ordered by identity-line RMSE; display is limited to the 1st–99th error percentiles"
+    title = "Blood-clock prediction error across tissues (1st–99th percentiles)"
   ) +
-  theme_supplementary
+  theme_supplementary +
+  theme(axis.text.y = element_text(colour = y_axis_colours))
 
 Plot_SFig4_clock_error_distribution
 save_plot_object(

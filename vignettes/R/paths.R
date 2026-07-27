@@ -84,7 +84,7 @@ require_publication_file <- function(
       msg,
       "  Pseudobulk: https://doi.org/10.5281/zenodo.15798373 ",
       "(pseudobulk_se.h5ad; md5 88c71c0fd1d6ce2fe15eccdd7b36110f).\n",
-      "  sccomp L3/L0 models: https://doi.org/10.5281/zenodo.21389126.\n",
+      "  sccomp L3/L0 models: https://doi.org/10.5281/zenodo.21389127.\n",
       "  Place files under IMMUNE_HEALTHY_BODY_MAP_DATA/zenodo_release/ ",
       "or set the env override above, then retry.\n"
     )
