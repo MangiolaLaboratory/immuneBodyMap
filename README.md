@@ -3,11 +3,8 @@
 This repository contains analysis code, figure reports and reproducibility
 materials for the manuscript
 
-<<<<<<< Updated upstream
-=======
 > *A multi-tissue immune map across 4,241 single-cell donors resolves
 > asynchronous immune ageing*
->>>>>>> Stashed changes
 
 **Target journal:** *Nature Aging*
 
