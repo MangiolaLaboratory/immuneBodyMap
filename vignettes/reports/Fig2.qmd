@@ -300,7 +300,7 @@ if (file.exists(path_binary_test)) {
     path_sccomp_estimates("estimates_age_decade___L3___disease_FALSE___immune_only_TRUE.rds")
   )
   # Old (young: decades 1-4) vs late (decades 6-9), age_decade5 as reference
-  binary_test = est |> sccomp_test(contrasts = '(0 + `age_decade6` + `age_decade7` + `age_decade8` + `age_decade9`)/5 - (`age_decade1` + `age_decade2` + `age_decade3` + `age_decade4`)/4')
+  binary_test = est |> sccomp_test(contrasts = '(0 + `age_decade6` + `age_decade7` + `age_decade8` + `age_decade9`)/6 - (`age_decade1` + `age_decade2` + `age_decade3` + `age_decade4`)/4')
   saveRDS(binary_test, file = path_binary_test)
 }
 

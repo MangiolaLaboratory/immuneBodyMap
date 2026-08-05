@@ -39,8 +39,9 @@ This report reproduces **Figure 5** (sex differences in immune-cell composition
 across age and tissues). The final figure is a patchwork of:
 
 - **A** – Donor counts by age group and sex across tissues (signed log bar chart).
-- **B** – Sex differences in composition for the three most male- and three most
-  female-biased cell types (arcsin-sqrt proportions).
+- **B** – Age-split sex×age boxplots for the four lowest-FDR sex-difference
+  ageing effects (later−earlier male−female gap change, split at age decade 5;
+  arcsin-sqrt proportions).
 - **C** – Heatmap of male-vs-female age effects (cell type × tissue).
 - **D** – Plasma-cell proportion trajectories by sex across tissues.
 
@@ -109,6 +110,7 @@ library(scico)              # 'vik' diverging palette for the heatmap
 library(circlize)           # colorRamp2()
 library(ggplot2)
 library(grid)               # unit()
+library(ggh4x)              # facetted_pos_scales() for Panel B free-y limits
 # NOTE: `sccomp` and `cellNexus` are loaded on-demand inside the computation
 # chunks (panels A–D) so the report still renders from cache without them.
 ```
@@ -343,19 +345,17 @@ if (file.exists(path_bar) && file.exists(path_bar_all_counts) && !rebuild_panel_
 print(Plot__age_sex_ethnicity_tissue_bar)
 ```
 
-# Sex-difference composition tests (shared inputs)
+# Sex-difference composition tests (Panel C heatmap inputs)
 
-These `sccomp` contrasts feed panels **B** and **C**. The whole block is skipped
-when all three panel caches (`path_heatmap`, `path_box_red`, `path_box_blue`) exist.
+Tissue-level male-vs-female contrasts for panel **C**. Skipped when the heatmap
+cache already exists.
 
 ```{r sex-difference-sccomp}
-path_global_sex_tests <- file.path(path_intermediate("fig5"), "Fig4_global_sex_tests_compact.rds")
-need_sex <- !file.exists(path_heatmap) || !file.exists(path_box_red) ||
-  !file.exists(path_box_blue) || !file.exists(path_global_sex_tests)
+need_heatmap <- !file.exists(path_heatmap)
 
-if (need_sex) {
+if (need_heatmap) {
 
-  library(sccomp)  # sccomp_test(), sccomp_predict()
+  library(sccomp)  # sccomp_test()
 
   estimates_age_bins <- get_estimates_renamed()
   load(file.path(path_intermediate("fig2"), "df_cell_statistics.RData"))  # df_cells_ct, df_cells_tissue
@@ -386,16 +386,6 @@ if (need_sex) {
   tissue_age_combo <- param_df %>%
     filter(Sex == 'male', Tissue != 'global', !is.na(Age)) %>% distinct(Tissue, Age)
 
-  contrasts_df <-
-    tissue_age_combo %>%
-    mutate(contr = map2_chr(Tissue, Age, ~ {
-      param_df %>%
-        filter(Tissue %in% c(.x, 'global'), Age %in% c(.y, NA), Sex == 'male') %>%
-        mutate(parameter = glue::glue('`{parameter}`')) %>% pull(parameter) %>%
-        paste0(collapse = ' + ')
-    })) %>%
-    mutate(contrast_name = glue::glue('male-female___age_decade{Age} | {Tissue}'))
-
   contrasts_sex_diff_overall <-
     tissue_age_combo %>%
     mutate(contr = map2_chr(Tissue, Age, ~ {
@@ -416,152 +406,200 @@ if (need_sex) {
     sccomp_test(contrasts = contrasts) |>
     dplyr::rename(cell_type_unified_ensemble = !!sym(cell_type_col))
 
-  # The contrast names are already the tissue names.  The previous join used
-  # per-decade contrast names and therefore could not match these overall
-  # contrasts when rebuilding from scratch.
+  # Contrast names are tissue names for these overall tissue contrasts.
   test_mixed_max <- test_mixed_all |>
     rename(Tissue = parameter) |>
     mutate(significant = c_FDR < 0.05)
-
-  # -- Global male-vs-female contrasts (Panel B cell-type selection) -----------
-  tissue_age_combo2 <- param_df %>%
-    filter(Sex == 'male', Tissue == 'global', !is.na(Age)) %>% distinct(Tissue, Age)
-
-  contrasts_df2 <-
-    tissue_age_combo2 %>%
-    mutate(contr = map2_chr(Tissue, Age, ~ {
-      param_df %>%
-        filter(Tissue %in% c(.x, 'global'), Age %in% c(.y, NA), Sex == 'male') %>%
-        mutate(parameter = glue::glue('`{parameter}`')) %>% pull(parameter) %>%
-        paste0(collapse = ' + ')
-    })) %>%
-    mutate(contrast_name = glue::glue('male-female___age_decade{Age} | {Tissue}'))
-
-  contrasts2 <- contrasts_df2 %>%
-    dplyr::select(contrast_name, contr) |> deframe()
-
-  if (file.exists(path_global_sex_tests)) {
-    test_mixed_all2 <- readRDS(path_global_sex_tests)
-  } else {
-    test_mixed_all2 <- estimates_age_bins |>
-      sccomp_test(contrasts = contrasts2) |>
-      dplyr::rename(cell_type_unified_ensemble = !!sym(cell_type_col)) |>
-      left_join(contrasts_df2, by = join_by(parameter == contrast_name)) |>
-      mutate(significant = c_FDR < 0.05)
-
-    # Strip the very large sccomp attributes before caching the tabular tests.
-    test_mixed_all2 <- tibble::as_tibble(setNames(
-      lapply(names(test_mixed_all2), function(nm) test_mixed_all2[[nm]]),
-      names(test_mixed_all2)
-    ))
-    saveRDS(test_mixed_all2, path_global_sex_tests)
-  }
-
-  test_mixed_max2 <- test_mixed_all2 |>
-    group_by(cell_type_unified_ensemble) |>
-    arrange(c_FDR, desc(abs(c_effect))) |>
-    slice_head(n = 1) |>
-    ungroup() %>%
-    mutate(sig = c_FDR < 0.05)
-
-  # -- Sex predictions for the boxplots (own caches) --------------------------
-  path_pred_draws  <- file.path(path_intermediate("fig5"), "sccomp_sex_pred_draws_fig4.rds")
-  path_sex_adjust  <- file.path(path_intermediate("fig5"), "sccomp_sex_adjusted_fig4.rds")
-
-  if (file.exists(path_pred_draws)) {
-    pred_draws <- readRDS(path_pred_draws)
-  } else {
-    est <- get_est()
-    pred_draws <-
-      est |>
-      sccomp_predict(
-        formula_composition = ~ age_decade * sex + ethnicity_groups_imputed,
-        new_data =
-          est |>
-          attr("count_data") |>
-          sccomp:::.subset(sample_id) |>
-          distinct(sex) |>
-          arrange(sex) |>
-          mutate(age_decade = NA, ethnicity_groups_imputed = NA) |>
-          mutate(sample_id = glue::glue("my_sample_{1:n()}")),
-        number_of_draws = 100,
-        summary_instead_of_draws = FALSE
-      ) |>
-      rename(proportion_mean = proportion) |>
-      mutate(sample_id_original = sample_id) |>
-      tidyr::unite("sample_id", c(sample_id, .draw), remove = FALSE)
-    saveRDS(pred_draws, file = path_pred_draws)
-  }
-
-  if (file.exists(path_sex_adjust)) {
-    sex_adjusted <- readRDS(path_sex_adjust)
-  } else {
-    est <- get_est()
-    sex_adjusted <-
-      est |>
-      sccomp_predict(
-        formula_composition = ~ age_decade * sex + ethnicity_groups_imputed,
-        new_data = est |> attr("count_data") |> sccomp:::.subset(sample_id),
-        number_of_draws = 100,
-        summary_instead_of_draws = TRUE
-      )
-    saveRDS(sex_adjusted, file = path_sex_adjust)
-  }
 }
 ```
 
-# Panel B – Sex differences for the top biased cell types
+# Panel B – Age-split sex×age boxplots (top-4 by FDR)
+
+Body-level sex-difference ageing contrast split at age decade 5:
+`(later−earlier males) − (later−earlier females)`. Fig. 5b highlights the four
+lowest-FDR effects (no same-signed filter). Boxes use sex × earlier/later
+groups; grey points are sample-level adjusted proportions.
 
 ```{r define-boxplot-builder}
-# Build one sex boxplot for a given set of cell types (facet order preserved).
-build_sex_boxplot <- function(cell_types) {
+earlier_age_decades <- as.character(1:4)
+later_age_decades <- as.character(5:10)
+age_sex_group_levels <- c(
+  "female earlier", "female later", "male earlier", "male later"
+)
+
+assign_age_sex_group <- function(df) {
+  df %>%
+    mutate(
+      age_decade_chr = as.character(age_decade),
+      age_split = case_when(
+        age_decade_chr %in% earlier_age_decades ~ "earlier",
+        age_decade_chr %in% later_age_decades ~ "later",
+        TRUE ~ NA_character_
+      ),
+      age_sex_group = paste(sex, age_split),
+      age_sex_group = factor(age_sex_group, levels = age_sex_group_levels)
+    ) %>%
+    filter(!is.na(age_split), sex %in% c("female", "male"))
+}
+
+standardise_cell_col <- function(df) {
+  if ("cell_type_unified_ensemble" %in% names(df) && !"L3" %in% names(df)) {
+    df <- df %>% dplyr::rename(L3 = cell_type_unified_ensemble)
+  } else if ("L3" %in% names(df) && !"cell_type_unified_ensemble" %in% names(df)) {
+    df <- df %>% mutate(cell_type_unified_ensemble = L3)
+  }
+  df
+}
+
+format_fdr_label <- function(x) {
+  if_else(
+    x < 0.001,
+    gsub("^0\\.", ".", formatC(x, format = "e", digits = 2)),
+    gsub("^0\\.", ".", formatC(x, format = "f", digits = 3))
+  )
+}
+
+format_y_prop_label <- function(x) {
+  gsub("^0\\.", ".", formatC(x, format = "fg", digits = 3, drop0trailing = TRUE))
+}
+
+resolve_fig5_analysis_cache <- function(filename) {
+  candidates <- c(
+    path_intermediate("fig5", filename),
+    {
+      arch <- path_age_clock_archive("data", "age_fig", filename)
+      if (is.null(arch)) character() else arch
+    },
+    {
+      arch <- path_age_clock_archive("data", filename)
+      if (is.null(arch)) character() else arch
+    }
+  )
+  hit <- candidates[nzchar(candidates) & file.exists(candidates)][1]
+  if (is.na(hit)) NA_character_ else hit
+}
+
+build_age_sex_boxplot_df <- function(cell_types, test_df) {
   bind_rows(
     pred_draws %>%
       filter(L3 %in% cell_types) %>%
-      dplyr::select(sample_id, L3, sex, proportion_mean) %>%
-      mutate(version = 'prediction'),
+      dplyr::select(sample_id, L3, sex, age_decade, age_split, age_sex_group, proportion_mean) %>%
+      mutate(version = "prediction"),
     sex_adjusted %>%
       filter(L3 %in% cell_types) %>%
-      dplyr::select(sample_id, L3, sex, proportion_mean) %>%
-      mutate(version = 'adjusted')
+      dplyr::select(sample_id, L3, sex, age_decade, age_split, age_sex_group, proportion_mean) %>%
+      mutate(version = "adjusted")
   ) %>%
-    filter(sex %in% c('male', 'female')) %>%
-    mutate(L3_abbrev_base = recode(L3, !!!cell_type_abbrev_dict)) %>%
+    mutate(L3_abbrev = recode(L3, !!!cell_type_abbrev_dict)) %>%
     left_join(
-      test_mixed_max2 %>% dplyr::select(cell_type_unified_ensemble, c_FDR),
+      test_df %>% dplyr::select(cell_type_unified_ensemble, c_FDR, c_effect),
       by = c("L3" = "cell_type_unified_ensemble")
     ) %>%
-    mutate(
-      fdr_formatted = if_else(
-        c_FDR < 0.001,
-        gsub("^0\\.", ".", formatC(c_FDR, format = "e", digits = 2)),
-        gsub("^0\\.", ".", formatC(c_FDR, format = "f", digits = 3))
-      ),
-      L3_abbrev = paste0(L3_abbrev_base, "\n(FDR: ", fdr_formatted, ')')
-    ) %>%
+    mutate(fdr_formatted = format_fdr_label(c_FDR)) %>%
     {
-      lv <- distinct(., L3, L3_abbrev) %>% arrange(match(L3, cell_types)) %>% pull(L3_abbrev)
-      mutate(., L3_abbrev = factor(L3_abbrev, levels = lv)) %>%
-        dplyr::select(-L3_abbrev_base, -fdr_formatted)
-    } %>%
-    ggplot(aes(x = sex, y = proportion_mean)) +
+      df_temp <- .
+      unique_levels <- df_temp %>%
+        distinct(L3, L3_abbrev) %>%
+        arrange(match(L3, cell_types)) %>%
+        pull(L3_abbrev)
+      df_temp %>%
+        mutate(
+          L3 = factor(L3, levels = cell_types),
+          L3_abbrev = factor(L3_abbrev, levels = unique_levels),
+          age_sex_group = factor(age_sex_group, levels = age_sex_group_levels)
+        )
+    }
+}
+
+plot_age_sex_boxplot <- function(
+    df,
+    box_version = c("adjusted", "prediction"),
+    y_pad = 0.08,
+    ncol = 4,
+    nrow = 1
+) {
+  box_version <- match.arg(box_version)
+  box_df <- df %>% filter(version == box_version)
+  jitter_df <- df %>% filter(version == "adjusted")
+  if (base::nrow(box_df) == 0) stop("No rows for box_version = '", box_version, "'.")
+
+  facet_levels <- if (is.factor(box_df$L3_abbrev)) {
+    levels(box_df$L3_abbrev)[levels(box_df$L3_abbrev) %in% unique(as.character(box_df$L3_abbrev))]
+  } else {
+    unique(as.character(box_df$L3_abbrev))
+  }
+
+  box_lims <- box_df %>%
+    group_by(L3_abbrev, age_sex_group) %>%
+    summarise(
+      stats = list(boxplot.stats(proportion_mean, do.conf = FALSE, do.out = FALSE)$stats),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      ymin = purrr::map_dbl(stats, 1),
+      ymax = purrr::map_dbl(stats, 5)
+    ) %>%
+    group_by(L3_abbrev) %>%
+    summarise(ymin = min(ymin), ymax = max(ymax), .groups = "drop") %>%
+    mutate(
+      ymin_t = asin(sqrt(pmax(ymin, 0))),
+      ymax_t = asin(sqrt(pmax(ymax, 0))),
+      pad = y_pad * pmax(ymax_t - ymin_t, 0.02),
+      ymin = sin(pmax(ymin_t - pad, 0))^2,
+      ymax = sin(pmin(ymax_t + pad, pi / 2))^2,
+      fdr_y = ymin + 0.92 * (ymax - ymin)
+    ) %>%
+    mutate(L3_abbrev = factor(as.character(L3_abbrev), levels = facet_levels)) %>%
+    arrange(L3_abbrev)
+
+  fdr_labels <- box_df %>%
+    distinct(L3_abbrev, fdr_formatted) %>%
+    left_join(box_lims %>% dplyr::select(L3_abbrev, fdr_y), by = "L3_abbrev") %>%
+    mutate(
+      age_sex_group = factor(
+        age_sex_group_levels[ceiling(length(age_sex_group_levels) / 2)],
+        levels = age_sex_group_levels
+      ),
+      proportion_mean = fdr_y,
+      label = paste0("FDR: ", fdr_formatted)
+    )
+
+  y_scales <- purrr::map(seq_len(base::nrow(box_lims)), function(i) {
+    facet_val <- as.character(box_lims$L3_abbrev[i])
+    rlang::new_formula(
+      lhs = rlang::expr(L3_abbrev == !!facet_val),
+      rhs = scale_y_continuous(
+        trans = "asn",
+        limits = c(box_lims$ymin[i], box_lims$ymax[i]),
+        labels = format_y_prop_label,
+        oob = scales::oob_keep,
+        expand = expansion(mult = 0)
+      )
+    )
+  })
+
+  ggplot(box_df, aes(x = age_sex_group, y = proportion_mean)) +
     geom_jitter(
-      data = . %>% filter(version == "adjusted"),
-      width = 0.15, colour = "grey50", shape = '.', size = 0.6, alpha = 0.9
+      data = jitter_df, width = 0.15, height = 0,
+      colour = "grey50", shape = 16, size = 0.15, alpha = 0.2
     ) +
-    geom_boxplot(
-      aes(fill = sex),
-      data = . %>% filter(version == "prediction"),
-      outlier.shape = NA, alpha = 0.3, size = 0.25
+    geom_boxplot(aes(fill = sex), outlier.shape = NA, alpha = 0.3, linewidth = 0.25) +
+    geom_text(
+      data = fdr_labels, aes(label = label),
+      size = 2, colour = "grey20", vjust = 0.5
     ) +
     scale_fill_manual(values = colmap_sex) +
-    scale_y_continuous(
-      trans = asin_sqrt_trans,
-      expand = expansion(mult = c(0.02, 0.02)),
-      labels = function(x) gsub("^0\\.", ".", format(x, nsmall = 1))
+    scale_x_discrete(labels = c(
+      "female earlier" = "F(e)", "female later" = "F(l)",
+      "male earlier" = "M(e)", "male later" = "M(l)"
+    )) +
+    facet_wrap(~ L3_abbrev, ncol = ncol, nrow = nrow, scales = "free_y") +
+    ggh4x::facetted_pos_scales(y = y_scales) +
+    labs(
+      title = "",
+      x = "Sex × Age groups (earlier vs later)",
+      y = "Proportion Mean"
     ) +
-    facet_wrap(~ L3_abbrev, nrow = 1, scales = "fixed") +
-    labs(title = '', x = "Sex", y = "Proportion Mean (arcsin-sqrt scale)") +
     theme_multipanel +
     theme(
       strip.text.x.top = element_text(margin = margin(0, 0, 0, 0, "pt")),
@@ -570,42 +608,117 @@ build_sex_boxplot <- function(cell_types) {
 }
 ```
 
-```{r fig.width=14, fig.height=4, label="panel-B-boxplot-red"}
+```{r load-panel-B-inputs}
 rebuild_fig5_boxplots <- tolower(Sys.getenv("REBUILD_FIG5_BOXPLOTS", "false")) %in%
   c("1", "true", "yes")
-# Rebuild when missing or when an older pre-transformed y mapping is still cached.
+
+# Rebuild when missing, forced, or when an older sex-only (no age split) cache remains.
 needs_boxplot_rebuild <- function(path) {
   if (!file.exists(path) || rebuild_fig5_boxplots) return(TRUE)
   p <- readRDS(path)
+  x_map <- tryCatch(rlang::as_label(p$mapping$x), error = function(e) "")
+  has_age_sex <- !is.null(p$data) && "age_sex_group" %in% names(p$data)
   y_map <- tryCatch(rlang::as_label(p$mapping$y), error = function(e) "")
-  grepl("asin|sqrt", y_map)
+  !has_age_sex || !grepl("age_sex_group", x_map) || grepl("asin|sqrt", y_map)
 }
 
-if (!needs_boxplot_rebuild(path_box_red)) {
-  Plot__boxplot_uniformly_red <- readRDS(path_box_red)
-} else {
-  # Three cell types with the strongest positive (male-biased) global effect
-  uniformly_red_cell_types <-
-    test_mixed_max2 %>% filter(sig, c_effect > 0) %>%
-    arrange(-c_effect) %>% head(3) %>% pull(cell_type_unified_ensemble)
-  Plot__boxplot_uniformly_red <- build_sex_boxplot(uniformly_red_cell_types)
-  save_fig5_proportion_plot(Plot__boxplot_uniformly_red, path_box_red)
+need_box_inputs <- needs_boxplot_rebuild(path_box_red) ||
+  needs_boxplot_rebuild(path_box_blue)
+
+if (need_box_inputs) {
+  path_split_csv <- resolve_fig5_analysis_cache("fig5_test_sex_diff_split_at_5.csv")
+  path_split_rds <- resolve_fig5_analysis_cache("Fig4_split_at_5_compact.rds")
+  path_pred <- resolve_fig5_analysis_cache("sccomp_sex_age_split_pred_draws_fig4.rds")
+  path_adj_proc <- resolve_fig5_analysis_cache(
+    "sccomp_sex_age_split_adjusted_fig4_processed.rds"
+  )
+  path_adj <- resolve_fig5_analysis_cache("sccomp_sex_age_split_adjusted_fig4.rds")
+
+  if (!is.na(path_split_csv)) {
+    test_sex_diff_split_at_5 <- readr::read_csv(path_split_csv, show_col_types = FALSE) %>%
+      mutate(
+        sig = if ("sig" %in% names(.)) as.logical(sig) else c_FDR < 0.05,
+        sign_age_trend = as.integer(sign_age_trend)
+      )
+  } else if (!is.na(path_split_rds) && file.info(path_split_rds)$size < 5e6) {
+    test_sex_diff_split_at_5 <- readRDS(path_split_rds)
+  } else {
+    stop(
+      "Missing fig5_test_sex_diff_split_at_5.csv under path_intermediate('fig5') ",
+      "or AGE_CLOCK_ARCHIVE/data/age_fig/.",
+      call. = FALSE
+    )
+  }
+
+  if (is.na(path_pred)) {
+    stop(
+      "Missing sccomp_sex_age_split_pred_draws_fig4.rds under path_intermediate('fig5') ",
+      "or AGE_CLOCK_ARCHIVE/data/age_fig/.",
+      call. = FALSE
+    )
+  }
+  pred_draws <- readRDS(path_pred) %>% standardise_cell_col() %>% assign_age_sex_group()
+
+  if (!is.na(path_adj_proc)) {
+    sex_adjusted <- readRDS(path_adj_proc) %>% standardise_cell_col()
+    if (!"age_sex_group" %in% names(sex_adjusted)) {
+      sex_adjusted <- assign_age_sex_group(sex_adjusted)
+    }
+  } else if (!is.na(path_adj)) {
+    library(sccomp)
+    est <- get_est()
+    sex_adjusted <- readRDS(path_adj) %>%
+      left_join(
+        est |> attr("count_data") |> sccomp:::.subset(sample_id),
+        by = "sample_id"
+      ) %>%
+      rename(proportion_mean = adjusted_proportion) %>%
+      standardise_cell_col() %>%
+      assign_age_sex_group()
+    saveRDS(sex_adjusted, path_intermediate("fig5", "sccomp_sex_age_split_adjusted_fig4_processed.rds"))
+  } else {
+    stop(
+      "Missing sccomp_sex_age_split_adjusted_fig4_processed.rds (or raw adjusted RDS) ",
+      "under path_intermediate('fig5') or AGE_CLOCK_ARCHIVE/data/age_fig/.",
+      call. = FALSE
+    )
+  }
 }
-print(Plot__boxplot_uniformly_red)
 ```
 
-```{r fig.width=14, fig.height=4, label="panel-B-boxplot-blue"}
-if (!needs_boxplot_rebuild(path_box_blue)) {
-  Plot__boxplot_uniformly_blue <- readRDS(path_box_blue)
-} else {
-  # Three cell types with the strongest negative (female-biased) global effect
-  uniformly_blue_cell_types <-
-    test_mixed_max2 %>% filter(sig, c_effect < 0) %>%
-    arrange(c_effect) %>% head(3) %>% pull(cell_type_unified_ensemble)
-  Plot__boxplot_uniformly_blue <- build_sex_boxplot(uniformly_blue_cell_types)
-  save_fig5_proportion_plot(Plot__boxplot_uniformly_blue, path_box_blue)
+```{r fig.width=14, fig.height=4, label="panel-B-boxplot-top4"}
+# Force rebuild when an older dual-row / same-signed cache is still present.
+if (!needs_boxplot_rebuild(path_box_red)) {
+  p_chk <- readRDS(path_box_red)
+  n_facets <- if (!is.null(p_chk$data$L3)) length(unique(as.character(p_chk$data$L3))) else 0L
+  if (n_facets != 4L) {
+    # stale selection size
+    unlink(path_box_red)
+  }
 }
-print(Plot__boxplot_uniformly_blue)
+
+if (!needs_boxplot_rebuild(path_box_red) && file.exists(path_box_red)) {
+  Plot__boxplot_fig5b <- readRDS(path_box_red)
+} else {
+  # Overall top-4 by FDR (no same-signed / direction filter)
+  fig5b_cell_types <-
+    test_sex_diff_split_at_5 %>%
+    arrange(c_FDR, desc(abs(c_effect))) %>%
+    head(4) %>%
+    pull(cell_type_unified_ensemble)
+  Plot__boxplot_fig5b <- plot_age_sex_boxplot(
+    build_age_sex_boxplot_df(fig5b_cell_types, test_sex_diff_split_at_5),
+    box_version = "adjusted",
+    ncol = 4,
+    nrow = 1
+  )
+  save_fig5_proportion_plot(Plot__boxplot_fig5b, path_box_red)
+  # Keep legacy blue cache path in sync so older assembly scripts do not reuse stale plots.
+  save_fig5_proportion_plot(Plot__boxplot_fig5b, path_box_blue)
+}
+Plot__boxplot_uniformly_red <- Plot__boxplot_fig5b
+Plot__boxplot_uniformly_blue <- Plot__boxplot_fig5b
+print(Plot__boxplot_fig5b)
 ```
 
 # Panel C – Heatmap of male-vs-female age effects
@@ -782,26 +895,10 @@ Plot__A <-
     plot.margin = margin(0, 0, 0, 0, "pt")
   )
 
-# --- Panel B (red over blue) ------------------------------------------------
-Plot__box_red <-
-  Plot__boxplot_uniformly_red +
-  guides(fill = "none") +
-  theme(
-    axis.line.x = element_blank(), axis.text.x = element_blank(), axis.title.x = element_blank(),
-    panel.spacing = unit(0, "pt"), plot.margin = margin(0, 0, 0, 0, "pt")
-  )
-
-Plot__box_blue <-
-  Plot__boxplot_uniformly_blue +
-  guides(fill = "none") +
-  theme(
-    legend.position = "none", axis.title.y = element_blank(),
-    panel.spacing = unit(0, "pt"), plot.margin = margin(0, 0, 0, 0, "pt")
-  )
-
+# --- Panel B (top-4 by FDR) --------------------------------------------------
 Plot__boxplot_2p <-
-  (Plot__box_red / Plot__box_blue) +
-  plot_layout() &
+  Plot__boxplot_fig5b +
+  guides(fill = "none") +
   theme(
     legend.position = "none", legend.direction = "horizontal", legend.text.position = "bottom",
     panel.spacing = unit(0, "pt"), plot.margin = margin(0, 0, 0, 0, "pt")
@@ -866,7 +963,7 @@ heatmap_ggplot <-
 # --- Rows --------------------------------------------------------------------
 row2_left <-
   (Plot__boxplot_2p / Plot__line) +
-  plot_layout(heights = c(1, 1, 3)) &
+  plot_layout(heights = c(1, 3)) &
   theme(panel.spacing = unit(0, "pt"), plot.margin = margin(0, 0, 0, 0, "pt"),
         legend.position = "bottom", legend.direction = "horizontal", legend.text.position = "bottom")
 

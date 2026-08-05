@@ -21,8 +21,8 @@ This report expands panels that the main figure truncates for display:
 2. every tissue-level myeloid-minus-lymphoid contrast;
 3. age-decade boxplots for **all** tested immune cell types (not only the ten
    highlighted in Fig. 2e); and
-4. plasma-cell trajectories for **all** tissues meeting the age-coverage rule
-   (including tissues not highlighted in Fig. 2f).
+4. plasma-cell trajectories for **every** tissue with sccomp plasma
+   predictions (main Fig. 2f keeps only tissues with >3 age decades).
 
 On render, each ggplot object is written to
 `vignettes/supplementary_plot_objects/`.
@@ -199,6 +199,9 @@ composition_tests <- read_panel_sheet("Fig2_B_composition_tests")
 lineage_tests <- read_panel_sheet("Fig2_C_lineage_tests")
 plasma_predictions <- read_panel_sheet("Fig2_F_plasma_predictions")
 plasma_tests <- read_panel_sheet("Fig2_F_plasma_tests")
+# Full tissue × cell-type age effects (includes plasma tissues excluded from
+# Fig. 2f by the >3 age-decade coverage rule).
+tissue_effects <- read_panel_sheet("Fig2_D_tissue_effects")
 
 # L3-coded composition tests for joining prediction caches.
 if (file.exists(workbook_report) &&
@@ -515,68 +518,87 @@ ggsave(
 )
 ```
 
-# Plasma trajectories for every eligible tissue
+# Plasma trajectories for every tissue with predictions
 
-Main Fig. 2f highlights a subset of tissues. This panel keeps every tissue with
-predictions in the source workbook (the same age-coverage rule as the main
-figure), including tissues marked as not highlighted. Styling matches
-`Plot__plasma_line_chart` in Fig2.qmd (significant tissues in red).
+Main Fig. 2f keeps tissues with plasma predictions in **more than three** age
+decades. This panel drops that coverage filter and plots every tissue present in
+the sccomp plasma prediction cache. Significance colouring (red = Bayesian
+FDR < 0.05) uses the tissue-level plasma tests from `Fig2_D_tissue_effects`.
+Styling matches `Plot__plasma_line_chart` in Fig2.qmd.
 
-```{r fig2-all-plasma-line, fig.width=15, fig.height=12}
-age_band_to_decade <- c(
-  "1–10" = "1", "11–20" = "2", "21–30" = "3", "31–40" = "4", "41–50" = "5",
-  "51–60" = "6", "61–70" = "7", "71–80" = "8", "81–90" = "9", "91–100" = "10"
+```{r fig2-all-plasma-line, fig.width=15, fig.height=14}
+# Full prediction cache (main figure applies tissue_groups_of_interest: n > 3).
+sccomp_prediction_path <- resolve_fig2_cache(
+  "sccomp_prediction____age_decade___L3___disease_FALSE___immune_only_TRUE.rds"
 )
+sccomp_df <- readRDS(sccomp_prediction_path)
 
-plasma_test_lookup <- plasma_tests |>
+# Display-name → model-key helpers (workbook omits the Oxford comma / uses Skin).
+normalise_tissue_key <- function(x) {
+  key <- str_to_lower(as.character(x))
+  key <- if_else(
+    key == "nasal, oral and pharyngeal regions",
+    "nasal, oral, and pharyngeal regions",
+    key
+  )
+  if_else(key == "skin", "integumentary system (skin)", key)
+}
+
+plasma_test_lookup <- tissue_effects |>
+  filter(.data[["Immune cell type"]] == "Plasma cells") |>
   transmute(
-    tissue_label = .data[["Tissue group"]],
+    tissue_key = normalise_tissue_key(.data[["Tissue group"]]),
     c_FDR = .data[["Bayesian FDR"]],
     significant = .data[["FDR < 0.05"]] == "Yes"
   )
 
-plasma_line_data <- plasma_predictions |>
-  transmute(
-    tissue_label = .data[["Tissue group"]],
-    age_decade_label = as.character(.data[["Age decade"]]),
-    proportion_mean = .data[["Posterior mean cell proportion"]],
-    proportion_lower = .data[["95% CrI lower"]],
-    proportion_upper = .data[["95% CrI upper"]],
-    highlighted = .data[["Highlighted in Fig. 2f"]] == "Yes",
-    age_decade = dplyr::case_when(
-      grepl("^Age decade\\s+\\d+$", age_decade_label) ~
-        sub("^Age decade\\s+", "", age_decade_label),
-      age_decade_label %in% names(age_band_to_decade) ~
-        unname(age_band_to_decade[age_decade_label]),
-      TRUE ~ NA_character_
-    )
+# Main Fig. 2f coverage rule (for annotation only).
+main_fig_tissues <- sccomp_df |>
+  filter(cell_type_unified_ensemble == "plasma") |>
+  distinct(tissue_groups, age_decade) |>
+  count(tissue_groups, name = "n_decades") |>
+  filter(n_decades > 3) |>
+  pull(tissue_groups)
+
+plasma_line_data <- sccomp_df |>
+  filter(cell_type_unified_ensemble == "plasma") |>
+  mutate(age_decade = as.character(age_decade)) |>
+  group_by(tissue_groups, age_decade) |>
+  summarise(
+    n_source_rows = n(),
+    n_samples = n_distinct(sample_id),
+    proportion_mean = first(proportion_mean),
+    proportion_lower = first(proportion_lower),
+    proportion_upper = first(proportion_upper),
+    .groups = "drop"
   ) |>
-  filter(!is.na(age_decade)) |>
-  left_join(plasma_test_lookup, by = "tissue_label") |>
+  mutate(
+    tissue_key = normalise_tissue_key(tissue_groups),
+    in_main_fig2f = tissue_groups %in% main_fig_tissues
+  ) |>
+  left_join(plasma_test_lookup, by = "tissue_key") |>
   mutate(
     age_decade = factor(age_decade, levels = as.character(1:10)),
     significant = replace_na(significant, FALSE),
-    tissue_short = tissue_label
-  )
-
-# Map tissue labels with tissue_name_dict (keys are lowercase full names).
-plasma_line_data <- plasma_line_data |>
-  mutate(
-    tissue_key = str_to_lower(tissue_label),
-    # Workbook sometimes omits the Oxford comma in this tissue name.
-    tissue_key = if_else(
-      tissue_key == "nasal, oral and pharyngeal regions",
-      "nasal, oral, and pharyngeal regions",
-      tissue_key
-    ),
-    tissue_key = if_else(tissue_key == "skin", "integumentary system (skin)", tissue_key),
     tissue_short = unname(tissue_name_dict[tissue_key]),
-    tissue_short = if_else(is.na(tissue_short), tissue_label, tissue_short),
+    tissue_short = if_else(is.na(tissue_short), as.character(tissue_groups), tissue_short),
     tissue_short = factor(
       tissue_short,
       levels = c(setdiff(unique(tissue_short), "Large int"), "Large int")
     )
   )
+
+message(
+  "Plasma supplementary tissues: ",
+  n_distinct(plasma_line_data$tissue_groups),
+  " (main Fig. 2f coverage filter keeps ",
+  length(main_fig_tissues),
+  "). Added: ",
+  paste(
+    setdiff(unique(plasma_line_data$tissue_groups), main_fig_tissues),
+    collapse = ", "
+  )
+)
 
 Plot_SFig2_all_plasma_line <-
   plasma_line_data |>
@@ -629,6 +651,15 @@ Plot_SFig2_all_plasma_line
 save_plot_object(
   Plot_SFig2_all_plasma_line,
   "Fig2_supp_all_plasma_line.rds"
+)
+ggsave(
+  file.path(plot_object_dir, "Fig2_supp_all_plasma_line.png"),
+  Plot_SFig2_all_plasma_line,
+  width = 183,
+  height = 220,
+  units = "mm",
+  dpi = 500,
+  bg = "white"
 )
 ```
 
