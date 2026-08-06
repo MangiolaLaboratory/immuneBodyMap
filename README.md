@@ -6,8 +6,6 @@ materials for the manuscript
 > *A multi-tissue immune map across 4,241 single-cell donors resolves
 > asynchronous immune ageing*
 
-**Target journal:** *Nature Aging*
-
 The manuscript-facing package focuses on multi-tissue immune composition,
 gene-expression ageing trajectories, immune-age clocks and sex-associated
 differences in immune ageing. 
