@@ -15,33 +15,44 @@ execute:
 
 # Purpose
 
-This report uses the finalized Figure 2 source-data workbook. It adds two
-inferential views that are not visible in full in the main figure:
+This report expands panels that the main figure truncates for display:
 
-1. all body-level immune-composition age effects with posterior intervals; and
-2. the complete tissue-level myeloid-minus-lymphoid contrast underlying the
-   anatogram.
+1. every body-level compositional age effect (forest);
+2. every tissue-level myeloid-minus-lymphoid contrast;
+3. age-decade boxplots for **all** tested immune cell types (not only the ten
+   highlighted in Fig. 2e); and
+4. plasma-cell trajectories for **every** tissue with sccomp plasma
+   predictions (main Fig. 2f keeps only tissues with >3 age decades).
 
-The plasma-cell trajectory panel is not repeated because the main Figure 2
-already displays every tissue meeting its age-coverage criterion.
+On render, each ggplot object is written to
+`vignettes/supplementary_plot_objects/`.
 
 ```{r setup}
 library(readxl)
 library(dplyr)
+library(tidyr)
 library(ggplot2)
 library(scales)
 library(here)
+library(forcats)
+library(stringr)
+library(ggh4x)
+library(patchwork)
 
 source(file.path("..", "R", "paths.R"))
-workbook <- path_source_tables("SupplData_AgeClock_Fig2.xlsx")
-if (!file.exists(workbook)) stop("Figure 2 source-data workbook not found: ", workbook)
+workbook <- path_source_tables("Supplementary_File_Figure_2.xlsx")
+if (!file.exists(workbook)) stop("Figure 2 supplementary file not found: ", workbook)
 
-plot_object_dir <- file.path(here::here(), "vignettes", "supplementary_plot_objects")
+# Dropped machine-readable L3 tests (not in the journal file) for joining caches.
+workbook_report <- path_source_tables("Supplementary_File_Figure_2_report_inputs.xlsx")
+
+plot_object_dir <- file.path(publication_vignette_root(), "supplementary_plot_objects")
 dir.create(plot_object_dir, recursive = TRUE, showWarnings = FALSE)
 
-read_panel_sheet <- function(sheet) {
-  if (!sheet %in% excel_sheets(workbook)) stop("Missing worksheet: ", sheet)
-  read_xlsx(workbook, sheet = sheet, guess_max = 1000000L)
+read_panel_sheet <- function(sheet, path = workbook) {
+  if (!sheet %in% excel_sheets(path)) stop("Missing worksheet: ", sheet, " in ", path)
+  # Submission / report-input workbooks store a caption in row 1 and headers in row 2.
+  read_xlsx(path, sheet = sheet, skip = 1, guess_max = 1000000L)
 }
 
 save_plot_object <- function(plot, filename) {
@@ -51,6 +62,42 @@ save_plot_object <- function(plot, filename) {
   invisible(path)
 }
 
+# Same asin-sqrt transform used in Fig2.qmd boxplots / plasma line chart.
+asin_sqrt_trans <- scales::trans_new(
+  name = "asin_sqrt",
+  transform = function(x) asin(sqrt(x)),
+  inverse = function(y) sin(y)^2
+)
+
+# Match Fig2.qmd theme_multipanel exactly for boxplots and line charts.
+theme_multipanel <-
+  theme_bw() +
+  theme(
+    panel.border = element_blank(),
+    axis.line = element_line(size = 0.1),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "bottom",
+    strip.background = element_blank(),
+    axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0), size = 7),
+    axis.title.x = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0), size = 7),
+    panel.spacing.x = unit(0.1, "lines"),
+    axis.text.x = element_text(size = 6),
+    axis.text.y = element_text(size = 6),
+    strip.text.x = element_text(size = 7),
+    strip.text.y = element_text(size = 7),
+    legend.key.size = unit(5, "mm"),
+    legend.title = element_text(size = 7),
+    legend.text = element_text(size = 6),
+    strip.clip = "off",
+    plot.title = element_text(size = 7),
+    axis.line.x = element_line(size = 0.2),
+    axis.line.y = element_line(size = 0.2),
+    axis.ticks.x = element_line(size = 0.2),
+    axis.ticks.y = element_line(size = 0.2)
+  )
+
+# Lighter theme retained only for forest / contrast summary panels.
 theme_supplementary <- theme_bw(base_size = 9) +
   theme(
     panel.grid.minor = element_blank(),
@@ -60,35 +107,138 @@ theme_supplementary <- theme_bw(base_size = 9) +
     plot.title.position = "plot"
   )
 
-format_cell_type <- function(x) {
-  out <- tools::toTitleCase(gsub("_", " ", x, fixed = TRUE))
-  out <- gsub("^Cd", "CD", out)
-  out <- gsub(" Mono$", " Mono", out)
-  out <- gsub("^Nk$", "NK", out)
-  out <- gsub("^Nkt$", "NKT", out)
-  out <- gsub("^Ilc$", "ILC", out)
-  out <- gsub("^Mait$", "MAIT", out)
-  out <- gsub("^Tgd$", "TGD", out)
-  out
+# Same abbreviations as Fig2.qmd boxplot strips.
+cell_type_abbrev_dict <- c(
+  "macrophage" = "Mac",
+  "cd4 th1 em" = "CD4\nTh1\nEM",
+  "cd4 th1/th17 em" = "CD4\nTh1/17 EM",
+  "cd4 th17 em" = "CD4\nTh17 EM",
+  "cd4 th2 em" = "CD4\nTh2 EM",
+  "cd8 naive" = "CD8\nNaive",
+  "plasma" = "Plasma",
+  "granulocyte" = "Gran",
+  "cd4 naive" = "CD4\nNaive",
+  "b naive" = "B\nNaive",
+  "nk" = "NK",
+  "nkt" = "NKT",
+  "cdc" = "CDC",
+  "pdc" = "PDC",
+  "b memory" = "B\nMemory",
+  "cd14 mono" = "CD14\nMono",
+  "cd16 mono" = "CD16\nMono",
+  "cd4 fh em" = "CD4\nFH EM",
+  "cd4 tcm" = "CD4\nTCM",
+  "cd8 tcm" = "CD8\nTCM",
+  "cd8 tem" = "CD8\nTEM",
+  "ilc" = "ILC",
+  "mait" = "MAIT",
+  "mast" = "Mast",
+  "tgd" = "TGD",
+  "treg" = "Treg"
+)
+
+tissue_name_dict <- c(
+  "blood" = "Blood",
+  "sensory-related structures" = "Sensory",
+  "cerebral lobes and cortical areas" = "Cerebral cortex",
+  "limbic and basal systems" = "Limbic/basal",
+  "liver" = "Liver",
+  "bone marrow" = "Bone marrow",
+  "large intestine" = "Large int",
+  "lymphatic system" = "Lymphatic",
+  "small intestine" = "Small int",
+  "respiratory system" = "Respiratory",
+  "renal system" = "Renal",
+  "brainstem and cerebellar structures" = "Hindbrain",
+  "cardiovascular system" = "Cardiovascular",
+  "general brain and major structures" = "Brain",
+  "vasculature" = "Vasculature",
+  "ovary" = "Ovary",
+  "integumentary system (skin)" = "Skin",
+  "nasal, oral, and pharyngeal regions" = "Pharyngeal",
+  "muscular system (skeletal muscles)" = "Skeletal muscle",
+  "prostate" = "Prostate",
+  "breast" = "Breast",
+  "digestive system (general)" = "Digestive",
+  "oesophagus" = "Oesophagus",
+  "female reproductive system" = "Female repro",
+  "spleen" = "Spleen",
+  "peritoneal and abdominal cavity structures" = "Peritoneal",
+  "thymus" = "Thymus",
+  "adipose tissue" = "Adipose",
+  "trachea" = "Trachea",
+  "endocrine system" = "Endocrine",
+  "pancreas" = "Pancreas",
+  "miscellaneous glands" = "Glands",
+  "stomach" = "Stomach",
+  "gallbladder" = "Gallbladder"
+)
+
+resolve_fig2_cache <- function(filename) {
+  candidates <- c(
+    path_intermediate("fig2", filename),
+    {
+      arch <- path_age_clock_archive("data", "age_fig", filename)
+      if (is.null(arch)) character() else arch
+    }
+  )
+  hit <- candidates[nzchar(candidates) & file.exists(candidates)][1]
+  if (is.na(hit)) {
+    stop(
+      "Missing Fig2 cache '", filename, "'. Expected under path_intermediate('fig2') ",
+      "or AGE_CLOCK_ARCHIVE/data/age_fig/.",
+      call. = FALSE
+    )
+  }
+  hit
 }
 ```
 
 ```{r read-source-data}
-composition_tests <- read_panel_sheet("Fig2_B_age_composition_tests")
-lineage_tests <- read_panel_sheet("Fig2_C_lineage_and_contrast_tes")
+composition_tests <- read_panel_sheet("Fig2_B_composition_tests")
+lineage_tests <- read_panel_sheet("Fig2_C_lineage_tests")
+plasma_predictions <- read_panel_sheet("Fig2_F_plasma_predictions")
+plasma_tests <- read_panel_sheet("Fig2_F_plasma_tests")
+# Full tissue × cell-type age effects (includes plasma tissues excluded from
+# Fig. 2f by the >3 age-decade coverage rule).
+tissue_effects <- read_panel_sheet("Fig2_D_tissue_effects")
+
+# L3-coded composition tests for joining prediction caches.
+if (file.exists(workbook_report) &&
+    "Fig2_B_composition_tests_L3" %in% excel_sheets(workbook_report)) {
+  composition_tests_l3 <- read_panel_sheet(
+    "Fig2_B_composition_tests_L3",
+    path = workbook_report
+  ) |>
+    filter(L3 != "cytotoxic") |>
+    transmute(
+      L3,
+      c_effect,
+      c_FDR,
+      significant = !is.na(c_FDR) & c_FDR < 0.05
+    )
+} else {
+  stop(
+    "Need machine-readable composition tests at ", workbook_report,
+    " (sheet Fig2_B_composition_tests_L3) to label all-cell-type boxplots."
+  )
+}
 ```
 
 # All body-level compositional age effects
 
 The main boxplots show selected high-ranking enriched and depleted cell types.
-This forest plot retains every tested cell type and therefore separates the
-selection used for display from the complete inferential result.
+This forest plot retains every tested cell type.
 
 ```{r fig2-all-composition-forest, fig.width=8, fig.height=7}
 composition_forest_data <- composition_tests |>
-  mutate(
-    cell_label = format_cell_type(L3),
-    supported = !is.na(c_FDR) & c_FDR < 0.05
+  transmute(
+    cell_label = .data[["Immune cell type"]],
+    c_effect = .data[["Posterior mean effect (unconstrained sccomp composition scale)"]],
+    c_lower = .data[["95% CrI lower"]],
+    c_upper = .data[["95% CrI upper"]],
+    supported = .data[["FDR < 0.05"]] == "Yes",
+    displayed_main = .data[["Displayed in Fig. 2e"]] == "Yes"
   ) |>
   arrange(c_effect) |>
   mutate(cell_label = factor(cell_label, levels = unique(cell_label)))
@@ -100,16 +250,20 @@ Plot_SFig2_all_composition_forest <-
     aes(x = c_lower, xend = c_upper, yend = cell_label, colour = supported),
     linewidth = 0.6
   ) +
-  geom_point(aes(x = c_effect, fill = supported), shape = 21, size = 2.2) +
+  geom_point(aes(x = c_effect, fill = supported, shape = displayed_main), size = 2.2) +
   scale_colour_manual(values = c(`TRUE` = "#B24A3B", `FALSE` = "grey65"), guide = "none") +
   scale_fill_manual(
     values = c(`TRUE` = "#B24A3B", `FALSE` = "white"),
     name = "FDR < 0.05"
   ) +
+  scale_shape_manual(
+    values = c(`TRUE` = 21, `FALSE` = 22),
+    name = "Shown in Fig. 2e"
+  ) +
   labs(
     x = "Age-associated composition effect",
     y = NULL,
-    title = "Complete body-level immune-composition age effects",
+    title = "Complete body-level age effects on immune-cell composition",
     subtitle = "Points are posterior estimates; horizontal lines are posterior intervals"
   ) +
   theme_supplementary +
@@ -124,16 +278,19 @@ save_plot_object(
 
 # Tissue-level myeloid-minus-lymphoid contrast
 
-This plot exposes the complete contrast table behind the anatomical summary.
-Point size encodes contrast FDR. At present no tissue passes FDR < 0.05, so the
-main anatogram should be interpreted as a descriptive spatial summary.
-
 ```{r fig2-lineage-contrast, fig.width=9, fig.height=8}
 lineage_contrast_data <- lineage_tests |>
-  distinct(tissue_groups, c_delta, contrast_FDR, significant) |>
+  distinct(
+    tissue_groups = .data[["Tissue group"]],
+    c_delta = .data[["Myeloid-minus-lymphoid change"]],
+    contrast_FDR = .data[["Bayesian FDR (lineage contrast)"]],
+    significant = .data[["Lineage contrast FDR < 0.05"]] == "Yes"
+  ) |>
   filter(!is.na(tissue_groups), is.finite(c_delta), is.finite(contrast_FDR)) |>
   mutate(
-    direction = ifelse(c_delta >= 0, "Myeloid relative increase", "Lymphoid relative increase"),
+    direction = ifelse(
+      c_delta >= 0, "Myeloid relative increase", "Lymphoid relative increase"
+    ),
     neg_log10_fdr = -log10(pmax(contrast_FDR, .Machine$double.xmin))
   ) |>
   arrange(c_delta) |>
@@ -162,7 +319,9 @@ Plot_SFig2_lineage_contrast <-
     x = "Myeloid-minus-lymphoid age contrast",
     y = NULL,
     title = "Tissue-level myeloid–lymphoid ageing contrast",
-    subtitle = sprintf("No contrast passes FDR < 0.05; minimum FDR = %.3f", minimum_contrast_fdr)
+    subtitle = sprintf(
+      "No contrast passes FDR < 0.05; minimum FDR = %.3f", minimum_contrast_fdr
+    )
   ) +
   theme_supplementary +
   theme(legend.position = "right")
@@ -174,17 +333,355 @@ save_plot_object(
 )
 ```
 
+# Age-decade boxplots for every tested cell type
+
+Main Fig. 2e keeps five enrichment and five depletion cell types. Below, every
+non-cytotoxic cell type with a body-level composition test is shown, split by
+effect direction and ordered by FDR within direction.
+
+```{r fig2-all-boxplots-data}
+pred_draws <- readRDS(resolve_fig2_cache("sccomp_age_pred_draws.rds"))
+age_adjusted_path <- tryCatch(
+  resolve_fig2_cache("sccomp_age_adjusted.rds"),
+  error = function(e) NULL
+)
+age_adjusted <- NULL
+if (!is.null(age_adjusted_path) && file.exists(age_adjusted_path)) {
+  message("Loading age_adjusted cache: ", age_adjusted_path)
+  age_adjusted <- readRDS(age_adjusted_path)
+} else {
+  message("age_adjusted cache missing; plotting prediction boxplots only.")
+}
+
+format_fdr <- function(x) {
+  case_when(
+    is.na(x) ~ "NA",
+    x == 0 ~ "0",
+    x < 0.001 ~ gsub("^0\\.", ".", formatC(x, format = "e", digits = 2)),
+    TRUE ~ gsub("^0\\.", ".", formatC(x, format = "f", digits = 3))
+  )
+}
+
+build_age_boxplot_data <- function(direction_sign) {
+  selected <- composition_tests_l3 |>
+    filter(sign(c_effect) == direction_sign) |>
+    arrange(c_FDR, desc(abs(c_effect)))
+
+  cell_types <- selected$L3
+  if (length(cell_types) == 0) {
+    stop("No cell types with effect sign ", direction_sign)
+  }
+
+  plot_df <- pred_draws |>
+    filter(L3 %in% cell_types) |>
+    transmute(
+      sample_id, L3,
+      age_decade = as.character(age_decade),
+      proportion_mean,
+      version = "prediction"
+    )
+
+  if (!is.null(age_adjusted)) {
+    prop_col <- if ("proportion_mean" %in% names(age_adjusted)) {
+      "proportion_mean"
+    } else if ("proportion" %in% names(age_adjusted)) {
+      "proportion"
+    } else {
+      stop("age_adjusted cache lacks proportion columns")
+    }
+    adj_part <- age_adjusted |>
+      filter(L3 %in% cell_types) |>
+      group_by(sample_id, L3, age_decade) |>
+      summarise(proportion_mean = mean(.data[[prop_col]], na.rm = TRUE), .groups = "drop") |>
+      mutate(
+        age_decade = as.character(age_decade),
+        version = "adjusted"
+      )
+    plot_df <- bind_rows(plot_df, adj_part)
+  }
+
+  plot_df |>
+    left_join(selected, by = "L3") |>
+    mutate(
+      L3_abbrev_base = recode(L3, !!!cell_type_abbrev_dict),
+      L3_abbrev_base = if_else(
+        L3_abbrev_base == L3,
+        tools::toTitleCase(gsub("_", " ", L3, fixed = TRUE)),
+        L3_abbrev_base
+      ),
+      L3_abbrev = paste0(L3_abbrev_base, "\n(FDR: ", format_fdr(c_FDR), ")"),
+      age_decade = factor(age_decade, levels = as.character(1:10)),
+      L3 = factor(L3, levels = cell_types)
+    ) |>
+    arrange(L3) |>
+    mutate(L3_abbrev = factor(L3_abbrev, levels = unique(as.character(L3_abbrev))))
+}
+
+build_age_boxplot <- function(df, fill_prediction = NULL) {
+  # Mirror Fig2.qmd Plot__boxplot_up/down_cell_type styling, with fixed 5 columns.
+  df <- mutate(df, age_decade = factor(age_decade, levels = as.character(1:10)))
+  has_adjusted <- any(df$version == "adjusted")
+
+  p <- ggplot(df, aes(x = age_decade, y = proportion_mean))
+  if (has_adjusted) {
+    p <- p +
+      ggbeeswarm::geom_quasirandom(
+        data = df %>% dplyr::filter(version == "adjusted"),
+        width = 0.3,
+        colour = "grey60",
+        shape = ".",
+        size = 0.15,
+        alpha = 0.6
+      )
+  }
+  p <- p +
+    geom_boxplot(
+      aes(fill = version),
+      data = df %>% dplyr::filter(version == "prediction"),
+      outlier.shape = NA,
+      alpha = 0.4,
+      linewidth = 0.15,
+      width = 0.7
+    ) +
+    scale_y_continuous(
+      trans = asin_sqrt_trans,
+      expand = expansion(mult = c(0, 0.05)),
+      labels = function(x) gsub("^0\\.", ".", format(x, nsmall = 1))
+    ) +
+    scale_x_discrete(labels = function(x) x) +
+    guides(fill = "none") +
+    facet_wrap(~ L3_abbrev, ncol = 5, scales = "free_y") +
+    labs(title = "", x = "Age Decade", y = "Proportion Mean (arcsin-sqrt scale)") +
+    theme_multipanel +
+    theme(
+      strip.text.x.top = element_text(margin = margin(0, 0, 0, 0, "mm")),
+      strip.placement = "inside",
+      panel.spacing.x = unit(0, "mm"),
+      panel.spacing.y = unit(0, "mm"),
+      legend.position = "none"
+    )
+
+  if (!is.null(fill_prediction)) {
+    p <- p + scale_fill_manual(values = c("prediction" = fill_prediction))
+  }
+  p
+}
+
+df_up_all <- build_age_boxplot_data(1)
+df_down_all <- build_age_boxplot_data(-1)
+# Free large cache before plotting.
+rm(age_adjusted)
+invisible(gc())
+```
+
+```{r fig2-all-boxplots-up, fig.width=14, fig.height=8}
+Plot_SFig2_all_boxplot_enrichment <- build_age_boxplot(df_up_all)
+Plot_SFig2_all_boxplot_enrichment
+save_plot_object(
+  Plot_SFig2_all_boxplot_enrichment,
+  "Fig2_supp_all_boxplot_enrichment.rds"
+)
+```
+
+```{r fig2-all-boxplots-down, fig.width=14, fig.height=8}
+# Same light-blue fill used for the downregulated panel in Fig2.qmd.
+Plot_SFig2_all_boxplot_depletion <- build_age_boxplot(
+  df_down_all,
+  fill_prediction = "#ADD8E6"
+)
+Plot_SFig2_all_boxplot_depletion
+save_plot_object(
+  Plot_SFig2_all_boxplot_depletion,
+  "Fig2_supp_all_boxplot_depletion.rds"
+)
+```
+
+```{r fig2-all-boxplots-combined, fig.width=14, fig.height=16}
+# Single SI figure: A = age enrichment, B = age depletion.
+Plot_SFig2_all_boxplot <-
+  (Plot_SFig2_all_boxplot_enrichment / Plot_SFig2_all_boxplot_depletion) +
+  plot_annotation(tag_levels = "A") &
+  theme(
+    plot.tag = element_text(size = 9, face = "bold"),
+    plot.margin = margin(2, 2, 2, 2, "mm")
+  )
+Plot_SFig2_all_boxplot
+save_plot_object(Plot_SFig2_all_boxplot, "Fig2_supp_all_boxplot.rds")
+ggsave(
+  file.path(plot_object_dir, "Fig2_supp_all_boxplot.png"),
+  Plot_SFig2_all_boxplot,
+  width = 183,
+  height = 240,
+  units = "mm",
+  dpi = 500,
+  bg = "white"
+)
+```
+
+# Plasma trajectories for every tissue with predictions
+
+Main Fig. 2f keeps tissues with plasma predictions in **more than three** age
+decades. This panel drops that coverage filter and plots every tissue present in
+the sccomp plasma prediction cache. Significance colouring (red = Bayesian
+FDR < 0.05) uses the tissue-level plasma tests from `Fig2_D_tissue_effects`.
+Styling matches `Plot__plasma_line_chart` in Fig2.qmd.
+
+```{r fig2-all-plasma-line, fig.width=15, fig.height=14}
+# Full prediction cache (main figure applies tissue_groups_of_interest: n > 3).
+sccomp_prediction_path <- resolve_fig2_cache(
+  "sccomp_prediction____age_decade___L3___disease_FALSE___immune_only_TRUE.rds"
+)
+sccomp_df <- readRDS(sccomp_prediction_path)
+
+# Display-name → model-key helpers (workbook omits the Oxford comma / uses Skin).
+normalise_tissue_key <- function(x) {
+  key <- str_to_lower(as.character(x))
+  key <- if_else(
+    key == "nasal, oral and pharyngeal regions",
+    "nasal, oral, and pharyngeal regions",
+    key
+  )
+  if_else(key == "skin", "integumentary system (skin)", key)
+}
+
+plasma_test_lookup <- tissue_effects |>
+  filter(.data[["Immune cell type"]] == "Plasma cells") |>
+  transmute(
+    tissue_key = normalise_tissue_key(.data[["Tissue group"]]),
+    c_FDR = .data[["Bayesian FDR"]],
+    significant = .data[["FDR < 0.05"]] == "Yes"
+  )
+
+# Main Fig. 2f coverage rule (for annotation only).
+main_fig_tissues <- sccomp_df |>
+  filter(cell_type_unified_ensemble == "plasma") |>
+  distinct(tissue_groups, age_decade) |>
+  count(tissue_groups, name = "n_decades") |>
+  filter(n_decades > 3) |>
+  pull(tissue_groups)
+
+plasma_line_data <- sccomp_df |>
+  filter(cell_type_unified_ensemble == "plasma") |>
+  mutate(age_decade = as.character(age_decade)) |>
+  group_by(tissue_groups, age_decade) |>
+  summarise(
+    n_source_rows = n(),
+    n_samples = n_distinct(sample_id),
+    proportion_mean = first(proportion_mean),
+    proportion_lower = first(proportion_lower),
+    proportion_upper = first(proportion_upper),
+    .groups = "drop"
+  ) |>
+  mutate(
+    tissue_key = normalise_tissue_key(tissue_groups),
+    in_main_fig2f = tissue_groups %in% main_fig_tissues
+  ) |>
+  left_join(plasma_test_lookup, by = "tissue_key") |>
+  mutate(
+    age_decade = factor(age_decade, levels = as.character(1:10)),
+    significant = replace_na(significant, FALSE),
+    tissue_short = unname(tissue_name_dict[tissue_key]),
+    tissue_short = if_else(is.na(tissue_short), as.character(tissue_groups), tissue_short),
+    tissue_short = factor(
+      tissue_short,
+      levels = c(setdiff(unique(tissue_short), "Large int"), "Large int")
+    )
+  )
+
+message(
+  "Plasma supplementary tissues: ",
+  n_distinct(plasma_line_data$tissue_groups),
+  " (main Fig. 2f coverage filter keeps ",
+  length(main_fig_tissues),
+  "). Added: ",
+  paste(
+    setdiff(unique(plasma_line_data$tissue_groups), main_fig_tissues),
+    collapse = ", "
+  )
+)
+
+Plot_SFig2_all_plasma_line <-
+  plasma_line_data |>
+  mutate(
+    significant = as.character(significant),
+    tissue_groups_short = tissue_short
+  ) |>
+  ggplot() +
+  # Match Fig2.qmd Plot__plasma_line_chart layer order and aesthetics.
+  geom_point(aes(x = age_decade, y = proportion_mean), shape = NA) +
+  geom_line(
+    aes(x = as.numeric(age_decade), y = proportion_mean, colour = significant),
+    show.legend = FALSE,
+    linewidth = 0.15
+  ) +
+  geom_ribbon(
+    aes(
+      x = as.numeric(age_decade),
+      ymin = proportion_lower,
+      ymax = proportion_upper
+    ),
+    colour = NA,
+    alpha = 0.1,
+    fill = "grey80"
+  ) +
+  scale_size_continuous(range = c(0.5, 2), guide = guide_legend(title = "-log10(FDR)")) +
+  scale_y_continuous(
+    trans = asin_sqrt_trans,
+    expand = expansion(mult = c(0, 0.05)),
+    labels = function(x) gsub("^0\\.", ".", format(x, nsmall = 1))
+  ) +
+  scale_colour_manual(
+    values = c("TRUE" = "#B24A3B", "FALSE" = "black"),
+    guide = guide_legend(override.aes = list(alpha = 1))
+  ) +
+  labs(x = "Age decade", y = "Proportion Mean (arcsin-sqrt scale)") +
+  ggh4x::facet_wrap2(
+    ~ tissue_groups_short,
+    ncol = 5,
+    scales = "free_y",
+    axes = "margins"
+  ) +
+  theme_multipanel +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 0, hjust = 1)
+  )
+
+Plot_SFig2_all_plasma_line
+save_plot_object(
+  Plot_SFig2_all_plasma_line,
+  "Fig2_supp_all_plasma_line.rds"
+)
+ggsave(
+  file.path(plot_object_dir, "Fig2_supp_all_plasma_line.png"),
+  Plot_SFig2_all_plasma_line,
+  width = 183,
+  height = 220,
+  units = "mm",
+  dpi = 500,
+  bg = "white"
+)
+```
+
 # Output objects
 
 ```{r output-manifest}
 data.frame(
   object = c(
     "Plot_SFig2_all_composition_forest",
-    "Plot_SFig2_lineage_contrast"
+    "Plot_SFig2_lineage_contrast",
+    "Plot_SFig2_all_boxplot_enrichment",
+    "Plot_SFig2_all_boxplot_depletion",
+    "Plot_SFig2_all_boxplot",
+    "Plot_SFig2_all_plasma_line"
   ),
   rds_file = c(
     "Fig2_supp_all_composition_forest.rds",
-    "Fig2_supp_lineage_contrast.rds"
+    "Fig2_supp_lineage_contrast.rds",
+    "Fig2_supp_all_boxplot_enrichment.rds",
+    "Fig2_supp_all_boxplot_depletion.rds",
+    "Fig2_supp_all_boxplot.rds",
+    "Fig2_supp_all_plasma_line.rds"
   )
 )
 ```

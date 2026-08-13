@@ -1,5 +1,5 @@
 ---
-title: "Fig 1B — Multi-tissue UMAP"
+title: "Figure 1B — Multi-tissue immune-cell expression UMAPs"
 date: today
 date-format: "DD MMM YYYY"
 title-block-banner: true
@@ -30,7 +30,7 @@ comments:
     theme: clean
 editor: source
 abstract: |
-  Fig 1B. Two multi-tissue UMAPs built on immune-cell pseudobulk expression after
+  Figure 1B. Two multi-tissue UMAPs built on immune-cell pseudobulk expression after
   covariate adjustment. The tissue UMAP preserves tissue and cell-type effects; the
   age UMAP preserves age and cell-type effects. Both use adjusted counts patched with
   zero for genes absent in a given cell type.
@@ -191,12 +191,12 @@ Two adjustments are extracted for each cell type:
 * `adjust_age` — expression adjusted to preserve **age + cell-type** effects.
 
 **Targets-store exemption.** Rebuilding `adjust_*_list.rds` requires the
-`NEW_CELL_TYPE` `_targets/` object store. We expect to seek an exemption from
-depositing that full store; the chunk below documents how the lists are
-extracted when the store is available (`NEW_CELL_TYPE_ROOT`). For reduced
-reproduction, prefer the shipped Fig1 UMAP panel RDS / SI coordinate tables.
-If reviewers need the adjusted counts themselves, we may additionally provide
-them as supplementary files without releasing the entire targets cache.
+`NEW_CELL_TYPE` `_targets/` object store, for which a computational-data
+exemption is requested. The chunk below documents how the lists are extracted
+when the store is available (`NEW_CELL_TYPE_ROOT`). For reduced reproduction,
+use the shipped Figure 1 UMAP panel RDS or SI coordinate tables. The adjusted
+counts can be released separately if required without distributing the entire
+targets cache.
 
 ## Compute from the targets pipeline
 
@@ -294,7 +294,7 @@ names(adjust_age_list)    <- cell_type_list
 ## Shared helpers and sample metadata
 
 ```{r shared-helpers}
-# Update these paths to your data locations
+# Resolve the configured pseudobulk and covariate-mapping inputs.
 hdf5_path            <- path_pseudobulk_h5ad()
 edit_covariates_path <- path_edit_covariates()
 
@@ -491,7 +491,7 @@ gc()
 
 # Supplementary tables
 
-Export UMAP coordinates and metadata backing Fig 1B panels.
+Export UMAP coordinates and metadata backing the Figure 1B panels.
 
 ```{r export-supplementary-tables}
 message(

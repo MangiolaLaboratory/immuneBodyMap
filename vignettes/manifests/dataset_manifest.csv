@@ -1,6 +1,7 @@
 dataset_id,access,how_to_obtain,used_by,notes
 cellNexus_metadata_1.0.12,public,cellNexus::get_metadata_url("metadata.1.0.12.parquet") via R/paths.R get_publication_metadata(),Fig2–Fig5 cohort filters,No Zenodo copy
 pseudobulk_se.h5ad,public_zenodo,https://doi.org/10.5281/zenodo.15798373 (or PSEUDOBULK_H5AD),targets_pipeline / Fig1–2 full recompute,md5 88c71c0fd1d6ce2fe15eccdd7b36110f; ~10 GB
-sccomp_estimates_L3_L0,zenodo_pending,<ZENODO_DOI_PENDING> or SCCOMP_ESTIMATES_DIR,Fig2/4/5 full recompute,Primary checkpoint (separate from pseudobulk record)
+sccomp_estimates_L3_L0,public_zenodo,https://doi.org/10.5281/zenodo.21389127 (or SCCOMP_ESTIMATES_DIR),Fig2/4/5 full recompute,Primary checkpoint (separate from pseudobulk record)
 scImmuAging_features,public_package,install scImmuAging; system.file(... all_model_inputfeatures.RDS),Fig4 age-clock panel,Package data
 NEW_CELL_TYPE_targets,exemption,vignettes/targets_pipeline/ from PSEUDOBULK_H5AD; or NEW_CELL_TYPE_ROOT mirror,Fig1 adjust / Fig4 gene preds,Store not deposited
+plasma_niche_qc_pseudobulk,derived_local,vignettes/reports/plasma_niche_pseudobulk_qc.qmd from cellNexus single-cell data,Plasma niche transcriptomics and pathway analyses,"Integrated Seurat object and six separate respiratory-system/large-intestine × plasma/stromal/epithelial pseudobulk RDS objects; generated under data/processed/plasma_niche and not stored in Git"

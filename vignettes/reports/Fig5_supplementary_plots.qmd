@@ -15,17 +15,19 @@ execute:
 
 # Purpose
 
-This report uses the finalized Figure 5 source-data workbook to show:
+This report expands panels that the main figure truncates for display:
 
-1. age-by-sex donor coverage across all 36 mapped tissue groups;
-2. every body-level sex contrast across age decades;
-3. a full-resolution tissue-by-cell-type sex-effect heatmap; and
-4. a plasma-cell tissue audit showing which tested tissues have trajectories in
-   the main panel.
+1. donor coverage across all mapped tissue groups;
+2. body-level sex-difference ageing contrasts (later−earlier, split at age
+   decade 5) for every tested cell type;
+3. the full tissue-by-cell-type sex-effect heatmap;
+4. sex×age-split boxplots for **all** age-trend × sex-gap quadrants (Fig. 5b
+   shows only the four lowest-FDR effects overall); and
+5. plasma-cell sex trajectories for **all** tissues with plasma predictions
+   (no coverage filter; Fig. 5d still uses a stricter subset).
 
-The main plasma trajectories are not duplicated. The exported workbook contains
-only the trajectories that passed the main panel's display rules, so omitted
-trajectories cannot be reconstructed faithfully from that sheet alone.
+On render, each ggplot object is written to
+`vignettes/supplementary_plot_objects/`.
 
 ```{r setup}
 library(readxl)
@@ -34,18 +36,26 @@ library(tidyr)
 library(ggplot2)
 library(scales)
 library(here)
+library(forcats)
+library(stringr)
 library(knitr)
+library(ggnewscale)
+library(patchwork)
+library(ggh4x)
+library(purrr)
+library(readr)
 
 source(file.path("..", "R", "paths.R"))
-workbook <- path_source_tables("SupplData_AgeClock_Fig5.xlsx")
-if (!file.exists(workbook)) stop("Figure 5 source-data workbook not found: ", workbook)
+workbook <- path_source_tables("Supplementary_File_Figure_5.xlsx")
+if (!file.exists(workbook)) stop("Figure 5 supplementary file not found: ", workbook)
 
-plot_object_dir <- file.path(here::here(), "vignettes", "supplementary_plot_objects")
+plot_object_dir <- file.path(publication_vignette_root(), "supplementary_plot_objects")
 dir.create(plot_object_dir, recursive = TRUE, showWarnings = FALSE)
 
-read_panel_sheet <- function(sheet) {
-  if (!sheet %in% excel_sheets(workbook)) stop("Missing worksheet: ", sheet)
-  read_xlsx(workbook, sheet = sheet, guess_max = 1000000L)
+read_panel_sheet <- function(sheet, path = workbook) {
+  if (!sheet %in% excel_sheets(path)) stop("Missing worksheet: ", sheet, " in ", path)
+  # Submission workbooks store a caption in row 1 and headers in row 2.
+  read_xlsx(path, sheet = sheet, skip = 1, guess_max = 1000000L)
 }
 
 save_plot_object <- function(plot, filename) {
@@ -60,6 +70,43 @@ clean_label <- function(x) {
   tools::toTitleCase(x)
 }
 
+# Same asin-sqrt axis transform as Fig2 supplementary proportion plots:
+# keep raw proportions in the data; transform only the scale.
+asin_sqrt_trans <- scales::trans_new(
+  name = "asin_sqrt",
+  transform = function(x) asin(sqrt(pmax(pmin(x, 1), 0))),
+  inverse = function(y) sin(y)^2
+)
+
+# Match Fig5.qmd theme_multipanel exactly for boxplots and line charts.
+theme_multipanel <-
+  theme_bw() +
+  theme(
+    panel.border = element_blank(),
+    axis.line = element_line(size = 0.1),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "bottom",
+    strip.background = element_blank(),
+    axis.title.y = element_text(margin = margin(0, 0, 0, 0), size = 7),
+    axis.title.x = element_text(margin = margin(0, 0, 0, 0), size = 7),
+    panel.spacing.x = unit(0.1, "lines"),
+    axis.text.x = element_text(size = 6),
+    axis.text.y = element_text(size = 6),
+    strip.text.x = element_text(size = 7),
+    strip.text.y = element_text(size = 7),
+    legend.key.size = unit(5, "mm"),
+    legend.title = element_text(size = 7),
+    legend.text = element_text(size = 6),
+    strip.clip = "off",
+    plot.title = element_text(size = 7),
+    axis.line.x = element_line(size = 0.2),
+    axis.line.y = element_line(size = 0.2),
+    axis.ticks.x = element_line(size = 0.2),
+    axis.ticks.y = element_line(size = 0.2)
+  )
+
+# Lighter theme retained only for coverage / heatmap summary panels.
 theme_supplementary <- theme_bw(base_size = 8.5) +
   theme(
     panel.grid.minor = element_blank(),
@@ -67,40 +114,165 @@ theme_supplementary <- theme_bw(base_size = 8.5) +
     legend.position = "bottom",
     plot.title.position = "plot"
   )
+
+# Same single-line abbreviations as Fig5.qmd boxplot facets.
+cell_type_abbrev_dict <- c(
+  "b memory" = "B Memory", "b naive" = "B Naive",
+  "cd14 mono" = "CD14 Mono", "cd16 mono" = "CD16 Mono",
+  "cd4 fh em" = "CD4 FH EM", "cd4 naive" = "CD4 Naive", "cd4 tcm" = "CD4 TCM",
+  "cd4 th1 em" = "CD4 Th1 EM", "cd4 th1/th17 em" = "CD4 Th1/Th17 EM",
+  "cd4 th17 em" = "CD4 Th17 EM", "cd4 th2 em" = "CD4 Th2 EM", "treg" = "Treg",
+  "cd8 naive" = "CD8 Naive", "cd8 tcm" = "CD8 TCM", "cd8 tem" = "CD8 TEM",
+  "cdc" = "CDC", "granulocyte" = "Gran", "ilc" = "ILC", "macrophage" = "Mac",
+  "mait" = "MAIT", "mast" = "Mast", "nk" = "NK", "nkt" = "NKT", "pdc" = "PDC",
+  "tgd" = "TGD", "plasma" = "Plasma"
+)
+
+tissue_name_dict <- c(
+  "blood" = "Blood",
+  "sensory-related structures" = "Sensory",
+  "cerebral lobes and cortical areas" = "Cerebral cortex",
+  "limbic and basal systems" = "Limbic/basal",
+  "liver" = "Liver",
+  "bone marrow" = "Bone marrow",
+  "large intestine" = "Large int",
+  "lymphatic system" = "Lymphatic",
+  "small intestine" = "Small int",
+  "respiratory system" = "Respiratory",
+  "renal system" = "Renal",
+  "brainstem and cerebellar structures" = "Hindbrain",
+  "cardiovascular system" = "Cardiovascular",
+  "general brain and major structures" = "Brain",
+  "vasculature" = "Vasculature",
+  "ovary" = "Ovary",
+  "integumentary system (skin)" = "Skin",
+  "nasal, oral, and pharyngeal regions" = "Pharyngeal",
+  "muscular system (skeletal muscles)" = "Skeletal muscle",
+  "prostate" = "Prostate",
+  "breast" = "Breast",
+  "digestive system (general)" = "Digestive",
+  "oesophagus" = "Oesophagus",
+  "female reproductive system" = "Female repro",
+  "spleen" = "Spleen",
+  "peritoneal and abdominal cavity structures" = "Peritoneal",
+  "thymus" = "Thymus",
+  "adipose tissue" = "Adipose",
+  "trachea" = "Trachea",
+  "endocrine system" = "Endocrine",
+  "pancreas" = "Pancreas",
+  "miscellaneous glands" = "Glands",
+  "stomach" = "Stomach",
+  "gallbladder" = "Gallbladder"
+)
+
+colmap_sex <- c("female" = "#D7907B", "male" = "#0A014F")
+
+resolve_fig5_cache <- function(filename) {
+  candidates <- c(
+    path_intermediate("fig5", filename),
+    {
+      arch <- path_age_clock_archive("data", filename)
+      if (is.null(arch)) character() else arch
+    },
+    {
+      arch <- path_age_clock_archive("data", "age_fig", filename)
+      if (is.null(arch)) character() else arch
+    }
+  )
+  hit <- candidates[nzchar(candidates) & file.exists(candidates)][1]
+  if (is.na(hit)) {
+    stop(
+      "Missing Fig5 cache '", filename, "'. Expected under path_intermediate('fig5') ",
+      "or AGE_CLOCK_ARCHIVE/data/.",
+      call. = FALSE
+    )
+  }
+  hit
+}
+
+format_fdr <- function(x) {
+  case_when(
+    is.na(x) ~ "NA",
+    x < 0.001 ~ gsub("^0\\.", ".", formatC(x, format = "e", digits = 2)),
+    TRUE ~ gsub("^0\\.", ".", formatC(x, format = "f", digits = 3))
+  )
+}
 ```
 
 ```{r read-source-data}
-cohort_counts <- read_panel_sheet("Fig5_A_all_tissue_donor_counts")
-global_sex_tests <- read_panel_sheet("Fig5_B_all_global_sex_tests_by_")
-tissue_sex_tests <- read_panel_sheet("Fig5_C_tissue_sex_effect_tests")
-plasma_trajectories <- read_panel_sheet("Fig5_D_plotted_estimates")
+donor_counts <- read_panel_sheet("Fig5_A_donor_counts")
+sex_tests <- read_panel_sheet("Fig5_B_sex_tests")
+tissue_effects <- read_panel_sheet("Fig5_C_tissue_effects")
+
+# Prefer the compact later−earlier split-at-5 table used for Fig. 5b / S23.
+resolve_split_at_5 <- function() {
+  candidates <- c(
+    path_intermediate("fig5", "fig5_test_sex_diff_split_at_5.csv"),
+    {
+      arch <- path_age_clock_archive("data", "age_fig", "fig5_test_sex_diff_split_at_5.csv")
+      if (is.null(arch)) character() else arch
+    },
+    path_intermediate("fig5", "Fig4_split_at_5_compact.rds"),
+    {
+      arch <- path_age_clock_archive("data", "age_fig", "Fig4_split_at_5_compact.rds")
+      if (is.null(arch)) character() else arch
+    }
+  )
+  hit <- candidates[nzchar(candidates) & file.exists(candidates)][1]
+  if (is.na(hit)) {
+    stop(
+      "Missing fig5_test_sex_diff_split_at_5.csv under path_intermediate('fig5') ",
+      "or AGE_CLOCK_ARCHIVE/data/age_fig/.",
+      call. = FALSE
+    )
+  }
+  if (grepl("\\.csv$", hit, ignore.case = TRUE)) {
+    readr::read_csv(hit, show_col_types = FALSE) %>%
+      mutate(
+        sig = if ("sig" %in% names(.)) as.logical(sig) else c_FDR < 0.05,
+        sign_age_trend = as.integer(sign_age_trend)
+      )
+  } else {
+    readRDS(hit)
+  }
+}
+
+test_sex_diff_split_at_5 <- resolve_split_at_5() %>%
+  mutate(
+    selection_direction = case_when(
+      sign_age_trend > 0 & c_effect > 0 ~ "age_up_male_more",
+      sign_age_trend > 0 & c_effect < 0 ~ "age_up_female_more",
+      sign_age_trend < 0 & c_effect > 0 ~ "age_down_female_more",
+      sign_age_trend < 0 & c_effect < 0 ~ "age_down_male_more",
+      TRUE ~ "other"
+    ),
+    same_signed = sign(sign_age_trend) == sign(c_effect) & sign_age_trend != 0
+  )
 ```
 
 # Complete age-by-sex cohort coverage
 
-The three records with missing tissue-group mapping are excluded from the
-36-tissue display and reported separately below.
-
 ```{r fig5-full-cohort-coverage, fig.width=8, fig.height=12}
-unmapped_donor_records <- cohort_counts |>
-  filter(is.na(tissue_groups)) |>
-  summarise(donor_count = sum(donor_count, na.rm = TRUE)) |>
-  pull(donor_count)
-
-tissue_map <- cohort_counts |>
-  filter(!is.na(tissue_groups), !is.na(tissue_label)) |>
-  distinct(tissue_groups, tissue_label)
-
-coverage_data <- cohort_counts |>
-  filter(!is.na(tissue_groups)) |>
-  select(tissue_groups, age_groups, sex, donor_count) |>
-  complete(
-    tissue_groups,
-    age_groups = c("Young", "Mid", "Old"),
-    sex = c("female", "male"),
-    fill = list(donor_count = 0)
+coverage_data <- donor_counts |>
+  transmute(
+    age_groups = .data[["Age stratum"]],
+    sex = .data[["Sex"]],
+    tissue_label = coalesce(
+      na_if(.data[["Figure tissue label"]], ""),
+      .data[["Tissue group"]]
+    ),
+    donor_count = .data[["Number of unique donors"]],
+    displayed_main = .data[["Displayed in Fig. 5a"]] == "Yes"
   ) |>
-  left_join(tissue_map, by = "tissue_groups")
+  filter(!is.na(tissue_label), tissue_label != "Unmapped tissue") |>
+  mutate(
+    sex = factor(
+      str_to_lower(sex),
+      levels = c("female", "male"),
+      labels = c("Female", "Male")
+    ),
+    age_groups = factor(age_groups, levels = c("Young", "Mid", "Old"))
+  )
 
 tissue_order <- coverage_data |>
   group_by(tissue_label) |>
@@ -109,11 +281,13 @@ tissue_order <- coverage_data |>
   pull(tissue_label)
 
 coverage_data <- coverage_data |>
-  mutate(
-    tissue_label = factor(tissue_label, levels = tissue_order),
-    age_groups = factor(age_groups, levels = c("Young", "Mid", "Old")),
-    sex = factor(sex, levels = c("female", "male"), labels = c("Female", "Male"))
-  )
+  mutate(tissue_label = factor(tissue_label, levels = tissue_order))
+
+unmapped_n <- donor_counts |>
+  filter(.data[["Tissue group"]] == "Unmapped tissue") |>
+  summarise(n = sum(.data[["Number of unique donors"]], na.rm = TRUE)) |>
+  pull(n)
+if (length(unmapped_n) == 0 || is.na(unmapped_n)) unmapped_n <- 0
 
 Plot_SFig5_full_cohort_coverage <-
   ggplot(coverage_data, aes(x = age_groups, y = tissue_label, fill = donor_count)) +
@@ -126,8 +300,8 @@ Plot_SFig5_full_cohort_coverage <-
     y = NULL,
     title = "Donor coverage across all mapped tissues, age groups and sexes",
     subtitle = sprintf(
-      "Thirty-six mapped tissue groups are shown; %d donor records have missing tissue-group mapping",
-      unmapped_donor_records
+      "All mapped tissues are shown; %d donor records are unmapped",
+      unmapped_n
     )
   ) +
   theme_supplementary +
@@ -140,53 +314,60 @@ save_plot_object(
 )
 ```
 
-# Complete body-level sex effects across age decades
-
-Positive effects indicate male enrichment relative to the female baseline.
-Stars denote FDR-supported contrasts.
+# Body-level sex-difference ageing contrasts (split at age decade 5)
 
 ```{r fig5-all-global-sex-effects, fig.width=9, fig.height=8}
-global_effect_data <- global_sex_tests |>
-  filter(!is.na(cell_type_unified_ensemble), !is.na(Age)) |>
+global_effect_data <- test_sex_diff_split_at_5 |>
+  filter(!is.na(cell_type_unified_ensemble)) |>
   mutate(
-    cell_label = clean_label(cell_type_unified_ensemble),
-    age_decade = factor(as.character(Age), levels = as.character(1:10)),
-    supported = !is.na(c_FDR) & c_FDR < 0.05
-  )
-
-cell_order <- global_effect_data |>
-  group_by(cell_label) |>
-  summarise(mean_effect = mean(c_effect, na.rm = TRUE), .groups = "drop") |>
-  arrange(mean_effect) |>
-  pull(cell_label)
-
-global_effect_data <- global_effect_data |>
-  mutate(cell_label = factor(cell_label, levels = cell_order))
+    cell_label = recode(cell_type_unified_ensemble, !!!cell_type_abbrev_dict),
+    cell_label = if_else(
+      cell_label == cell_type_unified_ensemble,
+      clean_label(cell_type_unified_ensemble),
+      cell_label
+    ),
+    supported = !is.na(c_FDR) & c_FDR < 0.05,
+    sign_class = if_else(same_signed, "Same-signed with S4", "Opposite-signed vs S4")
+  ) |>
+  arrange(c_effect) |>
+  mutate(cell_label = factor(cell_label, levels = unique(cell_label)))
 
 global_effect_limit <- max(abs(global_effect_data$c_effect), na.rm = TRUE)
 
 Plot_SFig5_all_global_sex_effects <-
-  ggplot(global_effect_data, aes(x = age_decade, y = cell_label, fill = c_effect)) +
-  geom_tile(colour = "white", linewidth = 0.2) +
-  geom_point(
-    data = filter(global_effect_data, supported),
-    shape = 8,
-    size = 1.4,
-    colour = "black"
+  ggplot(
+    global_effect_data,
+    aes(x = c_effect, y = cell_label, colour = sign_class)
   ) +
-  scale_fill_gradient2(
-    low = "#D7907B", mid = "white", high = "#0A014F", midpoint = 0,
-    limits = c(-global_effect_limit, global_effect_limit),
-    name = "Male − female\neffect"
+  geom_vline(xintercept = 0, linewidth = 0.3, linetype = "dashed") +
+  geom_errorbarh(
+    aes(xmin = c_lower, xmax = c_upper),
+    height = 0.25,
+    linewidth = 0.35,
+    alpha = 0.7
   ) +
+  geom_point(aes(shape = supported), size = 2) +
+  scale_colour_manual(
+    values = c(
+      "Same-signed with S4" = "#0A014F",
+      "Opposite-signed vs S4" = "#D7907B"
+    ),
+    name = NULL
+  ) +
+  scale_shape_manual(
+    values = c(`TRUE` = 16, `FALSE` = 1),
+    labels = c(`TRUE` = "FDR < 0.05", `FALSE` = "FDR ≥ 0.05"),
+    name = NULL
+  ) +
+  coord_cartesian(xlim = c(-global_effect_limit, global_effect_limit) * 1.05) +
   labs(
-    x = "Age decade",
+    x = "Sex-difference ageing contrast\n(later−earlier males) − (later−earlier females)",
     y = NULL,
-    title = "Complete body-level sex effects across age decades",
-    subtitle = "The fifth decade is the model reference; stars denote FDR < 0.05"
+    title = "Body-level sex-difference ageing effects (split at age decade 5)",
+    subtitle = "Filled points denote FDR < 0.05; Fig. 5b highlights overall top-4 by FDR"
   ) +
   theme_supplementary +
-  theme(panel.grid.major = element_blank())
+  theme(panel.grid.major.y = element_blank())
 
 Plot_SFig5_all_global_sex_effects
 save_plot_object(
@@ -197,22 +378,18 @@ save_plot_object(
 
 # Full-resolution tissue-by-cell-type sex effects
 
-This is intended as the legible supplementary counterpart to the compressed
-main Figure 5C. Non-significant estimates remain visible; black points denote
-FDR-supported effects.
-
 ```{r fig5-full-tissue-sex-heatmap, fig.width=13, fig.height=10}
-tissue_effect_data <- tissue_sex_tests |>
-  filter(!is.na(Tissue), !is.na(cell_type_unified_ensemble)) |>
-  mutate(
-    tissue_label = ifelse(is.na(tissue_short), clean_label(Tissue), tissue_short),
-    cell_label = ifelse(
-      is.na(cell_type_abbrev),
-      clean_label(cell_type_unified_ensemble),
-      cell_type_abbrev
-    ),
-    supported = !is.na(c_FDR) & c_FDR < 0.05
-  )
+tissue_effect_data <- tissue_effects |>
+  transmute(
+    tissue_label = .data[["Tissue group"]],
+    cell_label = .data[["Immune cell type"]],
+    c_effect = .data[[
+      "Male-minus-female posterior mean effect (unconstrained sccomp composition scale)"
+    ]],
+    c_FDR = .data[["Bayesian FDR"]],
+    supported = .data[["FDR < 0.05"]] == "Yes"
+  ) |>
+  filter(!is.na(tissue_label), !is.na(cell_label), is.finite(c_effect))
 
 tissue_order <- tissue_effect_data |>
   group_by(tissue_label) |>
@@ -238,8 +415,7 @@ Plot_SFig5_full_tissue_sex_heatmap <-
   geom_tile(colour = "white", linewidth = 0.15) +
   geom_point(
     data = filter(tissue_effect_data, supported),
-    size = 0.8,
-    colour = "black"
+    size = 0.8, colour = "black"
   ) +
   scale_fill_gradient2(
     low = "#D7907B", mid = "white", high = "#0A014F", midpoint = 0,
@@ -255,7 +431,7 @@ Plot_SFig5_full_tissue_sex_heatmap <-
   theme_supplementary +
   theme(
     panel.grid.major = element_blank(),
-    axis.text.x = element_text(angle = 55, hjust = 1)
+    axis.text.x = element_text(angle = 55, hjust = 1, size = 6)
   )
 
 Plot_SFig5_full_tissue_sex_heatmap
@@ -265,67 +441,373 @@ save_plot_object(
 )
 ```
 
-# Plasma-cell trajectory inclusion audit
+# Sex×age-split boxplots by age-trend × sex-gap quadrant
 
-This audit avoids drawing unsupported trajectories. It shows all tissues with a
-plasma-cell sex-effect estimate and identifies which tissues are represented in
-the main trajectory panel.
+Main Fig. 5b shows the four lowest-FDR effects overall (no same-signed filter).
+Here every cell type is plotted in its age-trend × sex-gap quadrant, using
+adjusted sample points and four sex × earlier/later groups (split at age
+decade 5).
 
-```{r fig5-plasma-inclusion-audit, fig.width=9, fig.height=7}
-trajectory_tissues <- unique(plasma_trajectories$Tissue)
+```{r fig5-quadrant-boxplots-data}
+earlier_age_decades <- as.character(1:4)
+later_age_decades <- as.character(5:10)
+age_sex_group_levels <- c(
+  "female earlier", "female later", "male earlier", "male later"
+)
 
-plasma_audit_data <- tissue_effect_data |>
-  filter(cell_type_unified_ensemble == "plasma") |>
-  mutate(
-    trajectory_displayed = Tissue %in% trajectory_tissues,
-    tissue_label = as.character(tissue_label)
-  ) |>
-  arrange(c_effect) |>
-  mutate(tissue_label = factor(tissue_label, levels = unique(tissue_label)))
+assign_age_sex_group <- function(df) {
+  df %>%
+    mutate(
+      age_decade_chr = as.character(age_decade),
+      age_split = case_when(
+        age_decade_chr %in% earlier_age_decades ~ "earlier",
+        age_decade_chr %in% later_age_decades ~ "later",
+        TRUE ~ NA_character_
+      ),
+      age_sex_group = paste(sex, age_split),
+      age_sex_group = factor(age_sex_group, levels = age_sex_group_levels)
+    ) %>%
+    filter(!is.na(age_split), sex %in% c("female", "male"))
+}
 
-Plot_SFig5_plasma_tissue_audit <-
-  ggplot(plasma_audit_data, aes(x = c_effect, y = tissue_label)) +
-  geom_vline(xintercept = 0, colour = "grey55", linewidth = 0.35) +
-  geom_segment(aes(x = 0, xend = c_effect, yend = tissue_label), colour = "grey75") +
-  geom_point(
-    aes(
-      fill = trajectory_displayed,
-      shape = supported,
-      size = NSamplesTissue
-    ),
-    colour = "black"
-  ) +
-  scale_fill_manual(
-    values = c(`TRUE` = "#4C9F70", `FALSE` = "white"),
-    name = "Trajectory displayed"
-  ) +
-  scale_shape_manual(values = c(`TRUE` = 21, `FALSE` = 24), name = "FDR < 0.05") +
-  scale_size_continuous(name = "Tissue samples", range = c(1.5, 5)) +
-  labs(
-    x = "Male − female plasma-cell effect",
-    y = NULL,
-    title = "Plasma-cell tissue effects and trajectory availability"
-  ) +
-  theme_supplementary
+standardise_cell_col <- function(df) {
+  if ("cell_type_unified_ensemble" %in% names(df) && !"L3" %in% names(df)) {
+    df <- df %>% dplyr::rename(L3 = cell_type_unified_ensemble)
+  } else if ("L3" %in% names(df) && !"cell_type_unified_ensemble" %in% names(df)) {
+    df <- df %>% mutate(cell_type_unified_ensemble = L3)
+  }
+  df
+}
 
-Plot_SFig5_plasma_tissue_audit
-save_plot_object(
-  Plot_SFig5_plasma_tissue_audit,
-  "Fig5_supp_plasma_tissue_audit.rds"
+format_y_prop_label <- function(x) {
+  gsub("^0\\.", ".", formatC(x, format = "fg", digits = 3, drop0trailing = TRUE))
+}
+
+pred_draws <- readRDS(
+  resolve_fig5_cache("sccomp_sex_age_split_pred_draws_fig4.rds")
+) %>%
+  standardise_cell_col() %>%
+  assign_age_sex_group()
+
+sex_adjusted <- readRDS(
+  resolve_fig5_cache("sccomp_sex_age_split_adjusted_fig4_processed.rds")
+) %>%
+  standardise_cell_col()
+if (!"age_sex_group" %in% names(sex_adjusted)) {
+  sex_adjusted <- assign_age_sex_group(sex_adjusted)
+}
+
+build_age_sex_boxplot_df <- function(cell_types, test_df) {
+  bind_rows(
+    pred_draws %>%
+      filter(L3 %in% cell_types) %>%
+      dplyr::select(sample_id, L3, sex, age_decade, age_split, age_sex_group, proportion_mean) %>%
+      mutate(version = "prediction"),
+    sex_adjusted %>%
+      filter(L3 %in% cell_types) %>%
+      dplyr::select(sample_id, L3, sex, age_decade, age_split, age_sex_group, proportion_mean) %>%
+      mutate(version = "adjusted")
+  ) %>%
+    mutate(L3_abbrev = recode(L3, !!!cell_type_abbrev_dict)) %>%
+    left_join(
+      test_df %>% dplyr::select(cell_type_unified_ensemble, c_FDR, c_effect),
+      by = c("L3" = "cell_type_unified_ensemble")
+    ) %>%
+    mutate(fdr_formatted = format_fdr(c_FDR)) %>%
+    {
+      df_temp <- .
+      unique_levels <- df_temp %>%
+        distinct(L3, L3_abbrev) %>%
+        arrange(match(L3, cell_types)) %>%
+        pull(L3_abbrev)
+      df_temp %>%
+        mutate(
+          L3 = factor(L3, levels = cell_types),
+          L3_abbrev = factor(L3_abbrev, levels = unique_levels),
+          age_sex_group = factor(age_sex_group, levels = age_sex_group_levels)
+        )
+    }
+}
+
+plot_age_sex_boxplot <- function(
+    df,
+    box_version = c("adjusted", "prediction"),
+    y_pad = 0.08,
+    ncol = 4,
+    nrow = NULL
+) {
+  box_version <- match.arg(box_version)
+  box_df <- df %>% filter(version == box_version)
+  jitter_df <- df %>% filter(version == "adjusted")
+  if (base::nrow(box_df) == 0) stop("No rows for box_version = '", box_version, "'.")
+
+  facet_levels <- if (is.factor(box_df$L3_abbrev)) {
+    levels(box_df$L3_abbrev)[levels(box_df$L3_abbrev) %in% unique(as.character(box_df$L3_abbrev))]
+  } else {
+    unique(as.character(box_df$L3_abbrev))
+  }
+
+  box_lims <- box_df %>%
+    group_by(L3_abbrev, age_sex_group) %>%
+    summarise(
+      stats = list(boxplot.stats(proportion_mean, do.conf = FALSE, do.out = FALSE)$stats),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      ymin = purrr::map_dbl(stats, 1),
+      ymax = purrr::map_dbl(stats, 5)
+    ) %>%
+    group_by(L3_abbrev) %>%
+    summarise(ymin = min(ymin), ymax = max(ymax), .groups = "drop") %>%
+    mutate(
+      ymin_t = asin(sqrt(pmax(ymin, 0))),
+      ymax_t = asin(sqrt(pmax(ymax, 0))),
+      pad = y_pad * pmax(ymax_t - ymin_t, 0.02),
+      ymin = sin(pmax(ymin_t - pad, 0))^2,
+      ymax = sin(pmin(ymax_t + pad, pi / 2))^2,
+      fdr_y = ymin + 0.92 * (ymax - ymin)
+    ) %>%
+    mutate(L3_abbrev = factor(as.character(L3_abbrev), levels = facet_levels)) %>%
+    arrange(L3_abbrev)
+
+  fdr_labels <- box_df %>%
+    distinct(L3_abbrev, fdr_formatted) %>%
+    left_join(box_lims %>% dplyr::select(L3_abbrev, fdr_y), by = "L3_abbrev") %>%
+    mutate(
+      age_sex_group = factor(
+        age_sex_group_levels[ceiling(length(age_sex_group_levels) / 2)],
+        levels = age_sex_group_levels
+      ),
+      proportion_mean = fdr_y,
+      label = paste0("FDR: ", fdr_formatted)
+    )
+
+  y_scales <- purrr::map(seq_len(base::nrow(box_lims)), function(i) {
+    facet_val <- as.character(box_lims$L3_abbrev[i])
+    rlang::new_formula(
+      lhs = rlang::expr(L3_abbrev == !!facet_val),
+      rhs = scale_y_continuous(
+        trans = "asn",
+        limits = c(box_lims$ymin[i], box_lims$ymax[i]),
+        labels = format_y_prop_label,
+        oob = scales::oob_keep,
+        expand = expansion(mult = 0)
+      )
+    )
+  })
+
+  ggplot(box_df, aes(x = age_sex_group, y = proportion_mean)) +
+    geom_jitter(
+      data = jitter_df, width = 0.15, height = 0,
+      colour = "grey50", shape = 16, size = 0.15, alpha = 0.2
+    ) +
+    geom_boxplot(aes(fill = sex), outlier.shape = NA, alpha = 0.3, linewidth = 0.25) +
+    geom_text(
+      data = fdr_labels, aes(label = label),
+      size = 2, colour = "grey20", vjust = 0.5
+    ) +
+    scale_fill_manual(values = colmap_sex) +
+    scale_x_discrete(labels = c(
+      "female earlier" = "F(e)", "female later" = "F(l)",
+      "male earlier" = "M(e)", "male later" = "M(l)"
+    )) +
+    facet_wrap(~ L3_abbrev, ncol = ncol, nrow = nrow, scales = "free_y") +
+    ggh4x::facetted_pos_scales(y = y_scales) +
+    labs(title = "", x = "Sex × Age groups (earlier vs later)", y = "Proportion Mean") +
+    theme_multipanel +
+    theme(
+      strip.text.x.top = element_text(margin = margin(0, 0, 0, 0, "pt")),
+      strip.placement = "inside"
+    )
+}
+
+# Titles follow the S23 combined interpretation of S4 aging sign × sex-gap change.
+supp_quadrants <- tibble::tribble(
+  ~sign_age_trend, ~c_effect_dir, ~panel_id, ~panel_title,
+  1,  "positive", "A", "Increases with age; males increase more than females",
+  1,  "negative", "B", "Increases with age; females increase more than males",
+  -1, "positive", "C", "Decreases with age; females decrease more than males",
+  -1, "negative", "D", "Decreases with age; males decrease more than females"
+)
+
+build_quadrant_boxplot <- function(sign_age, effect_dir, panel_title) {
+  cell_types <- test_sex_diff_split_at_5 %>%
+    filter(
+      sign_age_trend == sign_age,
+      if (effect_dir == "positive") c_effect > 0 else c_effect < 0
+    ) %>%
+    arrange(desc(abs(c_effect)), c_FDR) %>%
+    pull(cell_type_unified_ensemble)
+
+  if (length(cell_types) == 0) {
+    return(
+      ggplot() +
+        annotate("text", x = 0.5, y = 0.5, label = "No cell types", size = 3) +
+        labs(title = panel_title) +
+        theme_void() +
+        theme(plot.title = element_text(size = 8, face = "bold"))
+    )
+  }
+
+  df_q <- build_age_sex_boxplot_df(cell_types, test_sex_diff_split_at_5)
+  plot_age_sex_boxplot(df_q, box_version = "adjusted", ncol = 4) +
+    labs(title = panel_title) +
+    theme(plot.title = element_text(size = 8, face = "bold", hjust = 0))
+}
+
+n_per_panel <- purrr::map_int(seq_len(nrow(supp_quadrants)), function(i) {
+  test_sex_diff_split_at_5 %>%
+    filter(
+      sign_age_trend == supp_quadrants$sign_age_trend[i],
+      if (supp_quadrants$c_effect_dir[i] == "positive") c_effect > 0 else c_effect < 0
+    ) %>%
+    nrow()
+})
+rows_per_panel <- pmax(1, ceiling(n_per_panel / 4))
+panel_heights <- rows_per_panel / sum(rows_per_panel)
+```
+
+```{r fig5-quadrant-boxplots, fig.width=7.2, fig.height=12}
+Plot_SFig5_boxplot_quadrants <- purrr::pmap(
+  list(
+    supp_quadrants$sign_age_trend,
+    supp_quadrants$c_effect_dir,
+    supp_quadrants$panel_title,
+    seq_along(supp_quadrants$panel_id)
+  ),
+  function(sign_age, effect_dir, panel_title, i) {
+    p <- build_quadrant_boxplot(sign_age, effect_dir, panel_title)
+    if (i < length(supp_quadrants$panel_id)) {
+      p +
+        labs(x = NULL) +
+        theme(legend.position = "none", axis.title.x = element_blank())
+    } else {
+      p + theme(legend.position = "bottom")
+    }
+  }
+)
+
+Plot_SFig5_all_boxplot <-
+  wrap_plots(Plot_SFig5_boxplot_quadrants, ncol = 1, heights = panel_heights) +
+  plot_annotation(tag_levels = "A") &
+  theme(plot.tag = element_text(size = 9, face = "bold"))
+
+Plot_SFig5_all_boxplot
+save_plot_object(Plot_SFig5_all_boxplot, "Fig5_supp_boxplot_age_trend_x_sex_gap.rds")
+
+fig_width_mm <- 183
+fig_height_mm <- min(220, 48 + sum(rows_per_panel) * 42)
+ggsave(
+  file.path(plot_object_dir, "Fig5_supp_boxplot_age_trend_x_sex_gap.png"),
+  Plot_SFig5_all_boxplot,
+  width = fig_width_mm,
+  height = fig_height_mm,
+  units = "mm",
+  dpi = 300,
+  bg = "white"
+)
+
+# Also keep per-quadrant objects for reuse.
+purrr::walk2(
+  Plot_SFig5_boxplot_quadrants,
+  supp_quadrants$panel_id,
+  function(p, id) {
+    save_plot_object(
+      p + theme(legend.position = "bottom"),
+      sprintf("Fig5_supp_boxplot_quadrant_%s.rds", id)
+    )
+  }
 )
 ```
 
-```{r excluded-plasma-tissues}
-plasma_audit_data |>
-  filter(!trajectory_displayed) |>
-  transmute(
-    tissue = as.character(tissue_label),
-    effect = c_effect,
-    FDR = c_FDR,
-    tissue_samples = NSamplesTissue,
-    reason = "No trajectory exported under the main-panel display rules"
+# Plasma sex trajectories for every tissue
+
+No coverage filter: every tissue with plasma-cell predictions is shown (female/male
+only; unknown sex dropped). Main Fig. 5d still uses a stricter subset. Styling
+matches Fig2 supplementary plasma trajectories (raw proportions, asin-sqrt y scale).
+
+```{r fig5-all-plasma-line, fig.width=15, fig.height=14}
+sex_tissue_pred <- readRDS(
+  resolve_fig5_cache(
+    "predictions_age_decade_sex_tissue___L3___disease_FALSE___immune_only_TRUE.rds"
+  )
+)
+
+plasma_line_data <- sex_tissue_pred |>
+  filter(
+    cell_type_unified_ensemble == "plasma",
+    sex %in% c("female", "male"),
+    !is.na(age_decade),
+    !is.na(tissue_groups)
   ) |>
-  kable(digits = 3, caption = "Tissues tested for plasma-cell sex effects without a displayed trajectory")
+  group_by(tissue_groups, cell_type_unified_ensemble, age_decade, sex) |>
+  summarise(
+    n_samples = n_distinct(sample_id),
+    proportion_mean = first(proportion_mean),
+    proportion_lower = first(proportion_lower),
+    proportion_upper = first(proportion_upper),
+    .groups = "drop"
+  ) |>
+  mutate(
+    Age = factor(as.character(age_decade), levels = as.character(1:10)),
+    Sex = factor(sex, levels = c("female", "male")),
+    tissue_groups_short = {
+      out <- unname(tissue_name_dict[tissue_groups])
+      out <- ifelse(
+        is.na(out),
+        tools::toTitleCase(gsub("_", " ", tissue_groups, fixed = TRUE)),
+        out
+      )
+      factor(out, levels = c(setdiff(sort(unique(out)), "Large int"), "Large int"))
+    }
+  )
+
+Plot_SFig5_all_plasma_line <-
+  plasma_line_data |>
+  ggplot() +
+  geom_hline(yintercept = 0, lwd = 0.1) +
+  geom_point(aes(x = Age, y = proportion_mean), shape = NA) +
+  geom_line(
+    aes(x = as.numeric(Age), y = proportion_mean, colour = Sex, fill = Sex),
+    show.legend = FALSE
+  ) +
+  geom_ribbon(
+    aes(
+      x = as.numeric(Age),
+      colour = Sex,
+      fill = Sex,
+      ymin = proportion_lower,
+      ymax = proportion_upper
+    ),
+    colour = NA,
+    alpha = 0.1
+  ) +
+  scale_colour_manual(
+    values = c("#D7907B", "#0A014F"),
+    aesthetics = c("colour", "fill"),
+    guide = guide_legend(override.aes = list(alpha = 1))
+  ) +
+  ggnewscale::new_scale_colour() +
+  scale_colour_brewer(palette = "Set2", name = "Comparison") +
+  scale_y_continuous(
+    trans = asin_sqrt_trans,
+    limits = c(0, NA),
+    expand = expansion(mult = c(0, 0.05)),
+    labels = function(x) gsub("^0\\.", ".", format(x, nsmall = 1))
+  ) +
+  labs(x = "Age decade", y = "Proportion Mean (arcsin-sqrt scale)") +
+  facet_wrap(~ tissue_groups_short, ncol = 5, scales = "free_y") +
+  theme_multipanel +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 0, hjust = 0.5)
+  )
+
+Plot_SFig5_all_plasma_line
+save_plot_object(
+  Plot_SFig5_all_plasma_line,
+  "Fig5_supp_all_plasma_line.rds"
+)
 ```
 
 # Output objects
@@ -336,13 +818,17 @@ data.frame(
     "Plot_SFig5_full_cohort_coverage",
     "Plot_SFig5_all_global_sex_effects",
     "Plot_SFig5_full_tissue_sex_heatmap",
-    "Plot_SFig5_plasma_tissue_audit"
+    "Plot_SFig5_all_boxplot",
+    "Plot_SFig5_boxplot_quadrants",
+    "Plot_SFig5_all_plasma_line"
   ),
   rds_file = c(
     "Fig5_supp_full_cohort_coverage.rds",
     "Fig5_supp_all_global_sex_effects.rds",
     "Fig5_supp_full_tissue_sex_heatmap.rds",
-    "Fig5_supp_plasma_tissue_audit.rds"
+    "Fig5_supp_boxplot_age_trend_x_sex_gap.rds",
+    "Fig5_supp_boxplot_quadrant_{A–D}.rds",
+    "Fig5_supp_all_plasma_line.rds"
   )
 )
 ```

@@ -1,5 +1,5 @@
 #!/usr/bin/env Rscript
-# Render publication Quarto reports (reduced mode by default).
+# Render manuscript reproducibility reports (reduced mode by default).
 
 args <- commandArgs(trailingOnly = TRUE)
 mode <- if ("--mode" %in% args) {

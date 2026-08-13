@@ -1,6 +1,7 @@
-# NEW_CELL_TYPE targets pipeline (publication copy)
+# NEW_CELL_TYPE targets pipeline (manuscript copy)
 
-Portable copy of `HPC_posterior/TAR_SCRIPTS` for the Nature Aging package.
+Portable copy of `HPC_posterior/TAR_SCRIPTS` for the manuscript reproducibility
+package targeting *Nature Aging*.
 The full `_targets/` object stores are **not** deposited (exemption); this code
 reproduces them from the Zenodo primary input `pseudobulk_se.h5ad`.
 
@@ -26,7 +27,7 @@ targets_pipeline/
 |-------|-------------|------|--------------|
 | Input | — | `PSEUDOBULK_H5AD` (`pseudobulk_se.h5ad`) | [Zenodo 10.5281/zenodo.15798373](https://doi.org/10.5281/zenodo.15798373); md5 `88c71c0f…` |
 | Aux | — | `disease_data_grouped_further.csv` | shipped in `vignettes/data/source_tables/` |
-| Aux | — | `edit_covariates.R` | this tree or `rebuttal_CellPress/` |
+| Aux | — | `edit_covariates.R` | `vignettes/targets_pipeline/functions/` |
 | Load | `pseudobulk_sample` | Filtered / scaled SE for one cell type | large HDF5-backed SE |
 | Side | `reference_sample_*.rds` | Written under `_targets/` store | small |
 | Branch | `feature_df` → `estimates_chunk` | Per-gene `brms` ZINB fits | dominant cost; qs objects |

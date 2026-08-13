@@ -1,10 +1,13 @@
+.Rproj.user/
 .Rproj.user
 .Rhistory
 .RData
 .Ruserdata
+*.Rout
+slurm.status.*
+**/slurm-*.out
 human_cell_atlas.Rproj
 local_file.rds
-slurm.status.*
 CuratedAtlasQueryR.Rproj
 split_files.makeflow
 ._*
@@ -18,9 +21,12 @@ vignettes/config/paths.local.env
 vignettes/config/*.local.env
 vignettes/reports/*_files/
 vignettes/reports/*.html
+vignettes/reports/*.pdf
 vignettes/*.html
 vignettes/**/.Rhistory
 vignettes/**/.RData
+# Extended Data PNG previews (regenerate from RDS on render)
+vignettes/supplementary_plot_objects/*.png
 # Large companion inputs downloaded after Zenodo mint (not in git)
 vignettes/data/zenodo_release/
 vignettes/data/processed/
@@ -33,4 +39,14 @@ vignettes/manifests/CHANGELOG.md
 vignettes/manifests/VALIDATION.md
 vignettes/manifests/ZENODO_REAUDIT.md
 vignettes/manifests/file_manifest.csv
+# Author-only SI rebuild jobs (outputs already shipped under data/source_tables/)
+vignettes/R/build_supplementary_workbooks.R
+vignettes/R/build_panel_supplementary_workbooks.R
+vignettes/R/build_master_supplementary_workbook.R
+vignettes/R/export_supplementary_tables.R
+vignettes/R/export_metadata_mappings.R
+vignettes/supplementary_plot_objects/*.R
+vignettes/reports/rebuild_fig5_proportion_scales.R
+# Local SI sync backups (not for GitHub)
+vignettes/data/source_tables/_pre_sync_*/
 immuneHealthyBodyMap.Rproj

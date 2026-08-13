@@ -1,6 +1,7 @@
 ---
-title: "Fig 2"
-date: 28 July 2025
+title: "Figure 2 — Asynchronous ageing of immune-cell composition across tissues"
+date: today
+date-format: "DD MMM YYYY"
 title-block-banner: true
 author: 
   - name: Chen Zhan
@@ -29,7 +30,7 @@ comments:
     theme: clean
 editor: source
 abstract: |
-  Immunological ageing is asynchronous across tissues
+  Immune ageing is asynchronous across tissues.
 ---
 
 # Library
@@ -110,14 +111,14 @@ library(ggnewscale)  # For multiple color scales in one plot
 # Age range across tissue
 
 ```{r load-data}
-# Path to the pseudobulk SummarizedExperiment (update to your data location)
+# Resolve the configured pseudobulk SummarizedExperiment.
 hdf5_path = path_pseudobulk_h5ad()
 
 if (!file.exists(hdf5_path)) {
   warning(paste("HDF5 file not found at:", hdf5_path, "\nPlease update the path."))
 }
 
-# Path to edit_covariates.R (update to your location)
+# Resolve the vendored covariate-mapping helper.
 edit_covariates_path = path_edit_covariates()
 
 if (file.exists(edit_covariates_path)) {
@@ -294,12 +295,12 @@ path_binary_test = file.path(path_intermediate("fig2"), "sccomp_binary_test_v2.r
 if (file.exists(path_binary_test)) {
   binary_test = readRDS(path_binary_test)
 } else {
-  # Update path to your sccomp estimates file
+  # Load the configured L3 sccomp estimates.
   est <- readRDS(
     path_sccomp_estimates("estimates_age_decade___L3___disease_FALSE___immune_only_TRUE.rds")
   )
   # Old (young: decades 1-4) vs late (decades 6-9), age_decade5 as reference
-  binary_test = est |> sccomp_test(contrasts = '(0 + `age_decade6` + `age_decade7` + `age_decade8` + `age_decade9`)/5 - (`age_decade1` + `age_decade2` + `age_decade3` + `age_decade4`)/4')
+  binary_test = est |> sccomp_test(contrasts = '(0 + `age_decade6` + `age_decade7` + `age_decade8` + `age_decade9`)/6 - (`age_decade1` + `age_decade2` + `age_decade3` + `age_decade4`)/4')
   saveRDS(binary_test, file = path_binary_test)
 }
 
@@ -342,8 +343,8 @@ Plot__volcano <-
   filter(L3 != "cytotoxic") %>% 
   mutate(
     naive_experienced = case_when(
-      L3 |> str_detect("naive") ~ "Antigen naive lymphcites",
-      L3 |> str_detect("cd4|cd8|memory") ~ "Antigen experienced lymphcites"
+      L3 |> str_detect("naive") ~ "Antigen-naive lymphocytes",
+      L3 |> str_detect("cd4|cd8|memory") ~ "Antigen-experienced lymphocytes"
     )
   ) |>
   mutate(significant = c_FDR < 0.05) |>
@@ -377,7 +378,7 @@ print(Plot__volcano)
 
 library(gganatogram)
 
-# Path to the L0 (lineage-level) sccomp estimates (update to your location)
+# Path to the configured L0 (lineage-level) sccomp estimates.
 est_l0_path = path_sccomp_estimates("estimates_age_decade___L0___disease_FALSE___immune_only_TRUE.rds")
 if (file.exists(est_l0_path)) {
   est_l0 = readRDS(est_l0_path)
@@ -1058,7 +1059,7 @@ path_sccomp_age_pred_draws = file.path(path_intermediate("fig2"), "sccomp_age_pr
 if (file.exists(path_sccomp_age_pred_draws)) {
   pred_draws = readRDS(path_sccomp_age_pred_draws)
 } else {
-  # Update path to your sccomp estimates file
+  # Load the configured L3 sccomp estimates.
   est <- readRDS(
     path_sccomp_estimates("estimates_age_decade___L3___disease_FALSE___immune_only_TRUE.rds")
   )
@@ -1377,7 +1378,7 @@ path_sccomp_prediction = file.path(path_intermediate("fig2"), "sccomp_prediction
 if (file.exists(path_sccomp_prediction)) {
   sccomp_df = readRDS(path_sccomp_prediction)
 } else {
-  # Update path to your sccomp estimates file
+  # Load the configured L3 sccomp estimates.
   est <- readRDS(
     path_sccomp_estimates("estimates_age_decade___L3___disease_FALSE___immune_only_TRUE.rds")
   )
