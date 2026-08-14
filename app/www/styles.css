@@ -1,0 +1,256 @@
+/* Immune Proportion Map -- app styling.
+ *
+ * Colours are taken from Bootstrap 5 CSS variables wherever possible so the
+ * dark-mode toggle in the navbar works without a parallel set of rules.
+ */
+
+/* ------------------------------------------------------------- chrome -- */
+
+.brand {
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+.navbar .nav-link {
+    font-weight: 500;
+}
+
+/* -------------------------------------------------------------- panels -- */
+
+/* The grid of anatograms. The age and ethnicity tabs pin their column count via
+   an inline grid-template-columns so every panel sits in one row. Below this
+   width one row would squeeze the figures too far, so allow wrapping again --
+   !important because the column count is set inline by layout_column_wrap(). */
+.panel-grid {
+    margin-bottom: 0.75rem;
+}
+
+@media (max-width: 1200px) {
+    .panel-grid {
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)) !important;
+    }
+}
+
+/* bslib's card headers are flex containers, so centring needs justify-content
+   rather than text-align. */
+.panel-title {
+    display: flex;
+    justify-content: center;
+    font-size: 0.9rem;
+    font-weight: 600;
+    padding-top: 0.45rem;
+    padding-bottom: 0.45rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Download / Data buttons sit side by side and share the footer width. */
+.panel-actions {
+    display: flex;
+    gap: 0.4rem;
+    padding: 0.4rem 0.5rem;
+}
+
+.panel-actions .btn {
+    flex: 1 1 0;
+    font-size: 0.78rem;
+    padding: 0.2rem 0.35rem;
+    white-space: nowrap;
+    /* btn-outline-secondary resolves to a muted grey that is hard to read
+       against the dark theme; drive both colours from the theme instead. */
+    color: var(--bs-body-color);
+    border-color: var(--bs-border-color);
+}
+
+.panel-actions .btn:hover {
+    color: var(--bs-emphasis-color);
+    background-color: var(--bs-secondary-bg);
+    border-color: var(--bs-secondary-color);
+}
+
+/* -------------------------------------------------------------- tables -- */
+
+/* The tables used to be shrunk to 70% with a 50% line-height, which put them
+   well below readable size and made rows collide. This is smaller than body
+   text but still legible. */
+.table-wrap {
+    font-size: 0.85rem;
+}
+
+.table-wrap table.dataTable td,
+.table-wrap table.dataTable th {
+    line-height: 1.35;
+    padding-top: 0.3rem;
+    padding-bottom: 0.3rem;
+}
+
+/* Empty state for the shared panel table. The default validation message is
+   small muted text that is easy to miss in a large empty card. */
+.table-wrap .shiny-output-error-validation {
+    display: block;
+    padding: 3.5rem 1rem;
+    text-align: center;
+    font-size: 1rem;
+    color: var(--bs-secondary-color);
+}
+
+/* Centre that message in the tall card rather than leaving it stranded at the
+   top. Browsers without :has() keep the padded-block layout above. */
+.table-wrap:has(.shiny-output-error-validation) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 430px;
+}
+
+.table-wrap caption {
+    caption-side: top;
+    font-weight: 600;
+    color: var(--bs-emphasis-color);
+    padding-bottom: 0.5rem;
+}
+
+/* DataTables ships its own dark, chunky export buttons. Bring them in line with
+   the Bootstrap outline buttons used elsewhere. */
+.table-wrap .dt-buttons {
+    margin-bottom: 0.6rem;
+}
+
+/* Under DT's Bootstrap 5 integration the export buttons are a solid
+   `btn btn-secondary` btn-group, which reads far heavier than anything else on
+   the page. Restyle as a quiet outline group. */
+.table-wrap div.dt-buttons.btn-group > .btn {
+    font-size: 0.78rem;
+    padding: 0.2rem 0.6rem;
+    background-color: transparent;
+    background-image: none;
+    border: 1px solid var(--bs-border-color);
+    color: var(--bs-body-color);
+    box-shadow: none;
+}
+
+.table-wrap div.dt-buttons.btn-group > .btn:hover,
+.table-wrap div.dt-buttons.btn-group > .btn:focus {
+    background-color: var(--bs-secondary-bg);
+    border-color: var(--bs-secondary-color);
+    color: var(--bs-emphasis-color);
+}
+
+/* Column filter inputs render as bare boxes that vanish against a dark card. */
+.table-wrap table.dataTable thead input,
+.table-wrap table.dataTable thead select {
+    background-color: var(--bs-body-bg);
+    color: var(--bs-body-color);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.25rem;
+    font-weight: 400;
+}
+
+/* --------------------------------------------------------------- help -- */
+
+.help-icon {
+    color: var(--bs-secondary-color);
+    margin-left: 0.25rem;
+    cursor: help;
+}
+
+.lead-note {
+    color: var(--bs-secondary-color);
+    max-width: 68ch;
+}
+
+/* --------------------------------------------------------------- about -- */
+
+.about-card h2 {
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+.about-card h3 {
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin-top: 1.75rem;
+}
+
+.about-card h4 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin-top: 1.75rem;
+}
+
+.about-card p {
+    max-width: 72ch;
+    line-height: 1.65;
+}
+
+/* ------------------------------------------------------------- sidebar -- */
+
+/* The sidebar carries ten controls and has to stay readable without scrolling.
+   bslib lays the content out as a flex column with a 24px gap and 48/24/24
+   padding, which is the bulk of the spacing -- note the class sits ON
+   .sidebar-content rather than on a parent, so `.bslib-gap-spacing >
+   .sidebar-content` never matches. The top padding is kept large enough to
+   clear the absolutely positioned collapse toggle. */
+.bslib-sidebar-layout > .sidebar > .sidebar-content {
+    gap: 0.3rem;
+    padding: 2.25rem 0.7rem 0.7rem;
+}
+
+/* The flex gap above is the only separation these need. */
+.bslib-sidebar-layout > .sidebar .form-group,
+.bslib-sidebar-layout > .sidebar .shiny-input-container {
+    margin-bottom: 0;
+}
+
+.bslib-sidebar-layout > .sidebar label.control-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 0.15rem;
+}
+
+/* Section headings replacing the accordion the sidebar used to be split into. */
+.sidebar-heading {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--bs-secondary-color);
+    margin-bottom: 0.15rem;
+}
+
+.bslib-sidebar-layout > .sidebar hr {
+    margin: 0.35rem 0;
+}
+
+/* Shiny gives every splitLayout cell `overflow: auto`, which in a sidebar this
+   narrow renders a horizontal scrollbar under each paired control. Bottom
+   alignment then lines the checkbox up with the input beside it rather than
+   with that input's label. */
+.bslib-sidebar-layout > .sidebar .shiny-split-layout > div {
+    overflow: visible;
+    vertical-align: bottom;
+}
+
+/* shinyWidgets' default right margin can push a paired checkbox out of its
+   cell, which is what made the scrollbars appear in the first place. */
+.bslib-sidebar-layout > .sidebar .pretty {
+    margin-right: 0;
+    margin-bottom: 0.4rem;
+}
+
+/* shinyWidgets' picker and radio buttons do not inherit Bootstrap 5 sizing. */
+.bootstrap-select .dropdown-toggle,
+.btn-group-container-sw .btn {
+    font-size: 0.85rem;
+}
+
+/* Six age labels under a sidebar-width slider collide at the default size. */
+.irs--shiny .irs-grid-text {
+    font-size: 9px;
+}
+
+.irs--shiny .irs-min,
+.irs--shiny .irs-max {
+    font-size: 9px;
+}
