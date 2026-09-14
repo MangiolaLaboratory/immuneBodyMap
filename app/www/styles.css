@@ -1,4 +1,4 @@
-/* Immune Proportion Map -- app styling.
+/* Immune Proportion Map, app styling.
  *
  * Colours are taken from Bootstrap 5 CSS variables wherever possible so the
  * dark-mode toggle in the navbar works without a parallel set of rules.
@@ -19,7 +19,7 @@
 
 /* The grid of anatograms. The age and ethnicity tabs pin their column count via
    an inline grid-template-columns so every panel sits in one row. Below this
-   width one row would squeeze the figures too far, so allow wrapping again --
+   width one row would squeeze the figures too far, so allow wrapping again;
    !important because the column count is set inline by layout_column_wrap(). */
 .panel-grid {
     margin-bottom: 0.75rem;
@@ -43,6 +43,28 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+/* The sample count beside a panel title. Deliberately quiet, since it is
+   context for the heading rather than a second heading, but always present,
+   because a mean over one sample and a mean over a thousand look identical on
+   a body map. */
+.panel-n {
+    font-weight: 400;
+    font-size: 0.78rem;
+    color: var(--bs-secondary-color);
+    margin-left: 0.4rem;
+    white-space: nowrap;
+}
+
+/* Shown in place of the grid when every panel has been deselected. */
+.panel-empty {
+    padding: 3rem 1rem;
+    text-align: center;
+    color: var(--bs-secondary-color);
+    border: 1px dashed var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    margin-bottom: 0.75rem;
 }
 
 /* Download / Data buttons sit side by side and share the footer width. */
@@ -162,6 +184,30 @@
 
 /* --------------------------------------------------------------- about -- */
 
+/* The About text is reference material rather than prose to read start to
+   finish, so it flows into two columns on a wide screen and collapses back to
+   one where that would leave the measure too narrow. */
+.about-columns {
+    column-count: 2;
+    column-gap: 2.5rem;
+}
+
+@media (max-width: 900px) {
+    .about-columns {
+        column-count: 1;
+    }
+}
+
+/* Keep a heading with the paragraph it introduces, and stop a paragraph
+   breaking across the gutter mid-sentence. */
+.about-columns h4 {
+    break-after: avoid;
+}
+
+.about-columns p {
+    break-inside: avoid;
+}
+
 .about-card h2 {
     font-size: 1.5rem;
     font-weight: 600;
@@ -188,7 +234,7 @@
 
 /* The sidebar carries ten controls and has to stay readable without scrolling.
    bslib lays the content out as a flex column with a 24px gap and 48/24/24
-   padding, which is the bulk of the spacing -- note the class sits ON
+   padding, which is the bulk of the spacing; note the class sits ON
    .sidebar-content rather than on a parent, so `.bslib-gap-spacing >
    .sidebar-content` never matches. The top padding is kept large enough to
    clear the absolutely positioned collapse toggle. */
@@ -245,12 +291,58 @@
     font-size: 0.85rem;
 }
 
-/* Six age labels under a sidebar-width slider collide at the default size. */
-.irs--shiny .irs-grid-text {
-    font-size: 9px;
+/* The age slider these sized is gone; ten decade labels could not be made to
+   fit a 290px sidebar, so the control is a picker now. The only slider left
+   (opacity) is drawn with ticks = FALSE. */
+
+/* ---------------------------------------------------- VizModules tabs -- */
+
+/* The module control panels are far denser than our own sidebars, and two of
+   their stylesheets assume a host page we do not have. Both blocks below are
+   workarounds for upstream rules, not styling choices. Both are reported at
+   https://github.com/j-andrews7/VizModules/issues/355 and can come out once
+   that is released. */
+
+/* VizModules lays its controls out as a Bootstrap-style row:
+     .vizmodules-input-grid { margin-left: -15px; margin-right: -15px }
+   which assumes a parent carrying at least 15px of horizontal padding. Our
+   sidebar content has 0.7rem (~11px), so the grid overhangs on both sides and
+   the whole sidebar gets a horizontal scrollbar. Zero the negative margins and
+   let the cells carry a smaller gutter instead. (VizModules#355) */
+.viz-sidebar .vizmodules-input-grid {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
 }
 
-.irs--shiny .irs-min,
-.irs--shiny .irs-max {
-    font-size: 9px;
+.viz-sidebar .vizmodules-input-cell {
+    padding-left: 6px !important;
+    padding-right: 6px !important;
+}
+
+/* Seven control tabs do not fit one row at this width. */
+.viz-sidebar .nav-tabs {
+    flex-wrap: wrap;
+}
+
+/* multiColorPicker.css ships with every plot module, because each one renders
+   a colour picker that pulls the stylesheet in, and sets these *unscoped*:
+
+     .selectize-dropdown .option { padding: 0 !important }
+     .selectize-dropdown .selectize-dropdown-content {
+         padding: 6px; display: flex; flex-direction: column; gap: 6px }
+
+   so they apply to every selectize dropdown on the page, including our own
+   selectInput()s and DT's column filters. Turning the option list into a flex
+   column leaves those dropdowns rendering as an empty panel once they hold more
+   than a handful of options. Restore the stock layout for every dropdown that
+   is not a palette picker; :has() keeps the picker's own dropdown untouched.
+   (VizModules#355) */
+.selectize-dropdown:not(:has(.mc-palette-option)) .selectize-dropdown-content {
+    display: block;
+    padding: 0;
+    gap: normal;
+}
+
+.selectize-dropdown:not(:has(.mc-palette-option)) .option {
+    padding: 3px 0.75rem !important;
 }

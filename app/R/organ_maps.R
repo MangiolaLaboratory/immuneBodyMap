@@ -1,18 +1,17 @@
 # Mapping from the data's tissue groups to the anatomical organs gganatogram
 # knows how to draw. One tissue group fans out to several organs.
-#
-# The male and female maps used to be maintained as two independent lists that
-# were 90% identical; they are built from a shared base here so the common
-# entries cannot drift apart.
 
 # Tissue groups whose organ set is the same for both sexes.
 BASE_ORGAN_MAP <- list(
     "blood" = "leukocyte",
-    "epithelium and mucosal tissues" = "pleura",
     "large intestine" = c("caecum", "rectum", "colon"),
     "respiratory system" = c("lung", "bronchus", "pulmonary_valve", "diaphragm"),
     "spleen" = "spleen",
-    "gastrointestinal accessory organs" = c("liver", "pancreas", "gall_bladder"),
+    # The 2026-09 data splits what used to be one "gastrointestinal accessory
+    # organs" group into three tissue groups of its own.
+    "liver" = "liver",
+    "pancreas" = "pancreas",
+    "gallbladder" = "gall_bladder",
     "lymphatic system" = c("lymph_node", "tonsil"),
     "bone marrow" = "bone_marrow",
     "small intestine" = c("small_intestine", "ileum", "duodenum"),
@@ -35,10 +34,10 @@ BASE_ORGAN_MAP <- list(
     )
 )
 
-# NOTE: "tongue" (male only) and "amygdala" (male only) are carried over
-# verbatim from the original lists. gganatogram does provide female versions of
-# both, so this asymmetry may be an oversight rather than a deliberate choice --
-# left as-is to preserve existing output.
+# "tongue" and "amygdala" are male-only because gganatogram has no female
+# version of either: setdiff(hgMale_key$organ, hgFemale_key$organ) is tongue,
+# penis, vas_deferens, seminal_vesicle, epididymis, amygdala, testis, prostate.
+# The asymmetry is the package's, not an oversight here.
 MALE_ORGAN_MAP <- c(BASE_ORGAN_MAP, list(
     "nasal, oral, and pharyngeal regions" = c(
         "nose", "nasal_pharynx", "throat", "tongue",
@@ -60,6 +59,17 @@ FEMALE_ORGAN_MAP <- c(BASE_ORGAN_MAP, list(
         "uterus", "fallopian_tube", "endometrium"
     )
 ))
+
+# Tissue groups present in the data that no body map can show. "thymus" simply
+# does not exist in gganatogram; it is in neither hgMale_key nor hgFemale_key.
+# Every organ that could stand in for "digestive system (general)" (stomach,
+# colon, small_intestine) is already claimed by its own tissue group, and one
+# organ in two groups would duplicate rows in the plot frame and shade the same
+# shape with two different values.
+#
+# They are not dropped: make_plot_data() carries them through with organ = NA so
+# they still reach the tables, and the About tab says why they are never drawn.
+ORGAN_LESS_GROUPS <- c("thymus", "digestive system (general)")
 
 #' Organ map for a sex.
 organ_map_for <- function(sex) {

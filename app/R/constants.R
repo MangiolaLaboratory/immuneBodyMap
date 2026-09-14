@@ -4,35 +4,62 @@
 # load_prop_data() re-levels the data against them, so a mismatch surfaces as a
 # startup error rather than as silently empty panels.
 
-# Chronological. The levels stored in the .rds are alphabetical, which is why
-# load_prop_data() re-levels rather than reusing them.
-AGE_BINS <- c(
-    "Infancy",
-    "Childhood",
-    "Adolescence",
-    "Young Adulthood",
-    "Middle Age",
-    "Senior"
+DATA_FILE <- "cell_proportion_for_shiny_app_20260910.rds"
+
+# Age is decade of life. The file stores the decade number as a factor whose
+# levels happen to be in the order 5, 1, 10, 2, 3, and so on. load_prop_data()
+# re-levels against AGE_DECADE_LEVELS and relabels to AGE_DECADES in one step,
+# so the rest of the app only ever sees the readable form. That matters in more
+# places than the panel headings: DT filter dropdowns and plotly axes show these
+# strings verbatim.
+AGE_DECADE_LEVELS <- as.character(1:10)
+
+AGE_DECADES <- c(
+    "0-9", "10-19", "20-29", "30-39", "40-49",
+    "50-59", "60-69", "70-79", "80-89", "90-99"
 )
 
-# Display order for the ethnicity panels, matching the original app's layout.
+# Which decades get a panel on the "By age" tab by default. The tails are thin
+# enough to mislead: across both sexes the 90-99 decade has 11 samples, and for
+# females alone it covers a single tissue group. The app therefore opens on the
+# six decades with real tissue coverage and leaves the rest one click away.
+DEFAULT_DECADES <- AGE_DECADES[3:8]
+
+# The nine base groups behind the 16 ethnicity_groups_imputed levels. Each is
+# stored either bare or with an "_imputed" suffix; load_prop_data() splits that
+# one column into an ethnicity and a logical imputed flag.
 ETHNICITIES <- c(
     "European",
     "African",
     "East Asian",
     "Hispanic/Latin American",
+    "Japanese",
+    "Middle Eastern & North African",
     "Native American & Pacific Islander",
     "South Asian",
     "Other/Unknown"
 )
 
-# Two of the ethnicity names are far too long for a narrow panel header.
-ETHNICITY_LABELS <- c(
-    "Hispanic/Latin American" = "Hisp./Latin Amer.",
-    "Native American & Pacific Islander" = "Nat. Amer./Pac. Isl."
-)
+# "Middle Eastern & North African" is a declared level with no samples at all in
+# this release (not even an imputed twin), so it would only ever draw an empty
+# panel. It stays in ETHNICITIES so the validation in load_prop_data() keeps
+# accepting it if a later release fills it in.
+ETHNICITY_PANELS <- setdiff(ETHNICITIES, "Middle Eastern & North African")
 
+DEFAULT_ETHNICITY_PANELS <- c("European", "African", "East Asian", "South Asian")
+
+# The two body outlines gganatogram can draw, and the levels actually present in
+# the data. "unknown" (136 samples) has no outline, so it is reachable on the
+# Full data and plot tabs but never gets a body map.
 SEXES <- c("male", "female")
+SEXES_ALL <- c(SEXES, "unknown")
+
+# Panel headings, shortened where the full name will not fit a narrow card.
+PANEL_LABELS <- c(
+    "Hispanic/Latin American" = "Hisp./Latin Amer.",
+    "Native American & Pacific Islander" = "Nat. Amer./Pac. Isl.",
+    "Middle Eastern & North African" = "M. East./N. Afr."
+)
 
 # Every option is a perceptually uniform, colour-vision-deficiency-safe ramp.
 # turbo is deliberately excluded: it is not perceptually uniform and reads
@@ -44,9 +71,6 @@ PALETTES <- c(
 
 DL_FORMATS <- c(".png", ".pdf", ".svg")
 
-DEFAULT_AGE_BIN <- "Adolescence"
-DEFAULT_ETHNICITY <- "European"
-
 # A mid grey that reads against both the light and the dark theme.
 DEFAULT_OUTLINE_COLOUR <- "#9aa3ad"
 
@@ -57,7 +81,7 @@ DEFAULT_OPACITY <- 0.9
 # gganatogram's body outlines span roughly 107 x-units by 196 y-units, so a
 # correctly proportioned figure is about 0.54 as wide as it is tall. gganatogram
 # itself never calls coord_fixed(), so the figure stretches to whatever shape the
-# plotting device happens to be -- anatogram_plot() pins it instead.
+# plotting device happens to be. anatogram_plot() pins it instead.
 ANATOGRAM_ASPECT <- 0.544
 
 # The age and ethnicity tabs lay their panels out in a single row, so the column
@@ -84,27 +108,36 @@ PLOT_EXPORT_HEIGHT <- round(PLOT_EXPORT_WIDTH / ANATOGRAM_ASPECT + PLOT_EXPORT_L
 
 # Aesthetic controls fire continuously (colour picker drags, slider scrubs) and
 # each event re-renders every panel on the tab, so their effect is debounced.
-AESTHETICS_DEBOUNCE_MS <- 400
+AESTHETICS_DEBOUNCE_MS <- 600
 
 # Raw column names are not presentable. Anything absent here falls through to
 # the raw name, so adding a column to the data cannot break the tables.
+#
+# Note the deliberate split between the two kinds of uncertainty the app now
+# carries. proportion_* are per-sample posterior quantities straight from the
+# model ("CrI"); value / sd / se / ci_* summarise across the samples in a
+# selection ("CI"). The labels are the only thing telling them apart.
 PRETTY_COLNAMES <- c(
     organ = "Organ",
     tissue_groups = "Tissue group",
     value = "Mean proportion",
-    CI_lower = "95% CI lower",
-    CI_upper = "95% CI upper",
+    sd = "SD across samples",
+    se = "SE of mean",
+    ci_lower = "95% CI lower",
+    ci_upper = "95% CI upper",
+    n_samples = "Samples",
     sample_id = "Sample ID",
-    age_bin_sex_specific = "Age bin",
+    age_decade = "Decade of life",
     sex = "Sex",
-    ethnicity_groups = "Ethnicity",
-    age_days = "Age (days)",
-    age_days_scaled = "Age (scaled)",
-    n = "Cells simulated",
-    cell_type_unified_ensemble = "Cell type",
-    proportion_mean = "Mean proportion",
-    proportion_lower = "95% CI lower",
-    proportion_upper = "95% CI upper"
+    ethnicity = "Ethnicity",
+    ethnicity_imputed = "Ethnicity imputed",
+    cell_type = "Cell type",
+    assay = "Assay",
+    dataset_id = "Dataset",
+    mean_proportion = "Mean proportion",
+    proportion_mean = "Posterior mean proportion",
+    proportion_lower = "95% CrI lower",
+    proportion_upper = "95% CrI upper"
 )
 
 PREPRINT_URL <- "https://www.biorxiv.org/content/10.1101/2023.06.08.542671v3"
@@ -119,10 +152,15 @@ LEGEND_ALT <- paste(
 slugify <- function(x) {
     x <- tolower(x)
     x <- gsub("[^a-z0-9]+", "_", x)
-    gsub("^_|_$", "", x)
+    x <- gsub("^_|_$", "", x)
+
+    # Decade labels are digits, so this would otherwise return ids like "0_9",
+    # and Shiny and bslib build jQuery selectors from these ids. "#0_9-plot" is
+    # not a valid CSS identifier and never matches.
+    sub("^(?=[0-9])", "d", x, perl = TRUE)
 }
 
 #' Display label for a panel, shortened where the full name will not fit.
 panel_label <- function(x) {
-    unname(ifelse(x %in% names(ETHNICITY_LABELS), ETHNICITY_LABELS[x], x))
+    unname(ifelse(x %in% names(PANEL_LABELS), PANEL_LABELS[x], x))
 }

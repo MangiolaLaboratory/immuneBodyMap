@@ -51,8 +51,7 @@ aesthetics_ui <- function(id) {
             ns("dl_type"),
             with_help(
                 "Download format",
-                "Format used by the download button on each panel. PDF and SVG
-                 are vector formats suitable for figures."
+                "Format used by the download button on each panel."
             ),
             choices = DL_FORMATS
         )

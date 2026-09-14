@@ -65,6 +65,31 @@ Large inputs are not stored in Git:
 The authoritative inventory and deposit decisions are documented in
 [`vignettes/manifests/`](vignettes/manifests/README.md).
 
+## Interactive body map
+
+[`app/`](app/) is a Shiny app that shades
+[`gganatogram`](https://github.com/jespermaag/gganatogram) body maps by the
+modelled proportion of a chosen immune cell type, compared across sex, decade
+of life and ethnicity. Companion tabs built with
+[`VizModules`](https://cran.r-project.org/package=VizModules) show the whole
+composition at once, the per-sample spread behind each mean, ageing trends, and
+a cell type by tissue heatmap.
+
+```r
+shiny::runApp("app")
+```
+
+The app is assembled by `immune_map_app()`, and everything optional about it is
+an argument to that function. `app/app.r` is a one-line call to it, so the
+plot tabs are turned off by editing that line:
+
+```r
+immune_map_app(extra_tabs = FALSE)
+```
+
+That leaves the body maps, the full data table and the About page, and skips
+loading `VizModules`, `plotly` and the Bioconductor heatmap packages entirely. 
+
 ## Manuscript title
 
 Use the following title verbatim in repository, archive and supplementary

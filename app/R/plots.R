@@ -22,7 +22,11 @@ theme_anatogram <- function(fg = ink()) {
 }
 
 #' Placeholder shown when a selection matches no data.
-empty_plot <- function(message = "No results", fg = ink()) {
+#'
+#' Named blank_plot rather than empty_plot because VizModules exports a
+#' function by that name; source(local = TRUE) shadows it today, but the clash
+#' would resurface the moment this app moved to Shiny's automatic R/ loading.
+blank_plot <- function(message = "No results", fg = ink()) {
     ggplot() +
         geom_text(
             aes(x = 0.5, y = 0.5, label = message),
@@ -46,10 +50,19 @@ empty_plot <- function(message = "No results", fg = ink()) {
 #' @param show_legend Panels normally hide their legend and defer to the single
 #'   shared colour bar rendered once per tab.
 anatogram_plot <- function(pdata, sex, opts, max_val, show_legend = FALSE, fg = ink()) {
-    # No rows at all (everything deselected) or no values at all (a filter
-    # combination with no samples) both mean there is nothing to draw.
-    if (is.null(pdata) || !nrow(pdata) || all(is.na(pdata$value))) {
-        return(empty_plot(fg = fg))
+    # No rows at all (everything deselected) means there is nothing to draw.
+    if (is.null(pdata) || !nrow(pdata)) {
+        return(blank_plot(fg = fg))
+    }
+
+    # Tissue groups in ORGAN_LESS_GROUPS travel through the frame so they reach
+    # the tables, but gganatogram has no shape for them: an NA organ would be a
+    # factor level it cannot match.
+    pdata <- pdata[!is.na(pdata$organ), , drop = FALSE]
+
+    # No values at all: a filter combination with no samples.
+    if (!nrow(pdata) || all(is.na(pdata$value))) {
+        return(blank_plot(fg = fg))
     }
 
     gganatogram(
@@ -67,9 +80,7 @@ anatogram_plot <- function(pdata, sex, opts, max_val, show_legend = FALSE, fg = 
             limits = c(0, max_val),
             guide = if (show_legend) "colourbar" else "none"
         ) +
-        # Without this the body is stretched to fill whatever shape the card
-        # happens to be -- wide cards produced visibly squat, broad figures.
-        # x and y share one coordinate space, so ratio = 1 is true anatomy.
+        # forces true anatomy without wonky stretching
         coord_fixed(ratio = 1) +
         guides(fill = if (show_legend) colourbar_guide(fg) else "none") +
         theme_anatogram(fg) +
@@ -84,7 +95,7 @@ anatogram_plot <- function(pdata, sex, opts, max_val, show_legend = FALSE, fg = 
 #'
 #' On screen the panels defer to one shared colour bar per tab, but a downloaded
 #' plot travels on its own and has to carry its own scale. The sizing lives in
-#' the guide's own theme -- plot-level legend.key.width does not size a
+#' the guide's own theme, because plot-level legend.key.width does not size a
 #' colourbar, which left the bar wider than the page and clipped at both ends.
 colourbar_guide <- function(fg = ink(), width_in = 2.1) {
     guide_colourbar(
@@ -131,7 +142,7 @@ legend_bar <- function(max_val, opts, title = "Mean cell proportion", fg = ink()
             axis.ticks.length.x = unit(5, "pt"),
             plot.title = element_text(colour = fg, size = 18, hjust = 0, margin = margin(b = 7)),
             # The end labels are centred on the ends of the bar, so half of each
-            # sits outside the panel -- without side margins they get clipped.
+            # sits outside the panel and gets clipped without side margins.
             plot.margin = margin(2, 24, 4, 24)
         )
 }
@@ -141,7 +152,7 @@ legend_bar <- function(max_val, opts, title = "Mean cell proportion", fg = ink()
 #' ggsave() infers its device from the path it is handed. Shiny hands
 #' downloadHandler a temp file with no meaningful extension, so without an
 #' explicit device every download came out a PNG regardless of the selected
-#' format -- only the filename changed.
+#' format, with only the filename changing.
 save_plot <- function(file, plot, dl_type,
                       width = PLOT_EXPORT_WIDTH, height = PLOT_EXPORT_HEIGHT) {
     ggsave(

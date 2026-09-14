@@ -1,6 +1,4 @@
-# One anatogram panel: a card holding the body map, a download button and
-# optionally a button that pushes the panel's numbers into the tab's shared
-# table. Replaces fifteen copy-pasted plot / render / download / table blocks.
+# defining this once prevents it being copied like 15 times
 
 #' Alt text for a panel's body map.
 panel_alt_text <- function(label) {
@@ -11,7 +9,7 @@ panel_alt_text <- function(label) {
     )
 }
 
-#' @param label Panel heading, e.g. "Infancy".
+#' @param label Panel heading, e.g. "30-39".
 #' @param show_data Whether to offer the "Data" button. Tabs with few enough
 #'   panels to show their tables permanently pass FALSE.
 anatogram_panel_ui <- function(id, label, show_data = TRUE,
@@ -41,7 +39,12 @@ anatogram_panel_ui <- function(id, label, show_data = TRUE,
     card(
         height = height,
         full_screen = TRUE,
-        card_header(label, class = "panel-title"),
+        # sample count on card helps determine usefulness of anatogram
+        card_header(
+            label,
+            tags$span(class = "panel-n", textOutput(ns("n"), inline = TRUE)),
+            class = "panel-title"
+        ),
         card_body(
             padding = 0,
             plotOutput(ns("plot"), height = "100%")
@@ -56,8 +59,8 @@ anatogram_panel_ui <- function(id, label, show_data = TRUE,
 #' @param max_val Reactive upper bound of the fill scale, shared across the tab.
 #' @param label Used for the download filename and the shared table's caption.
 #' @param selected reactiveVal owned by the parent tab. Clicking "Data" writes
-#'   this panel's label and frame into it, which is what drives the shared table
-#'   -- previously thirteen one-line observers in the main server function.
+#'   this panel's label and frame into it, which is what drives the shared
+#'   table. This replaced thirteen one-line observers in the main server.
 #' @param mode Reactive colour mode ("light" / "dark") for plot text.
 anatogram_panel_server <- function(id, panel_data, sex, opts, max_val, label,
                                    selected = NULL, mode = reactive("light")) {
@@ -81,6 +84,18 @@ anatogram_panel_server <- function(id, panel_data, sex, opts, max_val, label,
             alt = panel_alt_text(label)
         ) |>
             bindCache(panel_data(), sex(), opts(), max_val(), mode())
+
+        # One tissue group fans out to several organ rows, so the counts have to
+        # be deduplicated before they are summed.
+        output$n <- renderText({
+            d <- panel_data()
+            if (is.null(d) || !nrow(d)) {
+                return("")
+            }
+
+            total <- sum(d$n_samples[!duplicated(d$tissue_groups)], na.rm = TRUE)
+            if (!total) "" else paste0("n = ", format(total, big.mark = ","))
+        })
 
         # The on-screen panels share one colour bar rendered beside the grid; a
         # downloaded figure has to carry its own, so it is rebuilt with the
@@ -115,7 +130,7 @@ anatogram_panel_server <- function(id, panel_data, sex, opts, max_val, label,
 
 #' Wire up a whole row of panels from a set of levels.
 #'
-#' @param values The levels being compared, e.g. AGE_BINS.
+#' @param values The levels being compared, e.g. AGE_DECADES.
 #' @param panel_data Reactive returning a named list of frames, keyed by
 #'   slugify(values).
 anatogram_panel_row_ui <- function(values, ...) {
