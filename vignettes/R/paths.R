@@ -17,23 +17,48 @@ publication_repo_root <- function() {
   if (nzchar(env)) {
     return(normalizePath(env, winslash = "/", mustWork = FALSE))
   }
+
+  # Real package root has vignettes/reports and vignettes/R/paths.R.
+  # (A bare "vignettes/" under vignettes/reports/ is a common false positive
+  # when interactive runs accidentally wrote caches relative to reports/.)
+  is_repo_root <- function(p) {
+    if (!nzchar(p) || !dir.exists(p)) return(FALSE)
+    dir.exists(file.path(p, "vignettes", "reports")) &&
+      file.exists(file.path(p, "vignettes", "R", "paths.R"))
+  }
+
+  walk_up_to_repo <- function(start) {
+    p <- normalizePath(start, winslash = "/", mustWork = FALSE)
+    for (i in seq_len(12)) {
+      if (is_repo_root(p)) return(p)
+      parent <- dirname(p)
+      if (identical(parent, p)) break
+      p <- parent
+    }
+    NULL
+  }
+
   # When this file is sourced, vignettes/R/paths.R → repo root is ../..
   for (i in seq_len(sys.nframe())) {
     f <- sys.frame(i)$ofile
     if (!is.null(f) && grepl("[/\\\\]vignettes[/\\\\]R[/\\\\]paths\\.R$", f)) {
-      return(normalizePath(
+      cand <- normalizePath(
         file.path(dirname(f), "..", ".."),
         winslash = "/",
         mustWork = FALSE
-      ))
+      )
+      if (is_repo_root(cand)) return(cand)
     }
   }
+
   if (requireNamespace("here", quietly = TRUE)) {
-    cand <- normalizePath(here::here(), winslash = "/", mustWork = FALSE)
-    if (dir.exists(file.path(cand, "vignettes"))) {
-      return(cand)
-    }
+    hit <- walk_up_to_repo(here::here())
+    if (!is.null(hit)) return(hit)
   }
+
+  hit <- walk_up_to_repo(getwd())
+  if (!is.null(hit)) return(hit)
+
   normalizePath(".", winslash = "/", mustWork = FALSE)
 }
 

@@ -25,6 +25,7 @@ vignettes/reports/*.pdf
 vignettes/*.html
 vignettes/**/.Rhistory
 vignettes/**/.RData
+vignettes/reports/sccomp_L3_v12_vs_v13_param_compare*
 # Extended Data PNG previews (regenerate from RDS on render)
 vignettes/supplementary_plot_objects/*.png
 # Large companion inputs downloaded after Zenodo mint (not in git)
@@ -34,6 +35,8 @@ vignettes/data/example/
 vignettes/data/processed/**
 vignettes/data/**/*.parquet
 vignettes/data/**/cellNexus_cache/
+# Large intermediate sccomp parameter files
+vignettes/data/intermediate/sccomp_param_compare/
 # Internal packaging records (kept locally; not needed to reproduce)
 vignettes/manifests/CHANGELOG.md
 vignettes/manifests/VALIDATION.md
@@ -50,3 +53,7 @@ vignettes/reports/rebuild_fig5_proportion_scales.R
 # Local SI sync backups (not for GitHub)
 vignettes/data/source_tables/_pre_sync_*/
 immuneHealthyBodyMap.Rproj
+
+# Internal scripts for audit
+vignettes/scripts/audit_study_cell_count.R
+vignettes/scripts/audit_study_cell_count_from_checkpoint.R

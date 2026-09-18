@@ -1,0 +1,35 @@
+Publication paths ready.
+  repo root : /scratchdata1/groups/phoenix-hpc-mangiola_laboratory/chen/immuneHealthyBodyMap
+  data root : /scratchdata1/groups/phoenix-hpc-mangiola_laboratory/chen/immuneHealthyBodyMap/vignettes/data
+SE dir: /scratchdata1/groups/phoenix-hpc-mangiola_laboratory/chen/cell_rebuttal/age_clock/report/data/se_all_cell_type
+n_rep=50 n_match=20 study2=TRUE
+Load lineage cache: CD8T
+Loading SE...
+Preparing lineage: CD4T
+tidybulk says: the sample with largest library size 3bfa31867cc1c823e0cb2f1ff24df26b___cd4 tcm was chosen as reference for scaling
+Saved /scratchdata1/groups/phoenix-hpc-mangiola_laboratory/chen/immuneHealthyBodyMap/vignettes/data/intermediate/fig4_rebuttal/lineage_matrix_CD4T_normal1.rds rows=17127
+Preparing lineage: MONO
+tidybulk says: the sample with largest library size 3bfa31867cc1c823e0cb2f1ff24df26b___cd14 mono was chosen as reference for scaling
+Saved /scratchdata1/groups/phoenix-hpc-mangiola_laboratory/chen/immuneHealthyBodyMap/vignettes/data/intermediate/fig4_rebuttal/lineage_matrix_MONO_normal1.rds rows=6575
+Preparing lineage: NK
+tidybulk says: the sample with largest library size 3671464a4c6d4a2c408b9e4082fd7c32___nk was chosen as reference for scaling
+Saved /scratchdata1/groups/phoenix-hpc-mangiola_laboratory/chen/immuneHealthyBodyMap/vignettes/data/intermediate/fig4_rebuttal/lineage_matrix_NK_normal1.rds rows=4100
+Preparing lineage: B
+tidybulk says: the sample with largest library size 3bfa31867cc1c823e0cb2f1ff24df26b___b naive was chosen as reference for scaling
+Saved /scratchdata1/groups/phoenix-hpc-mangiola_laboratory/chen/immuneHealthyBodyMap/vignettes/data/intermediate/fig4_rebuttal/lineage_matrix_B_normal1.rds rows=6546
+Warning messages:
+1: In filterByExpr.DGEList(y, design = design, group = group, lib.size = lib.size,  :
+  All samples appear to belong to the same group.
+2: In filterByExpr.DGEList(y, design = design, group = group, lib.size = lib.size,  :
+  All samples appear to belong to the same group.
+3: In filterByExpr.DGEList(y, design = design, group = group, lib.size = lib.size,  :
+  All samples appear to belong to the same group.
+4: In filterByExpr.DGEList(y, design = design, group = group, lib.size = lib.size,  :
+  All samples appear to belong to the same group.
+           used  (Mb) gc trigger    (Mb)   max used    (Mb)
+Ncells  7382937 394.3   13398495   715.6   13398495   715.6
+Vcells 54344876 414.7 2012851065 15356.9 3144687270 23992.1
+Error in count(., .decade, name = "n_tgt") : 
+  Argument 'x' is not a vector: list
+Calls: match_eval_rows -> %>% -> count
+Execution halted
