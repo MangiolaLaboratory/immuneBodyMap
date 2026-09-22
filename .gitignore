@@ -35,8 +35,8 @@ vignettes/data/example/
 vignettes/data/processed/**
 vignettes/data/**/*.parquet
 vignettes/data/**/cellNexus_cache/
-# Large intermediate sccomp parameter files
-vignettes/data/intermediate/sccomp_param_compare/
+# Large intermediate analysis outputs (regenerate from scripts)
+vignettes/data/intermediate/
 # Internal packaging records (kept locally; not needed to reproduce)
 vignettes/manifests/CHANGELOG.md
 vignettes/manifests/VALIDATION.md

@@ -1,0 +1,1797 @@
+---
+title: "Figure 4 rebuttal — Decade distance uncertainty (Panels A & D)"
+date: today
+date-format: "DD MMM YYYY"
+title-block-banner: true
+author:
+  - name: Chen Zhan
+    orcid: 0000-0002-4794-8339
+    email: chen.zhan@adelaide.edu.au
+    affiliation:
+      - id: sgc
+        name: SAiGENCI, The University of Adelaide
+format:
+  html:
+    theme: minty
+    df-print: paged
+    code-line-numbers: true
+    embed-resources: true
+    code-fold: true
+    code-fold-default: true
+    toc: true
+    toc-location: left
+    toc-title: "Menu"
+  gfm:
+    toc: true
+knitr:
+  opts_chunk:
+    message: false
+    warning: false
+editor: source
+abstract: |
+  Propagate posterior prediction uncertainty through the decade-resolved
+  immune-remodelling distance calculation used in Figure 4A/D, rather than
+  calculating distances only from posterior mean trajectories.
+---
+
+# Overview
+
+Propagate posterior prediction uncertainty through the decade-resolved
+immune-remodelling distance calculation used in Figure 4A/D, rather than
+calculating distances only from posterior mean trajectories.
+
+This report reuses the Figure 4 scientific definition of distance
+(`log1p` / CLR → scale/center → Euclidean / `sqrt(n_features)` between
+consecutive age decades), but keeps posterior draws through the distance
+step:
+
+**previously:** posterior predictions → posterior mean / robust median profile → distance  
+
+**now (gene):** distance within each draw → mean + 95% CI  
+
+**now (composition):** median proportion profile → distance (Fig4 plug-in centre) +
+95% CI from draw-level distances (validated vs sccomp robust summary on one shared rng)
+
+Scope here is **data processing and statistical calculation only** (no final
+Panel A/D plot redesign).
+
+Caches: `vignettes/data/intermediate/fig4_rebuttal/` and
+`vignettes/data/figure_ready/fig4_rebuttal/`.
+
+```{r render-report, eval=FALSE}
+# From vignettes/rebuttal_analyse/:
+quarto::quarto_render(
+  "Fig4_panel_A_D_rebuttal_analyse.qmd",
+  output_format = "html"
+)
+quarto::quarto_render(
+  "Fig4_panel_A_D_rebuttal_analyse.qmd",
+  output_format = "gfm"
+)
+# Outputs in this folder:
+#   Fig4_panel_A_D_rebuttal_analyse.html
+#   Fig4_panel_A_D_rebuttal_analyse.md
+```
+
+# Setup
+
+Portable roots only (same pattern as `Fig4.qmd`). No machine-specific absolute
+paths in this report. Optional overrides: `NEW_PRED_DIR`, `SCCOMP_ESTIMATES_DIR`
+(see `vignettes/config/paths.example.env`).
+
+```{r paths}
+# Report lives in vignettes/rebuttal_analyse/ → ../R/paths.R
+.path_candidates <- c(
+  file.path("..", "R", "paths.R"),
+  if (requireNamespace("here", quietly = TRUE)) {
+    file.path(here::here(), "vignettes", "R", "paths.R")
+  },
+  file.path("R", "paths.R")
+)
+.path_candidates <- .path_candidates[!is.na(.path_candidates) & nzchar(.path_candidates)]
+.path_file <- .path_candidates[file.exists(.path_candidates)][1]
+if (is.na(.path_file)) {
+  stop("Cannot find vignettes/R/paths.R (run from vignettes/rebuttal_analyse/).")
+}
+source(.path_file)
+
+dir.create(path_intermediate("fig4_rebuttal"), recursive = TRUE, showWarnings = FALSE)
+dir.create(path_figure_ready("fig4_rebuttal"), recursive = TRUE, showWarnings = FALSE)
+
+# Gene decade predictions (Fig4 intermediates; override with NEW_PRED_DIR if needed)
+new_pred_root <- Sys.getenv("NEW_PRED_DIR", unset = path_intermediate("fig4"))
+```
+
+```{r libraries}
+library(tidyverse)
+library(tidybulk)
+library(tidySummarizedExperiment)
+library(glue)
+# compositions::clr used explicitly (do not attach — masks dplyr::count)
+```
+
+# Helper functions
+Run the `helpers` chunk before any distance/summary chunk (interactive sessions
+included). It defines `pred_to_age_distance`, `smooth_ageing_velocity`, and
+`summarise_distance_draws`.
+
+```{r helpers}
+# Same distance helper as Fig4.qmd (unchanged scientific definition).
+pred_to_age_distance <- function(pred,
+                                 scale = TRUE,
+                                 center = TRUE,
+                                 normalise_by_n_feature = TRUE,
+                                 trans_fx = identity,
+                                 distance_method = "euclidean",
+                                 .abundance,
+                                 ...) {
+
+  se <-
+    pred |>
+    tidybulk::as_SummarizedExperiment(
+      .sample = sample_id,
+      .transcript = L3,
+      .abundance = !!enquo(.abundance)
+    ) |>
+    mutate(age_decade_continuous = age_decade |> as.character() |> as.integer()) |>
+    mutate(age_decade = age_decade |> fct_relevel(as.character(1:9)))
+
+  se_matrix <- se %>% assay() %>% trans_fx() %>% as.matrix() %>% t
+  se_matrix[se_matrix %>% is.na()] <- 0
+
+  if (scale || center) {
+    se_matrix <- scale(se_matrix, center = center, scale = scale)
+  }
+
+  if (distance_method == "euclidean")
+    dist_obj <- dist(se_matrix, method = "euclidean")
+
+  if (normalise_by_n_feature)
+    dist_obj <- dist_obj / sqrt(ncol(se_matrix))
+
+  se_sample <- se %>% pivot_sample() %>% arrange(age_decade_continuous)
+  samps <- se_sample$sample_id
+  dm <- dist_obj %>% as.matrix() %>% as.data.frame %>% .[samps, samps]
+
+  prev <- head(samps, -1)
+  nex  <- tail(samps, -1)
+  step_dists <- mapply(function(a, b) dm[b, a], prev, nex)
+  cum_dists  <- cumsum(step_dists)
+
+  se_sample$step_dist <- c(0, step_dists %>% unname())
+  se_sample$cum_dist  <- c(0, cum_dists  %>% unname())
+
+  se_sample <- se_sample %>%
+    mutate(
+      min_age_decade = min(se$age_decade_continuous),
+      max_age_decade = max(se$age_decade_continuous)
+    )
+
+  # Drop the baseline (first) age row; do not use step_dist == 0 (true zeros possible).
+  se_sample %>% dplyr::filter(age_decade_continuous != min_age_decade)
+}
+
+find_peaks <- function(x) {
+  n <- length(x)
+  if (n == 1) return(TRUE)
+  peaks <- rep(FALSE, n)
+  if (n >= 3) {
+    peaks[2:(n - 1)] <- (x[2:(n - 1)] > x[1:(n - 2)] & x[2:(n - 1)] > x[3:n])
+  }
+  peaks[1] <- x[1] > x[2]
+  peaks[n] <- x[n] > x[n - 1]
+  if (all(x == x[1])) peaks[] <- FALSE
+  peaks
+}
+
+# Slightly leaner than Fig4: only needs tissue_groups + distance_df.
+smooth_ageing_velocity <- function(linear_distance_tissue, fine_grid) {
+  linear_distance_tissue %>%
+    dplyr::select(tissue_groups, distance_df) %>%
+    unnest(distance_df) %>%
+    group_by(tissue_groups) %>%
+    nest() %>%
+    mutate(
+      peaks = map(data, ~ {
+        d <- .
+        d$local_max <- find_peaks(d$step_dist)
+        d %>% filter(local_max)
+      }),
+      main_peak_age = map_dbl(peaks, ~ .x$age_decade_continuous[which.max(.x$step_dist)] %||% NA_real_),
+      secondary_peak_age = map2_dbl(
+        peaks, main_peak_age,
+        ~ {
+          if (nrow(.x) < 2) return(NA_real_)
+          .x2 <- .x %>% filter(abs(age_decade_continuous - .y) >= 3)
+          if (nrow(.x2) == 0) return(NA_real_)
+          .x2$age_decade_continuous[which.max(.x2$cum_dist)]
+        }
+      ),
+      interp = map(data, ~ tibble(
+        age_decade_continuous = fine_grid,
+        step_dist = approx(.x$age_decade_continuous, .x$step_dist, xout = fine_grid, rule = 2)$y,
+        cum_dist  = approx(.x$age_decade_continuous, .x$cum_dist,  xout = fine_grid, rule = 2)$y,
+        min_age_decade = unique(.x$min_age_decade),
+        max_age_decade = unique(.x$max_age_decade)
+      ))
+    ) |>
+    unnest(interp) %>%
+    ungroup()
+}
+
+# Summarise draw-level step/cum distances (diagnostics + CI).
+# These are summaries of T(draw), not T(summary profile).
+summarise_distance_draws <- function(distance_draws, group_vars) {
+  distance_draws %>%
+    group_by(across(all_of(group_vars))) %>%
+    summarise(
+      step_dist_draw_mean   = mean(step_dist, na.rm = TRUE),
+      step_dist_draw_median = unname(stats::median(step_dist, na.rm = TRUE)),
+      step_dist_lower       = unname(quantile(step_dist, 0.025, na.rm = TRUE)),
+      step_dist_upper       = unname(quantile(step_dist, 0.975, na.rm = TRUE)),
+      cum_dist_draw_mean    = mean(cum_dist, na.rm = TRUE),
+      cum_dist_draw_median  = unname(stats::median(cum_dist, na.rm = TRUE)),
+      cum_dist_lower        = unname(quantile(cum_dist, 0.025, na.rm = TRUE)),
+      cum_dist_upper        = unname(quantile(cum_dist, 0.975, na.rm = TRUE)),
+      n_draws               = dplyr::n(),
+      .groups = "drop"
+    )
+}
+```
+
+# 1. Gene-expression posterior draws
+
+Same gene short lists and prediction objects as `Fig4.qmd`, but keep `draws`
+instead of collapsing to `count_mean`.
+
+```{r gene-load-hyp}
+gene_hyp_df <- readRDS(file.path(path_intermediate("fig4"), "new_gene_hyp_df.rds"))
+
+short_list_fixed <-
+  gene_hyp_df %>%
+  filter(cell_type != "monocytic") %>%
+  filter(component == "fixed") %>%
+  group_by(cell_type, .feature) %>%
+  summarise(n = n(), max_abs_est = max(abs_est, na.rm = TRUE), .groups = "drop") %>%
+  group_by(cell_type) %>%
+  arrange(desc(n), desc(max_abs_est), .by_group = TRUE) %>%
+  slice_head(n = 10) %>%
+  ungroup()
+
+short_list_total <-
+  gene_hyp_df %>%
+  filter(cell_type != "monocytic") %>%
+  filter(component == "total") %>%
+  group_by(tissue, cell_type, .feature) %>%
+  summarise(n = n(), max_abs_est = max(abs_est, na.rm = TRUE), .groups = "drop") %>%
+  group_by(tissue, cell_type) %>%
+  arrange(desc(n), desc(max_abs_est), .by_group = TRUE) %>%
+  slice_head(n = 10) %>%
+  ungroup()
+```
+
+```{r gene-body-draws}
+pred_fixed <- readRDS(file.path(new_pred_root, "pred_fixed.rds"))
+if (!all(pred_fixed$.feature == short_list_fixed$.feature)) {
+  stop("gene list unmatch!")
+}
+
+pred_fixed_draws <-
+  pred_fixed %>%
+  mutate(cell_type = short_list_fixed$cell_type) %>%
+  unnest(pred_df) %>%
+  mutate(
+    sample_id = paste0("my_sample_", age_decade),
+    L3 = paste0(cell_type, "_", .feature),
+    age_decade = factor(age_decade, levels = as.character(1:10))
+  )
+
+glimpse(pred_fixed_draws)
+pred_fixed_draws %>%
+  dplyr::count(draws) %>%
+  summarise(n_draws = dplyr::n(), rows_per_draw = unique(n))
+```
+
+# 2. Body-level gene-expression distances by draw
+
+### Distance by draw (body gene)
+
+```{r gene-body-distance}
+path_dist_gene_body_draws <-
+  file.path(path_intermediate("fig4_rebuttal"), "distance_body_gene_draws.rds")
+
+if (file.exists(path_dist_gene_body_draws)) {
+  distance_body_gene_draws <- readRDS(path_dist_gene_body_draws)
+} else {
+  distance_body_gene_draws <-
+    pred_fixed_draws %>%
+    nest(data = -draws) %>%
+    mutate(
+      distance_df = map(
+        data,
+        pred_to_age_distance,
+        scale = TRUE,
+        trans_fx = log1p,
+        .abundance = count_avg
+      )
+    ) %>%
+    dplyr::select(draws, distance_df) %>%
+    unnest(distance_df)
+
+  saveRDS(distance_body_gene_draws, path_dist_gene_body_draws)
+}
+
+distance_body_gene <-
+  summarise_distance_draws(
+    distance_body_gene_draws,
+    group_vars = c("age_decade_continuous")
+  ) %>%
+  # Gene centre plotted here = mean(distance(draw)); alias for existing plot code.
+  dplyr::rename(
+    step_dist_mean = step_dist_draw_mean,
+    cum_dist_mean = cum_dist_draw_mean
+  ) %>%
+  mutate(modality = "gene_expr", level = "body")
+
+print(distance_body_gene)
+```
+
+### Sanity check — body gene vs Fig4 (mean-then-distance)
+
+Fig4 publishes **distance(posterior-mean profile)**.  
+This rebuttal’s `*_mean` columns are **mean(distance(each draw))**.  
+Those need not match (nonlinear distance). Intervals below are quantiles of
+draw-level distances — that part is the correct posterior summary of the
+distance functional.
+
+```{r gene-body-sanity-vs-fig4}
+# Rebuild Fig4 body trajectory from the same predictions (collapse draws first).
+path_fig4_body <-
+  file.path(path_intermediate("fig4_rebuttal"), "distance_body_gene_fig4.rds")
+
+if (file.exists(path_fig4_body)) {
+  distance_body_gene_fig4 <- readRDS(path_fig4_body)
+} else {
+  pred_fixed_mean_profile <-
+    pred_fixed_draws %>%
+    group_by(cell_type, .feature, age_decade, sample_id, L3) %>%
+    summarise(count_mean = mean(count_avg, na.rm = TRUE), .groups = "drop")
+
+  distance_body_gene_fig4 <-
+    pred_fixed_mean_profile %>%
+    pred_to_age_distance(scale = TRUE, trans_fx = log1p, .abundance = count_mean) %>%
+    as_tibble() %>%
+    dplyr::select(age_decade_continuous, step_dist, cum_dist)
+  saveRDS(distance_body_gene_fig4, path_fig4_body)
+}
+
+gene_body_sanity <-
+  distance_body_gene_fig4 %>%
+  left_join(
+    distance_body_gene %>%
+      dplyr::select(
+        age_decade_continuous,
+        step_dist_mean, step_dist_lower, step_dist_upper,
+        cum_dist_mean, cum_dist_lower, cum_dist_upper
+      ),
+    by = "age_decade_continuous"
+  ) %>%
+  mutate(
+    d_step = step_dist_mean - step_dist,
+    d_cum = cum_dist_mean - cum_dist,
+    step_in_ci = step_dist >= step_dist_lower & step_dist <= step_dist_upper,
+    cum_in_ci = cum_dist >= cum_dist_lower & cum_dist <= cum_dist_upper
+  )
+
+print(gene_body_sanity %>%
+  dplyr::select(age_decade_continuous, step_dist, step_dist_mean, d_step,
+                cum_dist, cum_dist_mean, d_cum, step_in_ci, cum_in_ci))
+
+# Interval construction check: summarise == hand quantiles over draws
+.stopif_diff <- function(a, b, tol = 1e-10) max(abs(a - b)) > tol
+.hand <- distance_body_gene_draws %>%
+  group_by(age_decade_continuous) %>%
+  summarise(
+    step_m = mean(step_dist),
+    step_lo = unname(quantile(step_dist, 0.025)),
+    step_hi = unname(quantile(step_dist, 0.975)),
+    cum_m = mean(cum_dist),
+    cum_lo = unname(quantile(cum_dist, 0.025)),
+    cum_hi = unname(quantile(cum_dist, 0.975)),
+    .groups = "drop"
+  )
+stopifnot(
+  !.stopif_diff(distance_body_gene$step_dist_mean, .hand$step_m),
+  !.stopif_diff(distance_body_gene$step_dist_lower, .hand$step_lo),
+  !.stopif_diff(distance_body_gene$step_dist_upper, .hand$step_hi),
+  !.stopif_diff(distance_body_gene$cum_dist_mean, .hand$cum_m),
+  !.stopif_diff(distance_body_gene$cum_dist_lower, .hand$cum_lo),
+  !.stopif_diff(distance_body_gene$cum_dist_upper, .hand$cum_hi)
+)
+message(
+  "Body gene: interval summarise OK. ",
+  "max |mean(dist)-dist(mean)| step=",
+  signif(max(abs(gene_body_sanity$d_step)), 3),
+  ", cum=", signif(max(abs(gene_body_sanity$d_cum)), 3)
+)
+```
+
+### Plot — Fig4 Panel A style (body gene)
+
+```{r fig.width=6, fig.height=2, label="plot-gene-body-distance-original"}
+# Original Fig4 Panel A style (gene expression only): horizontal cum_dist track.
+plot_gene_body_distance_original <-
+  distance_body_gene %>%
+  mutate(cum_dist_scaled = scales::rescale(cum_dist_mean, to = c(0, 10))) %>%
+  ggplot(aes(x = cum_dist_scaled, y = 0)) +
+  geom_line() +
+  geom_point(color = "red", size = 3) +
+  geom_text(aes(label = age_decade_continuous * 10 - 10), vjust = -1, size = 3) +
+  theme_minimal() +
+  theme(
+    axis.title.x = element_blank(), axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+    axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank(),
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank()
+  ) +
+  labs(title = "Gene expression — body (posterior mean cum_dist)")
+
+plot_gene_body_distance_original
+```
+
+### Plot options — 95% intervals (body gene)
+
+Several options for showing the 95% interval alongside the trajectory
+(gene body for now — pick one later for the rebuttal figure):
+
+1. **Age on x, distance on y + vertical error bars** — clearest for reading
+   interval width per decade (separate panels for `step_dist` and `cum_dist`).
+2. **Original horizontal track + vertical whiskers** — keep Fig4A layout;
+   y encodes the CI for that decade’s distance (needs a shared y scale).
+3. **Ribbon / shaded band vs age** — continuous uncertainty envelope
+   (good for `cum_dist`; denser for fine grids later).
+4. **Horizontal interval on the cum_dist axis** — CI as left–right whiskers
+   along the track (emphasises uncertainty in “how far aged”, not step size).
+
+```{r fig.width=8, fig.height=5, label="plot-gene-body-distance-intervals"}
+age_years <- function(d) d * 10 - 10
+
+# --- Option 1: age vs distance, vertical 95% error bars -----------------------
+plot_gene_body_step_errorbar <-
+  distance_body_gene %>%
+  ggplot(aes(x = age_years(age_decade_continuous), y = step_dist_mean)) +
+  geom_line(linewidth = 0.4) +
+  geom_point(color = "red", size = 2.5) +
+  geom_errorbar(
+    aes(ymin = step_dist_lower, ymax = step_dist_upper),
+    width = 2, linewidth = 0.4
+  ) +
+  theme_minimal() +
+  labs(
+    title = "Option 1a — step_dist mean ± 95% CI",
+    x = "Age (years)", y = "Step distance"
+  )
+
+plot_gene_body_cum_errorbar <-
+  distance_body_gene %>%
+  ggplot(aes(x = age_years(age_decade_continuous), y = cum_dist_mean)) +
+  geom_line(linewidth = 0.4) +
+  geom_point(color = "red", size = 2.5) +
+  geom_errorbar(
+    aes(ymin = cum_dist_lower, ymax = cum_dist_upper),
+    width = 2, linewidth = 0.4
+  ) +
+  theme_minimal() +
+  labs(
+    title = "Option 1b — cum_dist mean ± 95% CI",
+    x = "Age (years)", y = "Cumulative distance"
+  )
+
+# --- Option 3: ribbon vs age (same data, smoother read of interval) -----------
+plot_gene_body_cum_ribbon <-
+  distance_body_gene %>%
+  ggplot(aes(x = age_years(age_decade_continuous), y = cum_dist_mean)) +
+  geom_ribbon(aes(ymin = cum_dist_lower, ymax = cum_dist_upper), alpha = 0.25) +
+  geom_line(linewidth = 0.5) +
+  geom_point(color = "red", size = 2.5) +
+  theme_minimal() +
+  labs(
+    title = "Option 3 — cum_dist ribbon (95% CI)",
+    x = "Age (years)", y = "Cumulative distance"
+  )
+
+plot_gene_body_step_ribbon <-
+  distance_body_gene %>%
+  ggplot(aes(x = age_years(age_decade_continuous), y = step_dist_mean)) +
+  geom_ribbon(aes(ymin = step_dist_lower, ymax = step_dist_upper), alpha = 0.25) +
+  geom_line(linewidth = 0.5) +
+  geom_point(color = "red", size = 2.5) +
+  theme_minimal() +
+  labs(
+    title = "Option 3b — step_dist ribbon (95% CI)",
+    x = "Age (years)", y = "Step distance"
+  )
+
+# --- Option 4: horizontal track with CI along the cum_dist (x) axis -----------
+plot_gene_body_cum_horizontal_ci <-
+  distance_body_gene %>%
+  mutate(
+    x = cum_dist_mean,
+    xmin = cum_dist_lower,
+    xmax = cum_dist_upper
+  ) %>%
+  ggplot(aes(x = x, y = 0)) +
+  geom_line() +
+  geom_errorbarh(aes(xmin = xmin, xmax = xmax), height = 0.15, linewidth = 0.4) +
+  geom_point(color = "red", size = 3) +
+  geom_text(aes(label = age_years(age_decade_continuous)), vjust = -1.2, size = 3) +
+  theme_minimal() +
+  theme(
+    axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank(),
+    panel.grid.major.y = element_blank(), panel.grid.minor = element_blank()
+  ) +
+  labs(
+    title = "Option 4 — horizontal cum_dist track with 95% CI whiskers",
+    x = "Cumulative distance"
+  )
+
+print(plot_gene_body_step_errorbar)
+print(plot_gene_body_cum_errorbar)
+print(plot_gene_body_step_ribbon)
+print(plot_gene_body_cum_ribbon)
+print(plot_gene_body_cum_horizontal_ci)
+```
+
+# 3. Tissue-level gene-expression distances by draw
+
+### Prepare tissue gene draws
+
+```{r gene-tissue-draws}
+path_pred_tissue_gene_draws <-
+  file.path(path_intermediate("fig4_rebuttal"), "pred_tissue_gene_draws.rds")
+path_dist_gene_tissue_draws <-
+  file.path(path_intermediate("fig4_rebuttal"), "distance_tissue_gene_draws.rds")
+
+# Skip heavy unnest when draw-level distances are already cached.
+if (file.exists(path_dist_gene_tissue_draws)) {
+  message("Using cached tissue gene distances; skipping prediction unnest.")
+  pred_tissue_gene_draws <- NULL
+} else if (file.exists(path_pred_tissue_gene_draws)) {
+  pred_tissue_gene_draws <- readRDS(path_pred_tissue_gene_draws)
+  glimpse(pred_tissue_gene_draws)
+} else {
+  pred_total_path <- file.path(new_pred_root, "pred_total.rds")
+  if (!file.exists(pred_total_path)) {
+    stop(
+      "Missing pred_total.rds at:\n  ", pred_total_path, "\n",
+      "Place it under vignettes/data/intermediate/fig4/ ",
+      "(or set NEW_PRED_DIR). Not needed if distance_tissue_gene_draws.rds ",
+      "is already cached under fig4_rebuttal/."
+    )
+  }
+  pred_total         <- readRDS(pred_total_path)
+  pred_total_stomach <- readRDS(file.path(new_pred_root, "pred_total_stomach.rds"))
+  pred_total_missing <- readRDS(file.path(new_pred_root, "pred_total_missing.rds"))
+
+  if (!all(pred_total$.feature == short_list_total$.feature)) {
+    stop("gene list unmatch!")
+  }
+
+  pred_tissue_gene_draws <-
+    pred_total %>%
+    mutate(cell_type = short_list_total$cell_type) %>%
+    dplyr::select(-tar_group) %>%
+    bind_rows(pred_total_stomach %>% dplyr::select(.feature, pred_df, cell_type)) %>%
+    unnest(pred_df) %>%
+    filter(!tissue_groups %in% unique(pred_total_missing$tissue_groups)) %>%
+    bind_rows(
+      pred_total_missing %>%
+        dplyr::select(-tissue_groups) %>%
+        unnest(pred_df) %>%
+        dplyr::select(.feature, age_decade, tissue_groups, draws, count_avg, cell_type)
+    ) %>%
+    # Same collapse as Fig4 (mean over draws), but keep draws:
+    # Fig4: group_by(tissue, cell_type, .feature, age) %>% mean(count_avg)
+    group_by(tissue_groups, cell_type, .feature, age_decade, draws) %>%
+    summarise(count_avg = mean(count_avg, na.rm = TRUE), .groups = "drop") %>%
+    mutate(
+      sample_id = paste0("my_sample_", age_decade),
+      L3 = paste0(cell_type, "_", .feature),
+      age_decade = factor(age_decade, levels = as.character(1:9))
+    ) %>%
+    filter(age_decade %in% as.character(1:9))
+
+  saveRDS(pred_tissue_gene_draws, path_pred_tissue_gene_draws)
+  glimpse(pred_tissue_gene_draws)
+}
+```
+
+### Distance by draw (all tissues)
+
+```{r gene-tissue-distance}
+if (file.exists(path_dist_gene_tissue_draws)) {
+  distance_tissue_gene_draws <- readRDS(path_dist_gene_tissue_draws)
+} else {
+  distance_tissue_gene_draws <-
+    pred_tissue_gene_draws %>%
+    nest(data = -c(tissue_groups, draws)) %>%
+    filter(map_int(data, ~ .x |> distinct(age_decade) |> nrow()) > 2) %>%
+    filter(tissue_groups |> str_detect("trachea|sensory|endocrine", negate = TRUE)) %>%
+    mutate(
+      distance_df = map(
+        data,
+        pred_to_age_distance,
+        trans_fx = log1p,
+        .abundance = count_avg
+      )
+    ) %>%
+    dplyr::select(tissue_groups, draws, distance_df) %>%
+    unnest(distance_df)
+
+  saveRDS(distance_tissue_gene_draws, path_dist_gene_tissue_draws)
+}
+
+distance_tissue_gene <-
+  summarise_distance_draws(
+    distance_tissue_gene_draws,
+    group_vars = c("tissue_groups", "age_decade_continuous")
+  ) %>%
+  dplyr::rename(
+    step_dist_mean = step_dist_draw_mean,
+    cum_dist_mean = cum_dist_draw_mean
+  ) %>%
+  mutate(modality = "gene_expr", level = "tissue")
+
+print(distance_tissue_gene %>% group_by(tissue_groups) %>% summarise(n_ages = dplyr::n(), .groups = "drop"))
+print(distance_tissue_gene %>% filter(tissue_groups == "blood"))
+```
+
+### Sanity check — tissue gene vs Fig4 (blood + all tissues)
+
+Same distinction as body: Fig4 = distance(mean profile); rebuttal mean =
+mean(distance). Check blood in detail; report max discrepancy across tissues.
+
+```{r gene-tissue-sanity-vs-fig4}
+path_fig4_tissue <-
+  file.path(path_intermediate("fig4_rebuttal"), "distance_tissue_gene_fig4.rds")
+
+if (file.exists(path_fig4_tissue)) {
+  distance_tissue_gene_fig4 <- readRDS(path_fig4_tissue)
+} else if (!is.null(pred_tissue_gene_draws)) {
+  pred_tissue_mean_profile <-
+    pred_tissue_gene_draws %>%
+    group_by(tissue_groups, cell_type, .feature, age_decade, sample_id, L3) %>%
+    summarise(count_mean = mean(count_avg, na.rm = TRUE), .groups = "drop")
+
+  distance_tissue_gene_fig4 <-
+    pred_tissue_mean_profile %>%
+    filter(age_decade %in% as.character(1:9)) %>%
+    nest(data = -tissue_groups) %>%
+    filter(map_int(data, ~ .x |> distinct(age_decade) |> nrow()) > 2) %>%
+    filter(tissue_groups |> str_detect("trachea|sensory|endocrine", negate = TRUE)) %>%
+    mutate(distance_df = map(
+      data, pred_to_age_distance, trans_fx = log1p, .abundance = count_mean
+    )) %>%
+    dplyr::select(tissue_groups, distance_df) %>%
+    unnest(distance_df) %>%
+    as_tibble() %>%
+    dplyr::select(tissue_groups, age_decade_continuous, step_dist, cum_dist)
+  saveRDS(distance_tissue_gene_fig4, path_fig4_tissue)
+} else {
+  stop("Need distance_tissue_gene_fig4.rds or pred_tissue_gene_draws to sanity-check.")
+}
+
+gene_tissue_sanity <-
+  distance_tissue_gene_fig4 %>%
+  inner_join(
+    distance_tissue_gene %>%
+      dplyr::select(
+        tissue_groups, age_decade_continuous,
+        step_dist_mean, cum_dist_mean,
+        step_dist_lower, step_dist_upper,
+        cum_dist_lower, cum_dist_upper
+      ),
+    by = c("tissue_groups", "age_decade_continuous")
+  ) %>%
+  mutate(
+    d_step = step_dist_mean - step_dist,
+    d_cum = cum_dist_mean - cum_dist
+  )
+
+cat("Blood (Fig4 vs mean-of-draw distances):\n")
+print(
+  gene_tissue_sanity %>%
+    filter(tissue_groups == "blood") %>%
+    dplyr::select(age_decade_continuous, step_dist, step_dist_mean, d_step,
+                  cum_dist, cum_dist_mean, d_cum)
+)
+message(
+  "All tissues: max |d_step|=", signif(max(abs(gene_tissue_sanity$d_step)), 3),
+  ", max |d_cum|=", signif(max(abs(gene_tissue_sanity$d_cum)), 3)
+)
+
+# Interval construction check (blood)
+.hand_b <- distance_tissue_gene_draws %>%
+  filter(tissue_groups == "blood") %>%
+  group_by(age_decade_continuous) %>%
+  summarise(
+    step_m = mean(step_dist),
+    step_lo = unname(quantile(step_dist, 0.025)),
+    step_hi = unname(quantile(step_dist, 0.975)),
+    cum_m = mean(cum_dist),
+    cum_lo = unname(quantile(cum_dist, 0.025)),
+    cum_hi = unname(quantile(cum_dist, 0.975)),
+    .groups = "drop"
+  )
+.rb <- distance_tissue_gene %>% filter(tissue_groups == "blood")
+.stopif_diff <- function(a, b, tol = 1e-10) max(abs(a - b)) > tol
+stopifnot(
+  !.stopif_diff(.rb$step_dist_mean, .hand_b$step_m),
+  !.stopif_diff(.rb$step_dist_lower, .hand_b$step_lo),
+  !.stopif_diff(.rb$step_dist_upper, .hand_b$step_hi),
+  !.stopif_diff(.rb$cum_dist_mean, .hand_b$cum_m),
+  !.stopif_diff(.rb$cum_dist_lower, .hand_b$cum_lo),
+  !.stopif_diff(.rb$cum_dist_upper, .hand_b$cum_hi)
+)
+message("Blood gene: interval summarise OK (n_draws = ", unique(.rb$n_draws), ").")
+```
+
+### Plot — Fig4 Panel D style (tissue gene)
+
+```{r fig.width=10, fig.height=8, label="plot-tissue-gene-panel-D-original"}
+# Replicate Fig4 Panel D for gene expression only (same smooth + rescale).
+# Use posterior-mean step/cum distances in place of Fig4's point-estimate trajectory.
+
+linear_distance_tissue_gene <-
+  distance_tissue_gene_draws %>%
+  group_by(tissue_groups, age_decade_continuous) %>%
+  summarise(
+    step_dist = mean(step_dist, na.rm = TRUE),
+    cum_dist  = mean(cum_dist, na.rm = TRUE),
+    min_age_decade = min(min_age_decade, na.rm = TRUE),
+    max_age_decade = max(max_age_decade, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  nest(distance_df = -tissue_groups)
+
+smoothed_df_2D_gene_expr <-
+  smooth_ageing_velocity(linear_distance_tissue_gene, fine_grid = seq(1, 9, by = 0.05))
+
+# Same scaling / ordering as Fig4.qmd Panel D (gene_expr branch only).
+smoothed_df_2D_gene <-
+  smoothed_df_2D_gene_expr %>%
+  filter(!tissue_groups %in% c("digestive system (general)")) %>%
+  mutate(version = "gene_expr") %>%
+  mutate(step_dist_scaled = scales::rescale(step_dist, to = c(0, 10))) %>%
+  group_by(tissue_groups) %>%
+  mutate(min_main_peak = min(main_peak_age, na.rm = TRUE)) %>%
+  ungroup() %>%
+  arrange(-min_main_peak, tissue_groups)
+
+pin_first <- c("thymus", "blood")
+
+tissue_order <-
+  smoothed_df_2D_gene %>%
+  group_by(tissue_groups) %>%
+  summarise(min_main_peak = min(main_peak_age, na.rm = TRUE), .groups = "drop") %>%
+  arrange(desc(min_main_peak), tissue_groups) %>%
+  pull(tissue_groups) %>%
+  as.character()
+
+tissue_order <- c(
+  tissue_order[!tissue_order %in% pin_first],
+  pin_first[pin_first %in% tissue_order]
+)
+
+smoothed_df_2D_gene <-
+  smoothed_df_2D_gene %>%
+  mutate(tissue_groups = factor(tissue_groups, levels = tissue_order))
+
+plot_tissue_gene_panel_D_original <-
+  smoothed_df_2D_gene %>%
+  filter(between(age_decade_continuous, min_age_decade, max_age_decade)) %>%
+  ggplot(aes(x = age_decade_continuous * 10, y = tissue_groups)) +
+  geom_line(aes(color = step_dist_scaled, linewidth = step_dist_scaled)) +
+  scale_color_gradientn(
+    colors = rev(RColorBrewer::brewer.pal(11, "RdYlBu")),
+    name = "gene_expr"
+  ) +
+  scale_linewidth(range = c(0.5, 4), guide = "none") +
+  geom_point(aes(x = main_peak_age * 10), color = "black", size = 0.9) +
+  geom_point(aes(x = secondary_peak_age * 10), shape = 12, size = 0.6, color = "black") +
+  scale_y_discrete(limits = tissue_order) +
+  theme_minimal() +
+  labs(
+    title = "Panel D (gene expression) — Fig4-style smoothing & scaling",
+    x = "Age years",
+    y = "Tissue"
+  ) +
+  theme(legend.position = "right")
+
+plot_tissue_gene_panel_D_original
+```
+
+### Plot options — 95% intervals (blood gene)
+
+Same interval sketches as body gene, restricted to **blood** from
+`distance_tissue_gene` (pick one later for the rebuttal figure):
+
+1. Vertical error bars for `step_dist` and `cum_dist`
+2. Ribbon / shaded band vs age
+3. Horizontal cum_dist track with CI whiskers
+
+```{r fig.width=8, fig.height=5, label="plot-tissue-gene-blood-intervals"}
+age_years <- function(d) d * 10 - 10
+
+distance_blood_gene <-
+  distance_tissue_gene %>%
+  filter(tissue_groups == "blood")
+
+# --- Option 1: age vs distance, vertical 95% error bars -----------------------
+plot_blood_gene_step_errorbar <-
+  distance_blood_gene %>%
+  ggplot(aes(x = age_years(age_decade_continuous), y = step_dist_mean)) +
+  geom_line(linewidth = 0.4) +
+  geom_point(color = "red", size = 2.5) +
+  geom_errorbar(
+    aes(ymin = step_dist_lower, ymax = step_dist_upper),
+    width = 2, linewidth = 0.4
+  ) +
+  theme_minimal() +
+  labs(
+    title = "Blood gene — Option 1a: step_dist mean ± 95% CI",
+    x = "Age (years)", y = "Step distance"
+  )
+
+plot_blood_gene_cum_errorbar <-
+  distance_blood_gene %>%
+  ggplot(aes(x = age_years(age_decade_continuous), y = cum_dist_mean)) +
+  geom_line(linewidth = 0.4) +
+  geom_point(color = "red", size = 2.5) +
+  geom_errorbar(
+    aes(ymin = cum_dist_lower, ymax = cum_dist_upper),
+    width = 2, linewidth = 0.4
+  ) +
+  theme_minimal() +
+  labs(
+    title = "Blood gene — Option 1b: cum_dist mean ± 95% CI",
+    x = "Age (years)", y = "Cumulative distance"
+  )
+
+# --- Option 3: ribbon vs age --------------------------------------------------
+plot_blood_gene_step_ribbon <-
+  distance_blood_gene %>%
+  ggplot(aes(x = age_years(age_decade_continuous), y = step_dist_mean)) +
+  geom_ribbon(aes(ymin = step_dist_lower, ymax = step_dist_upper), alpha = 0.25) +
+  geom_line(linewidth = 0.5) +
+  geom_point(color = "red", size = 2.5) +
+  theme_minimal() +
+  labs(
+    title = "Blood gene — Option 3a: step_dist ribbon (95% CI)",
+    x = "Age (years)", y = "Step distance"
+  )
+
+plot_blood_gene_cum_ribbon <-
+  distance_blood_gene %>%
+  ggplot(aes(x = age_years(age_decade_continuous), y = cum_dist_mean)) +
+  geom_ribbon(aes(ymin = cum_dist_lower, ymax = cum_dist_upper), alpha = 0.25) +
+  geom_line(linewidth = 0.5) +
+  geom_point(color = "red", size = 2.5) +
+  theme_minimal() +
+  labs(
+    title = "Blood gene — Option 3b: cum_dist ribbon (95% CI)",
+    x = "Age (years)", y = "Cumulative distance"
+  )
+
+# --- Option 4: horizontal cum_dist track with CI whiskers ---------------------
+plot_blood_gene_cum_horizontal_ci <-
+  distance_blood_gene %>%
+  mutate(
+    x = cum_dist_mean,
+    xmin = cum_dist_lower,
+    xmax = cum_dist_upper
+  ) %>%
+  ggplot(aes(x = x, y = 0)) +
+  geom_line() +
+  geom_errorbarh(aes(xmin = xmin, xmax = xmax), height = 0.15, linewidth = 0.4) +
+  geom_point(color = "red", size = 3) +
+  geom_text(aes(label = age_years(age_decade_continuous)), vjust = -1.2, size = 3) +
+  theme_minimal() +
+  theme(
+    axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank(),
+    panel.grid.major.y = element_blank(), panel.grid.minor = element_blank()
+  ) +
+  labs(
+    title = "Blood gene — Option 4: horizontal cum_dist track with 95% CI",
+    x = "Cumulative distance"
+  )
+
+print(plot_blood_gene_step_errorbar)
+print(plot_blood_gene_cum_errorbar)
+print(plot_blood_gene_step_ribbon)
+print(plot_blood_gene_cum_ribbon)
+print(plot_blood_gene_cum_horizontal_ci)
+```
+
+# 4. Composition posterior draws
+
+Centre = distance(median proportion profile) — Fig4 plug-in estimand  
+(`sccomp` `proportion_mean` with `robust = TRUE` is the median).  
+Uncertainty = 2.5%/97.5% of distances computed **per draw**.  
+`mean`/`median` of draw-level distances are diagnostics only (`T(median(P)) ≠ median(T(P))`).
+
+
+### Cells of interest (same contrast filter as Fig4)
+
+```{r comp-cells-of-interest}
+path_cells <- file.path(path_intermediate("fig4_rebuttal"), "cells_of_interest.rds")
+
+if (file.exists(path_cells)) {
+  cells_of_interest <- readRDS(path_cells)
+} else {
+  # Same split_at_* contrast logic as Fig4; needs sccomp estimates to rebuild.
+  est <- readRDS(
+    path_sccomp_estimates("estimates_age_decade___L3___disease_FALSE___immune_only_TRUE.rds")
+  )
+  all_decades <- 1:9
+  make_contrast_string <- function(k) {
+    left  <- paste0("age_decade", all_decades[1:k], collapse = " + ")
+    right <- paste0("age_decade", all_decades[(k + 1):length(all_decades)], collapse = " + ")
+    sprintf("(%s)/%d - (%s)/%d", right, length(all_decades) - k, left, k)
+  }
+  contrast_strings <- sapply(1:(length(all_decades) - 1), make_contrast_string)
+  contrast_strings <- map_chr(
+    contrast_strings,
+    ~ str_replace_all(.x, "\\b(age_decade\\d+|0)\\b", "`\\1`")
+  )
+  contrast_strings <- map_chr(contrast_strings, ~ str_replace_all(.x, "`age_decade5`", "0"))
+  names(contrast_strings) <- paste0("split_at_", all_decades[2:length(all_decades)])
+  my_test <- est |> sccomp::sccomp_test(contrasts = contrast_strings)
+  cells_of_interest <-
+    my_test |>
+    dplyr::filter(c_pH0 < 0.05) |>
+    dplyr::count(L3) |>
+    dplyr::arrange(dplyr::desc(n)) |>
+    dplyr::pull(L3)
+  saveRDS(cells_of_interest, path_cells)
+}
+
+cells_of_interest
+```
+
+### Validation — sccomp robust summary ≡ manual median (same rng)
+
+One shared `replicate_data()` rng → native `summary_to_tibble(..., robust = TRUE)`
+vs manual median / 2.5%–97.5% of those draws → both through `pred_to_age_distance()`.
+Two separate `sccomp_predict()` calls are not a same-draw test. Caches:
+`*_validation_seed12345.rds` under `fig4_rebuttal/` (delete to rebuild).
+
+```{r comp-sccomp-validation-fixed-seed}
+sccomp_validation_seed <- 12345L
+sccomp_validation_n_draws <- 500L
+tol_soft <- 1e-8
+
+path_validation_draws <- file.path(
+  path_intermediate("fig4_rebuttal"),
+  sprintf("sccomp_age_pred_draws_validation_seed%d.rds", sccomp_validation_seed)
+)
+path_validation_summary <- file.path(
+  path_intermediate("fig4_rebuttal"),
+  sprintf("sccomp_age_pred_summary_validation_seed%d.rds", sccomp_validation_seed)
+)
+path_validation_distance <- file.path(
+  path_intermediate("fig4_rebuttal"),
+  sprintf("distance_body_composition_validation_seed%d.rds", sccomp_validation_seed)
+)
+
+est_validation <- readRDS(
+  path_sccomp_estimates("estimates_age_decade___L3___disease_FALSE___immune_only_TRUE.rds")
+)
+
+new_data_validation <-
+  est_validation |>
+  attr("count_data") |>
+  sccomp:::.subset(sample_id) |>
+  dplyr::distinct(age_decade) |>
+  dplyr::mutate(sex = NA, ethnicity_groups_imputed = NA) |>
+  dplyr::arrange(age_decade) |>
+  dplyr::mutate(sample_id = paste0("my_sample_", dplyr::row_number()))
+
+.sample_val <- attr(est_validation, ".sample")
+.cell_group_val <- attr(est_validation, ".cell_group")
+model_input_val <- attr(est_validation, "model_input")
+sample_names_val <- new_data_validation |>
+  dplyr::distinct(!!.sample_val) |>
+  dplyr::pull(!!.sample_val)
+
+sccomp_attach_prediction_ids <- function(prediction_df) {
+  pred <-
+    prediction_df |>
+    tidyr::nest(data = -N) |>
+    dplyr::arrange(N) |>
+    dplyr::mutate(!!.sample_val := sample_names_val) |>
+    tidyr::unnest(data) |>
+    tidyr::nest(data = -M) |>
+    dplyr::mutate(!!.cell_group_val := colnames(model_input_val$y)) |>
+    tidyr::unnest(data) |>
+    dplyr::select(-N, -M) |>
+    dplyr::select(!!.cell_group_val, !!.sample_val, dplyr::everything())
+  dplyr::left_join(new_data_validation, pred, by = dplyr::join_by(!!.sample_val))
+}
+
+if (file.exists(path_validation_summary) && file.exists(path_validation_draws)) {
+  pred_comp_summary_validation <- readRDS(path_validation_summary)
+  pred_comp_draws_validation <- readRDS(path_validation_draws)
+} else {
+  set.seed(sccomp_validation_seed)
+  rng_validation <- sccomp:::replicate_data(
+    est_validation,
+    formula_composition = ~ age_decade * sex + ethnicity_groups_imputed,
+    formula_variability = ~1,
+    new_data = new_data_validation,
+    number_of_draws = sccomp_validation_n_draws,
+    mcmc_seed = sccomp_validation_seed
+  )
+  pred_comp_summary_validation <-
+    sccomp:::summary_to_tibble(rng_validation, "mu", "M", "N", robust = TRUE) |>
+    dplyr::select(
+      M, N,
+      proportion_mean = dplyr::any_of(c("mean", "median")),
+      proportion_lower = `2.5%`,
+      proportion_upper = `97.5%`
+    ) |>
+    sccomp_attach_prediction_ids()
+  pred_comp_draws_validation <-
+    sccomp:::draws_to_tibble_x_y(rng_validation, "mu", "M", "N") |>
+    dplyr::select(M, N, proportion = .value, .draw) |>
+    sccomp_attach_prediction_ids()
+  saveRDS(pred_comp_summary_validation, path_validation_summary)
+  saveRDS(pred_comp_draws_validation, path_validation_draws)
+}
+
+pred_comp_manual_validation <-
+  pred_comp_draws_validation %>%
+  dplyr::group_by(sample_id, age_decade, L3) %>%
+  dplyr::summarise(
+    proportion_manual = stats::median(proportion, na.rm = TRUE),
+    proportion_lower_manual = unname(stats::quantile(proportion, 0.025, na.rm = TRUE)),
+    proportion_upper_manual = unname(stats::quantile(proportion, 0.975, na.rm = TRUE)),
+    .groups = "drop"
+  )
+
+comp_prop_validation <-
+  pred_comp_summary_validation %>%
+  dplyr::select(sample_id, age_decade, L3, proportion_mean, proportion_lower, proportion_upper) %>%
+  dplyr::inner_join(pred_comp_manual_validation, by = c("sample_id", "age_decade", "L3")) %>%
+  dplyr::mutate(
+    d_centre = proportion_manual - proportion_mean,
+    d_lower = proportion_lower_manual - proportion_lower,
+    d_upper = proportion_upper_manual - proportion_upper
+  )
+
+validation_prop_summary <- tibble::tibble(
+  max_abs_diff_centre = max(abs(comp_prop_validation$d_centre), na.rm = TRUE),
+  mean_abs_diff_centre = mean(abs(comp_prop_validation$d_centre), na.rm = TRUE),
+  max_abs_diff_lower = max(abs(comp_prop_validation$d_lower), na.rm = TRUE),
+  max_abs_diff_upper = max(abs(comp_prop_validation$d_upper), na.rm = TRUE),
+  n_rows = nrow(comp_prop_validation)
+)
+print(validation_prop_summary)
+
+if (max(
+  validation_prop_summary$max_abs_diff_centre,
+  validation_prop_summary$max_abs_diff_lower,
+  validation_prop_summary$max_abs_diff_upper
+) > tol_soft) {
+  stop(
+    "FAIL: same-rng proportion summaries diverge. ",
+    "max|centre|=", signif(validation_prop_summary$max_abs_diff_centre, 6),
+    ", max|lower|=", signif(validation_prop_summary$max_abs_diff_lower, 6),
+    ", max|upper|=", signif(validation_prop_summary$max_abs_diff_upper, 6)
+  )
+}
+message("PASS: native robust summary ≈ manual median/quantile.")
+
+distance_native_validation <-
+  pred_comp_summary_validation %>%
+  dplyr::filter(L3 %in% cells_of_interest) %>%
+  pred_to_age_distance(scale = TRUE, trans_fx = compositions::clr, .abundance = proportion_mean) %>%
+  tibble::as_tibble() %>%
+  dplyr::select(age_decade_continuous, step_dist, cum_dist)
+
+distance_manual_validation <-
+  pred_comp_manual_validation %>%
+  dplyr::filter(L3 %in% cells_of_interest) %>%
+  pred_to_age_distance(scale = TRUE, trans_fx = compositions::clr, .abundance = proportion_manual) %>%
+  tibble::as_tibble() %>%
+  dplyr::select(age_decade_continuous, step_dist, cum_dist)
+
+comp_dist_validation <-
+  distance_native_validation %>%
+  dplyr::inner_join(
+    distance_manual_validation,
+    by = "age_decade_continuous",
+    suffix = c("_native", "_manual")
+  ) %>%
+  dplyr::mutate(
+    d_step = step_dist_manual - step_dist_native,
+    d_cum = cum_dist_manual - cum_dist_native
+  )
+
+validation_dist_summary <- tibble::tibble(
+  max_abs_diff_step = max(abs(comp_dist_validation$d_step), na.rm = TRUE),
+  max_abs_diff_cum = max(abs(comp_dist_validation$d_cum), na.rm = TRUE)
+)
+print(validation_dist_summary)
+
+if (max(
+  validation_dist_summary$max_abs_diff_step,
+  validation_dist_summary$max_abs_diff_cum
+) > tol_soft) {
+  stop(
+    "FAIL: same-rng distances diverge. ",
+    "max|step|=", signif(validation_dist_summary$max_abs_diff_step, 6),
+    ", max|cum|=", signif(validation_dist_summary$max_abs_diff_cum, 6)
+  )
+}
+message("PASS: distance(native robust) ≈ distance(manual median).")
+
+saveRDS(
+  list(
+    prop = validation_prop_summary,
+    dist = validation_dist_summary,
+    seed = sccomp_validation_seed,
+    n_draws = sccomp_validation_n_draws
+  ),
+  path_validation_distance
+)
+```
+
+### Prepare body composition draws
+
+```{r comp-body-draws}
+path_sccomp_age_pred_draws <-
+  file.path(path_intermediate("fig4_rebuttal"), "sccomp_age_pred_draws.rds")
+
+if (file.exists(path_sccomp_age_pred_draws)) {
+  pred_comp_draws <- readRDS(path_sccomp_age_pred_draws)
+} else {
+  est <- readRDS(
+    path_sccomp_estimates("estimates_age_decade___L3___disease_FALSE___immune_only_TRUE.rds")
+  )
+  pred_comp_draws <-
+    est |>
+    sccomp::sccomp_predict(
+      formula_composition = ~ age_decade * sex + ethnicity_groups_imputed,
+      new_data =
+        est |>
+        attr("count_data") |>
+        sccomp:::.subset(sample_id) |>
+        dplyr::distinct(age_decade) |>
+        dplyr::mutate(sex = NA, ethnicity_groups_imputed = NA) |>
+        dplyr::arrange(age_decade) |>
+        dplyr::mutate(sample_id = paste0("my_sample_", dplyr::row_number())),
+      summary_instead_of_draws = FALSE,
+      number_of_draws = 500
+    ) |>
+    dplyr::mutate(sample_id_original = sample_id) |>
+    tidyr::unite("sample_id", c(sample_id, .draw), remove = FALSE)
+  saveRDS(pred_comp_draws, path_sccomp_age_pred_draws)
+}
+
+pred_comp_draws <-
+  pred_comp_draws %>%
+  dplyr::mutate(draws = as.character(.draw)) %>%
+  dplyr::filter(L3 %in% cells_of_interest)
+
+dplyr::glimpse(pred_comp_draws)
+```
+
+# 5. Body-level composition distances by draw
+
+### Distance by draw (body composition)
+
+```{r comp-body-distance}
+path_dist_comp_body_draws <-
+  file.path(path_intermediate("fig4_rebuttal"), "distance_body_composition_draws.rds")
+
+if (file.exists(path_dist_comp_body_draws)) {
+  distance_body_composition_draws <- readRDS(path_dist_comp_body_draws)
+} else {
+  distance_body_composition_draws <-
+    pred_comp_draws %>%
+    nest(data = -draws) %>%
+    mutate(
+      distance_df = map(
+        data,
+        pred_to_age_distance,
+        scale = TRUE,
+        trans_fx = compositions::clr,
+        .abundance = proportion
+      )
+    ) %>%
+    dplyr::select(draws, distance_df) %>%
+    unnest(distance_df)
+
+  saveRDS(distance_body_composition_draws, path_dist_comp_body_draws)
+}
+
+# Draw-distribution summaries (diagnostics + CI only)
+distance_body_composition_draw_summaries <-
+  summarise_distance_draws(
+    distance_body_composition_draws,
+    group_vars = c("age_decade_continuous")
+  )
+
+# Centre = distance(component-wise median proportion profile) — Fig4 plug-in estimand
+distance_body_composition_plugin <-
+  pred_comp_draws %>%
+  group_by(age_decade, sample_id_original, L3) %>%
+  summarise(proportion_median = median(proportion, na.rm = TRUE), .groups = "drop") %>%
+  mutate(sample_id = as.character(sample_id_original)) %>%
+  pred_to_age_distance(
+    scale = TRUE, trans_fx = compositions::clr, .abundance = proportion_median
+  ) %>%
+  as_tibble() %>%
+  dplyr::select(
+    age_decade_continuous,
+    step_dist_centre = step_dist,
+    cum_dist_centre = cum_dist
+  )
+
+distance_body_composition <-
+  distance_body_composition_draw_summaries %>%
+  left_join(distance_body_composition_plugin, by = "age_decade_continuous") %>%
+  mutate(modality = "composition", level = "body") %>%
+  dplyr::select(
+    age_decade_continuous,
+    step_dist_centre, step_dist_lower, step_dist_upper,
+    cum_dist_centre, cum_dist_lower, cum_dist_upper,
+    step_dist_draw_mean, step_dist_draw_median,
+    cum_dist_draw_mean, cum_dist_draw_median,
+    n_draws, modality, level
+  )
+
+print(distance_body_composition)
+```
+
+### Plot — Fig4 Panel A style (body composition)
+
+```{r fig.width=6, fig.height=2, label="plot-comp-body-distance-original"}
+plot_comp_body_distance_original <-
+  distance_body_composition %>%
+  mutate(cum_dist_scaled = scales::rescale(cum_dist_centre, to = c(0, 10))) %>%
+  ggplot(aes(x = cum_dist_scaled, y = 0)) +
+  geom_line() +
+  geom_point(color = "red", size = 3) +
+  geom_text(aes(label = age_decade_continuous * 10 - 10), vjust = -1, size = 3) +
+  theme_minimal() +
+  theme(
+    axis.title.x = element_blank(), axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+    axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank(),
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank()
+  ) +
+  labs(title = "Composition — body (median-profile plug-in cum_dist; Fig4 estimand)")
+
+plot_comp_body_distance_original
+```
+
+### Plot options — 95% intervals (body composition)
+
+Same sketches as body gene (pick one later):
+
+1. Vertical error bars (`step_dist`, `cum_dist`)
+2. Ribbon vs age
+3. Horizontal cum_dist track with CI whiskers
+
+```{r fig.width=8, fig.height=5, label="plot-comp-body-distance-intervals"}
+age_years <- function(d) d * 10 - 10
+
+plot_comp_body_step_errorbar <-
+  distance_body_composition %>%
+  ggplot(aes(x = age_years(age_decade_continuous), y = step_dist_centre)) +
+  geom_line(linewidth = 0.4) +
+  geom_point(color = "red", size = 2.5) +
+  geom_errorbar(
+    aes(ymin = step_dist_lower, ymax = step_dist_upper),
+    width = 2, linewidth = 0.4
+  ) +
+  theme_minimal() +
+  labs(
+    title = "Body composition — Option 1a: step_dist plug-in ± 95% CI (draws)",
+    x = "Age (years)", y = "Step distance"
+  )
+
+plot_comp_body_cum_errorbar <-
+  distance_body_composition %>%
+  ggplot(aes(x = age_years(age_decade_continuous), y = cum_dist_centre)) +
+  geom_line(linewidth = 0.4) +
+  geom_point(color = "red", size = 2.5) +
+  geom_errorbar(
+    aes(ymin = cum_dist_lower, ymax = cum_dist_upper),
+    width = 2, linewidth = 0.4
+  ) +
+  theme_minimal() +
+  labs(
+    title = "Body composition — Option 1b: cum_dist plug-in ± 95% CI (draws)",
+    x = "Age (years)", y = "Cumulative distance"
+  )
+
+plot_comp_body_step_ribbon <-
+  distance_body_composition %>%
+  ggplot(aes(x = age_years(age_decade_continuous), y = step_dist_centre)) +
+  geom_ribbon(aes(ymin = step_dist_lower, ymax = step_dist_upper), alpha = 0.25) +
+  geom_line(linewidth = 0.5) +
+  geom_point(color = "red", size = 2.5) +
+  theme_minimal() +
+  labs(
+    title = "Body composition — Option 3a: step_dist ribbon (95% CI)",
+    x = "Age (years)", y = "Step distance"
+  )
+
+plot_comp_body_cum_ribbon <-
+  distance_body_composition %>%
+  ggplot(aes(x = age_years(age_decade_continuous), y = cum_dist_centre)) +
+  geom_ribbon(aes(ymin = cum_dist_lower, ymax = cum_dist_upper), alpha = 0.25) +
+  geom_line(linewidth = 0.5) +
+  geom_point(color = "red", size = 2.5) +
+  theme_minimal() +
+  labs(
+    title = "Body composition — Option 3b: cum_dist ribbon (95% CI)",
+    x = "Age (years)", y = "Cumulative distance"
+  )
+
+plot_comp_body_cum_horizontal_ci <-
+  distance_body_composition %>%
+  mutate(x = cum_dist_centre, xmin = cum_dist_lower, xmax = cum_dist_upper) %>%
+  ggplot(aes(x = x, y = 0)) +
+  geom_line() +
+  geom_errorbarh(aes(xmin = xmin, xmax = xmax), height = 0.15, linewidth = 0.4) +
+  geom_point(color = "red", size = 3) +
+  geom_text(aes(label = age_years(age_decade_continuous)), vjust = -1.2, size = 3) +
+  theme_minimal() +
+  theme(
+    axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank(),
+    panel.grid.major.y = element_blank(), panel.grid.minor = element_blank()
+  ) +
+  labs(
+    title = "Body composition — Option 4: horizontal cum_dist track with 95% CI",
+    x = "Cumulative distance"
+  )
+
+print(plot_comp_body_step_errorbar)
+print(plot_comp_body_cum_errorbar)
+print(plot_comp_body_step_ribbon)
+print(plot_comp_body_cum_ribbon)
+print(plot_comp_body_cum_horizontal_ci)
+```
+
+# 6. Tissue-level composition distances by draw
+
+### Prepare tissue composition draws
+
+```{r comp-tissue-draws}
+path_sccomp_age_tissue_pred_draws <-
+  file.path(path_intermediate("fig4_rebuttal"), "sccomp_age_tissue_pred_draws.rds")
+
+if (file.exists(path_sccomp_age_tissue_pred_draws)) {
+  pred_comp_tissue_draws <- readRDS(path_sccomp_age_tissue_pred_draws)
+} else {
+  est <- readRDS(
+    path_sccomp_estimates("estimates_age_decade___L3___disease_FALSE___immune_only_TRUE.rds")
+  )
+  pred_comp_tissue_draws <-
+    est |>
+    sccomp::sccomp_predict(
+      formula_composition = ~ age_decade * sex + ethnicity_groups_imputed +
+        (age_decade * sex + ethnicity_groups_imputed | tissue_groups),
+      new_data =
+        est |>
+        attr("count_data") |>
+        sccomp:::.subset(sample_id) |>
+        dplyr::distinct(age_decade, tissue_groups) |>
+        dplyr::arrange(age_decade) |>
+        dplyr::mutate(sex = NA, ethnicity_groups_imputed = NA) |>
+        dplyr::mutate(sample_id = paste0("my_sample_", dplyr::row_number())) |>
+        dplyr::mutate(sample_id = dplyr::if_else(
+          is.na(sample_id),
+          paste0("my_sample_imputed_", dplyr::row_number()),
+          sample_id
+        )),
+      summary_instead_of_draws = FALSE,
+      number_of_draws = 500
+      # mcmc_seed default (random); delete tissue composition caches if regenerating.
+    ) |>
+    dplyr::mutate(sample_id_original = sample_id) |>
+    tidyr::unite("sample_id", c(sample_id, .draw), remove = FALSE)
+  saveRDS(pred_comp_tissue_draws, path_sccomp_age_tissue_pred_draws)
+}
+
+# Fig4 tissue composition distance uses all predicted L3 (no cells_of_interest filter).
+pred_comp_tissue_draws <-
+  pred_comp_tissue_draws %>%
+  dplyr::mutate(draws = as.character(.draw)) %>%
+  dplyr::filter(age_decade %in% as.character(1:9))
+
+dplyr::glimpse(pred_comp_tissue_draws)
+```
+
+### Distance by draw (all tissues)
+
+```{r comp-tissue-distance}
+path_dist_comp_tissue_draws <-
+  file.path(path_intermediate("fig4_rebuttal"), "distance_tissue_composition_draws.rds")
+
+if (file.exists(path_dist_comp_tissue_draws)) {
+  distance_tissue_composition_draws <- readRDS(path_dist_comp_tissue_draws)
+} else {
+  distance_tissue_composition_draws <-
+    pred_comp_tissue_draws %>%
+    nest(data = -c(tissue_groups, draws)) %>%
+    filter(map_int(data, ~ .x |> distinct(age_decade) |> nrow()) > 2) %>%
+    filter(tissue_groups |> str_detect("trachea|sensory|endocrine", negate = TRUE)) %>%
+    mutate(
+      distance_df = map(
+        data,
+        pred_to_age_distance,
+        scale = TRUE,
+        trans_fx = compositions::clr,
+        .abundance = proportion
+      )
+    ) %>%
+    dplyr::select(tissue_groups, draws, distance_df) %>%
+    unnest(distance_df)
+
+  saveRDS(distance_tissue_composition_draws, path_dist_comp_tissue_draws)
+}
+
+distance_tissue_composition_draw_summaries <-
+  summarise_distance_draws(
+    distance_tissue_composition_draws,
+    group_vars = c("tissue_groups", "age_decade_continuous")
+  )
+
+# Centre = dist(median proportion profile) per tissue (Fig4 robust plug-in estimand)
+distance_tissue_composition_plugin <-
+  pred_comp_tissue_draws %>%
+  group_by(tissue_groups, age_decade, sample_id_original, L3) %>%
+  summarise(proportion_median = median(proportion, na.rm = TRUE), .groups = "drop") %>%
+  mutate(sample_id = as.character(sample_id_original)) %>%
+  nest(data = -tissue_groups) %>%
+  filter(map_int(data, ~ .x |> distinct(age_decade) |> nrow()) > 2) %>%
+  filter(tissue_groups |> str_detect("trachea|sensory|endocrine", negate = TRUE)) %>%
+  mutate(distance_df = map(
+    data,
+    pred_to_age_distance,
+    scale = TRUE,
+    trans_fx = compositions::clr,
+    .abundance = proportion_median
+  )) %>%
+  dplyr::select(tissue_groups, distance_df) %>%
+  unnest(distance_df) %>%
+  as_tibble() %>%
+  dplyr::select(
+    tissue_groups, age_decade_continuous,
+    step_dist_centre = step_dist,
+    cum_dist_centre = cum_dist
+  ) %>%
+  tibble::as_tibble()
+
+distance_tissue_composition <-
+  distance_tissue_composition_draw_summaries %>%
+  inner_join(
+    distance_tissue_composition_plugin,
+    by = c("tissue_groups", "age_decade_continuous")
+  ) %>%
+  mutate(modality = "composition", level = "tissue") %>%
+  dplyr::select(
+    tissue_groups, age_decade_continuous,
+    step_dist_centre, step_dist_lower, step_dist_upper,
+    cum_dist_centre, cum_dist_lower, cum_dist_upper,
+    step_dist_draw_mean, step_dist_draw_median,
+    cum_dist_draw_mean, cum_dist_draw_median,
+    n_draws, modality, level
+  )
+
+print(distance_tissue_composition %>% group_by(tissue_groups) %>% summarise(n_ages = dplyr::n(), .groups = "drop"))
+print(distance_tissue_composition %>% filter(tissue_groups == "blood"))
+```
+
+### Plot — Fig4 Panel D style (tissue composition)
+
+```{r fig.width=10, fig.height=8, label="plot-tissue-comp-panel-D-original"}
+# Smooth the robust plug-in trajectory (median profile → distance), same as Fig4 centre.
+linear_distance_tissue_comp <-
+  distance_tissue_composition %>%
+  dplyr::transmute(
+    tissue_groups,
+    age_decade_continuous,
+    step_dist = step_dist_centre,
+    cum_dist = cum_dist_centre
+  ) %>%
+  dplyr::left_join(
+    distance_tissue_composition_draws %>%
+      dplyr::group_by(tissue_groups) %>%
+      dplyr::summarise(
+        min_age_decade = min(min_age_decade, na.rm = TRUE),
+        max_age_decade = max(max_age_decade, na.rm = TRUE),
+        .groups = "drop"
+      ),
+    by = "tissue_groups"
+  ) %>%
+  tidyr::nest(distance_df = -tissue_groups)
+
+smoothed_df_2D_composition <-
+  smooth_ageing_velocity(linear_distance_tissue_comp, fine_grid = seq(1, 10, by = 0.05))
+
+smoothed_df_2D_comp <-
+  smoothed_df_2D_composition %>%
+  filter(!tissue_groups %in% c("digestive system (general)")) %>%
+  mutate(version = "composition") %>%
+  mutate(step_dist_scaled = scales::rescale(step_dist, to = c(0, 10))) %>%
+  group_by(tissue_groups) %>%
+  mutate(min_main_peak = min(main_peak_age, na.rm = TRUE)) %>%
+  ungroup() %>%
+  arrange(-min_main_peak, tissue_groups)
+
+pin_first <- c("thymus", "blood")
+
+tissue_order_comp <-
+  smoothed_df_2D_comp %>%
+  group_by(tissue_groups) %>%
+  summarise(min_main_peak = min(main_peak_age, na.rm = TRUE), .groups = "drop") %>%
+  arrange(desc(min_main_peak), tissue_groups) %>%
+  pull(tissue_groups) %>%
+  as.character()
+
+tissue_order_comp <- c(
+  tissue_order_comp[!tissue_order_comp %in% pin_first],
+  pin_first[pin_first %in% tissue_order_comp]
+)
+
+smoothed_df_2D_comp <-
+  smoothed_df_2D_comp %>%
+  mutate(tissue_groups = factor(tissue_groups, levels = tissue_order_comp))
+
+plot_tissue_comp_panel_D_original <-
+  smoothed_df_2D_comp %>%
+  filter(between(age_decade_continuous, min_age_decade, max_age_decade)) %>%
+  ggplot(aes(x = age_decade_continuous * 10, y = tissue_groups)) +
+  geom_line(aes(color = step_dist_scaled, linewidth = step_dist_scaled)) +
+  scale_color_gradientn(
+    colors = rev(RColorBrewer::brewer.pal(11, "RdYlBu")),
+    name = "composition"
+  ) +
+  scale_linewidth(range = c(0.5, 4), guide = "none") +
+  geom_point(aes(x = main_peak_age * 10), color = "black", size = 0.9) +
+  geom_point(aes(x = secondary_peak_age * 10), shape = 12, size = 0.6, color = "black") +
+  scale_y_discrete(limits = tissue_order_comp) +
+  theme_minimal() +
+  labs(
+    title = "Panel D (composition) — Fig4-style smoothing & scaling",
+    x = "Age years",
+    y = "Tissue"
+  ) +
+  theme(legend.position = "right")
+
+plot_tissue_comp_panel_D_original
+```
+
+### Plot options — 95% intervals (blood composition)
+
+```{r fig.width=8, fig.height=5, label="plot-tissue-comp-blood-intervals"}
+age_years <- function(d) d * 10 - 10
+
+distance_blood_composition <-
+  distance_tissue_composition %>%
+  filter(tissue_groups == "blood")
+
+plot_blood_comp_step_errorbar <-
+  distance_blood_composition %>%
+  ggplot(aes(x = age_years(age_decade_continuous), y = step_dist_centre)) +
+  geom_line(linewidth = 0.4) +
+  geom_point(color = "red", size = 2.5) +
+  geom_errorbar(
+    aes(ymin = step_dist_lower, ymax = step_dist_upper),
+    width = 2, linewidth = 0.4
+  ) +
+  theme_minimal() +
+  labs(
+    title = "Blood composition — Option 1a: step_dist plug-in ± 95% CI (draws)",
+    x = "Age (years)", y = "Step distance"
+  )
+
+plot_blood_comp_cum_errorbar <-
+  distance_blood_composition %>%
+  ggplot(aes(x = age_years(age_decade_continuous), y = cum_dist_centre)) +
+  geom_line(linewidth = 0.4) +
+  geom_point(color = "red", size = 2.5) +
+  geom_errorbar(
+    aes(ymin = cum_dist_lower, ymax = cum_dist_upper),
+    width = 2, linewidth = 0.4
+  ) +
+  theme_minimal() +
+  labs(
+    title = "Blood composition — Option 1b: cum_dist plug-in ± 95% CI (draws)",
+    x = "Age (years)", y = "Cumulative distance"
+  )
+
+plot_blood_comp_step_ribbon <-
+  distance_blood_composition %>%
+  ggplot(aes(x = age_years(age_decade_continuous), y = step_dist_centre)) +
+  geom_ribbon(aes(ymin = step_dist_lower, ymax = step_dist_upper), alpha = 0.25) +
+  geom_line(linewidth = 0.5) +
+  geom_point(color = "red", size = 2.5) +
+  theme_minimal() +
+  labs(
+    title = "Blood composition — Option 3a: step_dist ribbon (95% CI)",
+    x = "Age (years)", y = "Step distance"
+  )
+
+plot_blood_comp_cum_ribbon <-
+  distance_blood_composition %>%
+  ggplot(aes(x = age_years(age_decade_continuous), y = cum_dist_centre)) +
+  geom_ribbon(aes(ymin = cum_dist_lower, ymax = cum_dist_upper), alpha = 0.25) +
+  geom_line(linewidth = 0.5) +
+  geom_point(color = "red", size = 2.5) +
+  theme_minimal() +
+  labs(
+    title = "Blood composition — Option 3b: cum_dist ribbon (95% CI)",
+    x = "Age (years)", y = "Cumulative distance"
+  )
+
+plot_blood_comp_cum_horizontal_ci <-
+  distance_blood_composition %>%
+  mutate(x = cum_dist_centre, xmin = cum_dist_lower, xmax = cum_dist_upper) %>%
+  ggplot(aes(x = x, y = 0)) +
+  geom_line() +
+  geom_errorbarh(aes(xmin = xmin, xmax = xmax), height = 0.15, linewidth = 0.4) +
+  geom_point(color = "red", size = 3) +
+  geom_text(aes(label = age_years(age_decade_continuous)), vjust = -1.2, size = 3) +
+  theme_minimal() +
+  theme(
+    axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank(),
+    panel.grid.major.y = element_blank(), panel.grid.minor = element_blank()
+  ) +
+  labs(
+    title = "Blood composition — Option 4: horizontal cum_dist track with 95% CI",
+    x = "Cumulative distance"
+  )
+
+print(plot_blood_comp_step_errorbar)
+print(plot_blood_comp_cum_errorbar)
+print(plot_blood_comp_step_ribbon)
+print(plot_blood_comp_cum_ribbon)
+print(plot_blood_comp_cum_horizontal_ci)
+```
+
+# 7. Panel D — ageing velocity from draw-level step_dist
+
+For each draw, apply the same decade → fine-grid interpolation used in Fig4,
+then summarise velocity (`step_dist`) across draws.
+
+```{r velocity-gene}
+path_velocity_gene_draws <-
+  file.path(path_intermediate("fig4_rebuttal"), "velocity_tissue_gene_draws.rds")
+
+fine_grid_gene <- seq(1, 9, by = 0.05)
+
+if (file.exists(path_velocity_gene_draws)) {
+  velocity_tissue_gene_draws <- readRDS(path_velocity_gene_draws)
+} else {
+  velocity_tissue_gene_draws <-
+    distance_tissue_gene_draws %>%
+    nest(distance_df = -c(tissue_groups, draws)) %>%
+    nest(tissue_block = -draws) %>%
+    mutate(
+      smoothed = map(
+        tissue_block,
+        ~ smooth_ageing_velocity(.x, fine_grid = fine_grid_gene)
+      )
+    ) %>%
+    dplyr::select(draws, smoothed) %>%
+    unnest(smoothed)
+
+  saveRDS(velocity_tissue_gene_draws, path_velocity_gene_draws)
+}
+
+velocity_tissue_gene <-
+  summarise_distance_draws(
+    velocity_tissue_gene_draws,
+    group_vars = c("tissue_groups", "age_decade_continuous")
+  ) %>%
+  dplyr::rename(
+    step_dist_mean = step_dist_draw_mean,
+    cum_dist_mean = cum_dist_draw_mean
+  ) %>%
+  mutate(modality = "gene_expr", level = "tissue_velocity")
+
+glimpse(velocity_tissue_gene)
+```
+
+```{r velocity-composition}
+path_velocity_comp_draws <-
+  file.path(path_intermediate("fig4_rebuttal"), "velocity_tissue_composition_draws.rds")
+
+fine_grid_comp <- seq(1, 10, by = 0.05)
+
+if (file.exists(path_velocity_comp_draws)) {
+  velocity_tissue_composition_draws <- readRDS(path_velocity_comp_draws)
+} else {
+  velocity_tissue_composition_draws <-
+    distance_tissue_composition_draws %>%
+    nest(distance_df = -c(tissue_groups, draws)) %>%
+    nest(tissue_block = -draws) %>%
+    mutate(
+      smoothed = map(
+        tissue_block,
+        ~ smooth_ageing_velocity(.x, fine_grid = fine_grid_comp)
+      )
+    ) %>%
+    dplyr::select(draws, smoothed) %>%
+    unnest(smoothed)
+
+  saveRDS(velocity_tissue_composition_draws, path_velocity_comp_draws)
+}
+
+velocity_tissue_composition <-
+  summarise_distance_draws(
+    velocity_tissue_composition_draws,
+    group_vars = c("tissue_groups", "age_decade_continuous")
+  ) %>%
+  mutate(modality = "composition", level = "tissue_velocity")
+
+glimpse(velocity_tissue_composition)
+```
+
+# 8. Summary tables for later plotting
+
+```{r save-summaries}
+# Named objects ready for age → mean ± 95% CI plots (not drawn here).
+saveRDS(
+  distance_body_composition,
+  file.path(path_intermediate("fig4_rebuttal"), "distance_body_composition.rds")
+)
+saveRDS(
+  distance_body_gene,
+  file.path(path_intermediate("fig4_rebuttal"), "distance_body_gene.rds")
+)
+saveRDS(
+  distance_tissue_composition,
+  file.path(path_intermediate("fig4_rebuttal"), "distance_tissue_composition.rds")
+)
+saveRDS(
+  distance_tissue_gene,
+  file.path(path_intermediate("fig4_rebuttal"), "distance_tissue_gene.rds")
+)
+saveRDS(
+  velocity_tissue_composition,
+  file.path(path_intermediate("fig4_rebuttal"), "velocity_tissue_composition.rds")
+)
+saveRDS(
+  velocity_tissue_gene,
+  file.path(path_intermediate("fig4_rebuttal"), "velocity_tissue_gene.rds")
+)
+
+cat("\nColumn naming note: gene uses step/cum_dist_mean (= mean of draw distances);\n")
+cat("composition uses step/cum_dist_centre (= distance of median proportion profile).\n\n")
+
+cat("Body gene:\n")
+print(distance_body_gene %>% dplyr::select(age_decade_continuous, starts_with("cum_dist")))
+
+cat("\nBody composition:\n")
+print(distance_body_composition %>% dplyr::select(age_decade_continuous, starts_with("cum_dist")))
+
+cat("\nDraw-level objects retained:\n")
+cat("  distance_body_gene_draws\n")
+cat("  distance_tissue_gene_draws\n")
+cat("  distance_body_composition_draws\n")
+cat("  distance_tissue_composition_draws\n")
+cat("  velocity_tissue_gene_draws\n")
+cat("  velocity_tissue_composition_draws\n")
+```
+
+## Session info
+
+```{r}
+sessionInfo()
+```

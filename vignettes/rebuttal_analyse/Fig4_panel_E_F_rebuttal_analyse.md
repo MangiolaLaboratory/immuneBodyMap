@@ -1,73 +1,55 @@
----
-title: "Figure 4 rebuttal — Blood ageing clock (Panels E & F)"
-date: today
-date-format: "DD MMM YYYY"
-title-block-banner: true
-author:
-  - name: Chen Zhan
-    orcid: 0000-0002-4794-8339
-    email: chen.zhan@adelaide.edu.au
-    affiliation:
-      - id: sgc
-        name: SAiGENCI, The University of Adelaide
-format:
-  html:
-    theme: minty
-    df-print: paged
-    code-line-numbers: true
-    embed-resources: true
-    code-fold: true
-    code-fold-default: true
-    toc: true
-    toc-location: left
-    toc-title: "Menu"
-  gfm:
-    toc: true
-knitr:
-  opts_chunk:
-    message: false
-    warning: false
-editor: source
-abstract: |
-  Rebuttal of the Figure 4 blood LASSO clock: donor-level train/test splits,
-  donor-aware CV, repeated evaluation, size-matched transfer metrics, and a
-  tissue vs blood comparison of selected markers against published scImmuAging
-  biomarkers.
----
+# Figure 4 rebuttal — Blood ageing clock (Panels E & F)
+Chen Zhan
+19 Sep 2026
+
+- [Overview](#overview)
+- [Setup](#setup)
+- [Lineage matrices](#lineage-matrices)
+- [Study 1 — Blood clock with proper held-out
+  validation](#study-1--blood-clock-with-proper-held-out-validation)
+  - [Metrics across splits](#metrics-across-splits)
+  - [Size-matched evaluation](#size-matched-evaluation)
+  - [Donor overlap](#donor-overlap)
+- [Study 2 — Marker selection vs published blood
+  biomarkers](#study-2--marker-selection-vs-published-blood-biomarkers)
+- [Link to the manuscript](#link-to-the-manuscript)
+- [Session info](#session-info)
 
 # Overview
 
 Revision of Panels E & F from `Fig4.qmd`, keeping the original setup
-(scImmuAging candidate genes → LASSO on HCA blood → apply to other tissues)
-but fixing independence:
+(scImmuAging candidate genes → LASSO on HCA blood → apply to other
+tissues) but fixing independence:
 
-1. Split blood **by donor** into train vs held-out test.
-2. Use donor-aware folds inside `cv.glmnet()`.
-3. Freeze the blood model; do not refit on tissue.
-4. Repeat splits (~50) and summarise metric distributions.
-5. Match held-out blood \(n\) / age decades to each tissue for fairer transfer scores.
-6. Audit donors shared between blood training and tissue evaluation.
+1.  Split blood **by donor** into train vs held-out test.
+2.  Use donor-aware folds inside `cv.glmnet()`.
+3.  Freeze the blood model; do not refit on tissue.
+4.  Repeat splits (~50) and summarise metric distributions.
+5.  Match held-out blood (n) / age decades to each tissue for fairer
+    transfer scores.
+6.  Audit donors shared between blood training and tissue evaluation.
 
-Subtype pseudobulks stay as in `Fig4.qmd` (e.g. CD4 naive, TCM, TEM remain
-separate rows; they are only pooled when fitting the lineage model).
+Subtype pseudobulks stay as in `Fig4.qmd` (e.g. CD4 naive, TCM, TEM
+remain separate rows; they are only pooled when fitting the lineage
+model).
 
 Caches: `vignettes/data/intermediate/fig4_rebuttal/` and
 `vignettes/data/figure_ready/fig4_rebuttal/`.
 
-```{r render-report, eval=FALSE}
+``` r
 # From vignettes/rebuttal_analyse/:
 quarto::quarto_render(
-  "Fig4_rebuttal_analyse.qmd",
+  "Fig4_panel_E_F_rebuttal_analyse.qmd",
   output_format = c("html", "gfm")
 )
 # Outputs in this folder:
-#   Fig4_rebuttal_analyse.html
-#   Fig4_rebuttal_analyse.md
+#   Fig4_panel_E_F_rebuttal_analyse.html
+#   Fig4_panel_E_F_rebuttal_analyse.md
 ```
 
 # Setup
 
-```{r paths}
+``` r
 # Report lives in vignettes/rebuttal_analyse/ → ../R/paths.R
 .path_candidates <- c(
   file.path("..", "R", "paths.R"),
@@ -99,7 +81,7 @@ dir.create(path_intermediate("fig4_rebuttal"), recursive = TRUE, showWarnings = 
 dir.create(path_figure_ready("fig4_rebuttal"), recursive = TRUE, showWarnings = FALSE)
 ```
 
-```{r libraries}
+``` r
 library(here)
 library(tidySummarizedExperiment)
 library(HDF5Array)
@@ -113,7 +95,7 @@ library(dittoSeq)
 library(glmnet)
 ```
 
-```{r helpers}
+``` r
 age_decade <- function(age_days) {
   floor(as.numeric(age_days) / (365 * 10))
 }
@@ -551,7 +533,7 @@ resolve_scimmu_rds <- function(filename, path_rebuttal_int) {
 }
 ```
 
-```{r theme}
+``` r
 theme_multipanel <- theme_bw() +
   theme(
     panel.border = element_blank(),
@@ -571,7 +553,7 @@ theme_multipanel <- theme_bw() +
   )
 ```
 
-```{r params}
+``` r
 # Same lineage map as Fig4.qmd
 cell_type_list <- list(
   CD4T = c(
@@ -607,7 +589,7 @@ path_study2 <- file.path(path_rebuttal_int, "study2_marker_consistency.rds")
 path_study2_genes <- file.path(path_rebuttal_int, "study2_selected_genes.rds")
 ```
 
-```{r inputs}
+``` r
 age_clock_se_dir <- resolve_age_clock_se_dir()
 feature_set <- readRDS(resolve_scimmu_rds("all_model_inputfeatures.RDS", path_rebuttal_int))
 published_models <- readRDS(resolve_scimmu_rds("all_model.RDS", path_rebuttal_int))
@@ -627,7 +609,7 @@ message("n_rep=", n_rep, " n_rep_study2=", n_rep_study2, " normal_only=", use_no
 
 TMMwsp + abundance filtering as in `Fig4.qmd`, cached per lineage.
 
-```{r prepare-lineages}
+``` r
 path_lineage_cache <- function(lineage) {
   file.path(
     path_rebuttal_int,
@@ -664,10 +646,10 @@ invisible(gc())
 
 # Study 1 — Blood clock with proper held-out validation
 
-**Question:** after donor-level train/test splitting, how well does a blood-trained
-immune-age LASSO transfer to non-lymphoid tissues?
+**Question:** after donor-level train/test splitting, how well does a
+blood-trained immune-age LASSO transfer to non-lymphoid tissues?
 
-```{r study1-run}
+``` r
 study1_ready <- all(file.exists(c(
   path_metrics_full, path_metrics_match, path_split_meta, path_overlap_audit
 )))
@@ -709,7 +691,7 @@ if (study1_ready) {
 
 ## Metrics across splits
 
-```{r study1-summaries}
+``` r
 metrics_summary <- summarise_metric_dist(
   study1_metrics %>% filter(eval_set %in% c("blood_heldout_full", "tissue_strict")),
   group_vars = c("lineage", "tissue_groups", "eval_set")
@@ -720,7 +702,24 @@ metrics_summary %>%
   mutate(across(where(is.numeric), \(x) round(x, 3)))
 ```
 
-```{r fig.width=10, fig.height=6, label="study1-pearson"}
+    # A tibble: 112 × 12
+       lineage tissue_groups          eval_set n_reps pearson_r_median pearson_r_q25
+       <chr>   <chr>                  <chr>     <dbl>            <dbl>         <dbl>
+     1 B       digestive system (gen… tissue_…     50            0.69          0.601
+     2 B       blood                  blood_h…     50            0.634         0.62 
+     3 B       cardiovascular system  tissue_…     50            0.396         0.356
+     4 B       nasal, oral, and phar… tissue_…     50            0.327         0.253
+     5 B       cerebral lobes and co… tissue_…     50            0.325         0.226
+     6 B       breast                 tissue_…     50            0.227         0.203
+     7 B       oesophagus             tissue_…     50            0.163         0.129
+     8 B       trachea                tissue_…     50            0.125         0.075
+     9 B       respiratory system     tissue_…     50            0.076         0.054
+    10 B       stomach                tissue_…     50           -0.038        -0.071
+    # ℹ 102 more rows
+    # ℹ 6 more variables: pearson_r_q75 <dbl>, r2_median <dbl>, rmse_median <dbl>,
+    #   mae_median <dbl>, bias_median <dbl>, n_eval_median <dbl>
+
+``` r
 keep_tissues <- metrics_summary %>%
   filter(eval_set == "tissue_strict", n_eval_median >= 20) %>%
   distinct(tissue_groups) %>%
@@ -750,7 +749,9 @@ saveRDS(Plot__study1_r, file.path(path_rebuttal_fig, "Plot__study1_pearson_box.r
 Plot__study1_r
 ```
 
-```{r fig.width=7, fig.height=6, label="study1-example-scatter"}
+![](Fig4_panel_E_F_rebuttal_analyse_files/figure-commonmark/study1-pearson-1.png)
+
+``` r
 if (!is.null(study1_example_preds)) {
   Plot__pred_example <- study1_example_preds %>%
     mutate(
@@ -785,11 +786,14 @@ if (!is.null(study1_example_preds)) {
 }
 ```
 
+![](Fig4_panel_E_F_rebuttal_analyse_files/figure-commonmark/study1-example-scatter-1.png)
+
 ## Size-matched evaluation
 
-Held-out blood is repeatedly subsampled to each tissue’s strict \(n\) and age decades.
+Held-out blood is repeatedly subsampled to each tissue’s strict (n) and
+age decades.
 
-```{r study1-matched}
+``` r
 matched_wide <- study1_matched %>%
   group_by(lineage, tissue_groups, eval_arm) %>%
   summarise(
@@ -808,7 +812,26 @@ matched_wide <- study1_matched %>%
 matched_wide %>% mutate(across(where(is.numeric), \(x) round(x, 3)))
 ```
 
-```{r fig.width=9, fig.height=5, label="study1-matched-delta"}
+    # A tibble: 80 × 7
+       lineage tissue_groups           pearson_r_median_blo…¹ pearson_r_median_tis…²
+       <chr>   <chr>                                    <dbl>                  <dbl>
+     1 B       breast                                   0.084                  0.227
+     2 B       cerebral lobes and cor…                  0.289                  0.325
+     3 B       cardiovascular system                    0.474                  0.396
+     4 B       nasal, oral, and phary…                  0.6                    0.327
+     5 B       oesophagus                               0.546                  0.163
+     6 B       endocrine system                         0.595                  0.094
+     7 B       respiratory system                       0.594                  0.076
+     8 B       trachea                                  0.665                  0.125
+     9 B       female reproductive sy…                  0.512                 -0.152
+    10 B       stomach                                  0.641                 -0.038
+    # ℹ 70 more rows
+    # ℹ abbreviated names: ¹​pearson_r_median_blood_matched,
+    #   ²​pearson_r_median_tissue_strict
+    # ℹ 3 more variables: n_eval_median_blood_matched <dbl>,
+    #   n_eval_median_tissue_strict <dbl>, delta_r <dbl>
+
+``` r
 Plot__matched_delta <- matched_wide %>%
   filter(tissue_groups %in% keep_tissues) %>%
   ggplot(aes(
@@ -828,9 +851,11 @@ saveRDS(Plot__matched_delta, file.path(path_rebuttal_fig, "Plot__study1_matched_
 Plot__matched_delta
 ```
 
+![](Fig4_panel_E_F_rebuttal_analyse_files/figure-commonmark/study1-matched-delta-1.png)
+
 ## Donor overlap
 
-```{r study1-overlap}
+``` r
 study1_overlap %>%
   group_by(lineage, tissue_groups) %>%
   summarise(
@@ -843,7 +868,23 @@ study1_overlap %>%
   mutate(across(where(is.numeric), \(x) round(x, 3)))
 ```
 
-```{r study1-transfer-gap}
+    # A tibble: 107 × 5
+       lineage tissue_groups              frac_overlap_median n_overlap_median
+       <chr>   <chr>                                    <dbl>            <dbl>
+     1 NK      prostate                                 1                    1
+     2 B       endocrine system                         0.5                  3
+     3 CD4T    prostate                                 0.5                  1
+     4 CD8T    digestive system (general)               0.5                  2
+     5 CD8T    pancreas                                 0.5                  1
+     6 CD8T    prostate                                 0.5                  1
+     7 NK      digestive system (general)               0.5                  2
+     8 CD4T    endocrine system                         0.375                3
+     9 CD8T    endocrine system                         0.375                3
+    10 B       cardiovascular system                    0.333                5
+    # ℹ 97 more rows
+    # ℹ 1 more variable: n_tissue_donors_median <dbl>
+
+``` r
 metrics_summary %>%
   filter(eval_set == "tissue_strict", tissue_groups %in% keep_tissues) %>%
   select(lineage, tissue_groups, tissue_r = pearson_r_median) %>%
@@ -858,23 +899,39 @@ metrics_summary %>%
   mutate(across(where(is.numeric), \(x) round(x, 3)))
 ```
 
+    # A tibble: 85 × 5
+       lineage tissue_groups               tissue_r blood_r transfer_gap
+       <chr>   <chr>                          <dbl>   <dbl>        <dbl>
+     1 B       sensory-related structures    -0.69    0.634        1.32 
+     2 B       small intestine               -0.464   0.634        1.10 
+     3 B       endocrine system              -0.299   0.634        0.933
+     4 B       integumentary system (skin)   -0.192   0.634        0.826
+     5 B       adipose tissue                -0.181   0.634        0.815
+     6 B       liver                         -0.153   0.634        0.787
+     7 B       female reproductive system    -0.152   0.634        0.786
+     8 B       large intestine               -0.148   0.634        0.782
+     9 B       renal system                  -0.113   0.634        0.747
+    10 B       stomach                       -0.038   0.634        0.672
+    # ℹ 75 more rows
+
 Report the distributions; do not force the original transfer story.
 
 # Study 2 — Marker selection vs published blood biomarkers
 
-**Question:** with the same candidate gene pool and size-matched samples, does a
-blood LASSO recover the published blood final biomarkers more faithfully than
-tissue LASSOs?
+**Question:** with the same candidate gene pool and size-matched
+samples, does a blood LASSO recover the published blood final biomarkers
+more faithfully than tissue LASSOs?
 
 Published scImmuAging markers came from blood. If age–gene maps are
-tissue-conditioned, size-matched HCA blood fits should still agree more with
-that list than tissue fits.
+tissue-conditioned, size-matched HCA blood fits should still agree more
+with that list than tissue fits.
 
-No train/test split here: downsample blood to each tissue’s \(n\) / age decades,
-fit LASSO on blood vs tissue, then compare non-zero genes to the published list
-(Jaccard, recall, precision). Repeat downsampling for stability.
+No train/test split here: downsample blood to each tissue’s (n) / age
+decades, fit LASSO on blood vs tissue, then compare non-zero genes to
+the published list (Jaccard, recall, precision). Repeat downsampling for
+stability.
 
-```{r study2-tissues}
+``` r
 tissue_power <- bind_rows(lapply(lineages, function(lin) {
   lineage_data[[lin]]$meta %>%
     filter(!tissue_groups %in% lymphoid_tissues) %>%
@@ -900,7 +957,19 @@ tissue_rank <- tissue_power %>%
   arrange(desc(median_donors), desc(median_span))
 
 tissue_rank
+```
 
+    # A tibble: 6 × 4
+      tissue_groups      n_lineages_ok median_donors median_span
+      <chr>                      <int>         <dbl>       <dbl>
+    1 breast                         4           175        46  
+    2 respiratory system             5           161        80  
+    3 renal system                   5            83        74.4
+    4 liver                          5            33        56  
+    5 large intestine                4            33        48.5
+    6 adipose tissue                 5            27        49  
+
+``` r
 preferred <- c("respiratory system", "large intestine")
 study2_tissues <- unique(c(
   intersect(preferred, tissue_rank$tissue_groups),
@@ -909,7 +978,7 @@ study2_tissues <- unique(c(
 message("Study 2 tissues: ", paste(study2_tissues, collapse = ", "))
 ```
 
-```{r study2-run}
+``` r
 # Refresh paths in case an interactive session still has stale values
 path_rebuttal_int <- path_intermediate("fig4_rebuttal")
 path_rebuttal_fig <- path_figure_ready("fig4_rebuttal")
@@ -940,7 +1009,7 @@ if (file.exists(path_study2)) {
 }
 ```
 
-```{r study2-summary}
+``` r
 study2_compare <- study2_metrics %>%
   group_by(tissue_groups, lineage, model) %>%
   summarise(
@@ -966,7 +1035,25 @@ study2_compare %>%
   mutate(across(where(is.numeric), \(x) round(x, 3)))
 ```
 
-```{r fig.width=9, fig.height=5, label="study2-precision"}
+    # A tibble: 30 × 10
+       tissue_groups  lineage recall_median_blood_matched recall_median_tissue
+       <chr>          <chr>                         <dbl>                <dbl>
+     1 adipose tissue B                             0.002                0.01 
+     2 adipose tissue CD4T                          0.013                0.002
+     3 adipose tissue CD8T                          0.021                0.013
+     4 adipose tissue MONO                          0.002                0.009
+     5 adipose tissue NK                            0.013                0    
+     6 breast         B                             0.001                0.01 
+     7 breast         CD4T                          0.016                0.018
+     8 breast         CD8T                          0                    0.019
+     9 breast         MONO                          0.019                0    
+    10 breast         NK                            0.017                0    
+    # ℹ 20 more rows
+    # ℹ 6 more variables: jaccard_median_blood_matched <dbl>,
+    #   jaccard_median_tissue <dbl>, precision_median_blood_matched <dbl>,
+    #   precision_median_tissue <dbl>, delta_recall <dbl>, delta_jaccard <dbl>
+
+``` r
 Plot__study2 <- study2_metrics %>%
   ggplot(aes(x = model, y = precision, fill = model)) +
   geom_boxplot(outlier.size = 0.4, linewidth = 0.3) +
@@ -984,7 +1071,9 @@ saveRDS(Plot__study2, file.path(path_rebuttal_fig, "Plot__study2_box.rds"))
 Plot__study2
 ```
 
-```{r fig.width=9, fig.height=5, label="study2-recall"}
+![](Fig4_panel_E_F_rebuttal_analyse_files/figure-commonmark/study2-precision-1.png)
+
+``` r
 Plot__study2_recall <- study2_metrics %>%
   ggplot(aes(x = model, y = recall, fill = model)) +
   geom_boxplot(outlier.size = 0.4, linewidth = 0.3) +
@@ -1001,20 +1090,106 @@ saveRDS(Plot__study2_recall, file.path(path_rebuttal_fig, "Plot__study2_recall.r
 Plot__study2_recall
 ```
 
-If matched blood recovers the published list more than tissues, that fits a
-blood-conditioned age mapping rather than a universal immune-age gene set.
+![](Fig4_panel_E_F_rebuttal_analyse_files/figure-commonmark/study2-recall-1.png)
+
+If matched blood recovers the published list more than tissues, that
+fits a blood-conditioned age mapping rather than a universal immune-age
+gene set.
 
 # Link to the manuscript
 
-1. Figure 4A–D: tissues differ in timing/magnitude of immune remodelling.
-2. Study 1: after independent validation, blood→tissue age prediction transfer is limited.
-3. Study 2: tissue LASSOs disagree more with published blood biomarkers than size-matched blood LASSOs.
+1.  Figure 4A–D: tissues differ in timing/magnitude of immune
+    remodelling.
+2.  Study 1: after independent validation, blood→tissue age prediction
+    transfer is limited.
+3.  Study 2: tissue LASSOs disagree more with published blood biomarkers
+    than size-matched blood LASSOs.
 
-> Blood-derived immune-age mappings incompletely represent immune ageing in
-> non-lymphoid tissues, consistent with tissue-conditioned ageing trajectories.
+> Blood-derived immune-age mappings incompletely represent immune ageing
+> in non-lymphoid tissues, consistent with tissue-conditioned ageing
+> trajectories.
 
 # Session info
 
-```{r}
+``` r
 sessionInfo()
 ```
+
+    R version 4.5.3 (2026-03-11)
+    Platform: x86_64-conda-linux-gnu
+    Running under: Red Hat Enterprise Linux 8.4 (Ootpa)
+
+    Matrix products: default
+    BLAS/LAPACK: /home/a1237163/miniconda3/envs/R_env/lib/libopenblasp-r0.3.29.so;  LAPACK version 3.12.0
+
+    locale:
+     [1] LC_CTYPE=en_US.UTF-8       LC_NUMERIC=C              
+     [3] LC_TIME=en_US.UTF-8        LC_COLLATE=en_US.UTF-8    
+     [5] LC_MONETARY=en_US.UTF-8    LC_MESSAGES=en_US.UTF-8   
+     [7] LC_PAPER=en_US.UTF-8       LC_NAME=C                 
+     [9] LC_ADDRESS=C               LC_TELEPHONE=C            
+    [11] LC_MEASUREMENT=en_US.UTF-8 LC_IDENTIFICATION=C       
+
+    time zone: Australia/Adelaide
+    tzcode source: system (glibc)
+
+    attached base packages:
+    [1] grid      stats4    stats     graphics  grDevices utils     datasets 
+    [8] methods   base     
+
+    other attached packages:
+     [1] glmnet_5.0                      dittoSeq_1.22.0                
+     [3] glue_1.8.1                      tidybulk_2.3.4                 
+     [5] lubridate_1.9.5                 forcats_1.0.1                  
+     [7] stringr_1.6.0                   purrr_1.2.2                    
+     [9] readr_2.2.0                     tibble_3.3.1                   
+    [11] tidyverse_2.0.0                 HDF5Array_1.38.0               
+    [13] h5mread_1.2.1                   rhdf5_2.54.1                   
+    [15] DelayedArray_0.36.1             SparseArray_1.10.10            
+    [17] S4Arrays_1.10.1                 abind_1.4-8                    
+    [19] Matrix_1.7-6                    ggplot2_4.0.3                  
+    [21] tidyr_1.3.2                     dplyr_1.2.1                    
+    [23] tidySummarizedExperiment_1.20.1 ttservice_0.5.3                
+    [25] SummarizedExperiment_1.40.0     Biobase_2.70.0                 
+    [27] GenomicRanges_1.62.1            Seqinfo_1.0.0                  
+    [29] IRanges_2.44.0                  S4Vectors_0.48.1               
+    [31] BiocGenerics_0.56.0             generics_0.1.4                 
+    [33] MatrixGenerics_1.22.0           matrixStats_1.5.0              
+    [35] here_1.0.2                     
+
+    loaded via a namespace (and not attached):
+     [1] gridExtra_2.3.1             rlang_1.3.0                
+     [3] magrittr_2.0.5              otel_0.2.0                 
+     [5] ggridges_0.5.7              compiler_4.5.3             
+     [7] vctrs_0.7.3                 pkgconfig_2.0.3            
+     [9] shape_1.4.6.1               crayon_1.5.3               
+    [11] fastmap_1.2.0               backports_1.5.1            
+    [13] XVector_0.50.0              ellipsis_0.3.3             
+    [15] labeling_0.4.3              utf8_1.2.6                 
+    [17] cmdstanr_0.9.0              rmarkdown_2.32             
+    [19] tzdb_0.5.0                  ps_1.9.3                   
+    [21] xfun_0.61                   jsonlite_2.0.0             
+    [23] rhdf5filters_1.22.0         Rhdf5lib_1.32.0            
+    [25] parallel_4.5.3              R6_2.6.1                   
+    [27] stringi_1.8.9               RColorBrewer_1.1-3         
+    [29] Rcpp_1.1.2                  iterators_1.0.14           
+    [31] knitr_1.52                  splines_4.5.3              
+    [33] timechange_0.4.0            tidyselect_1.2.1           
+    [35] dichromat_2.0-1             yaml_2.3.12                
+    [37] codetools_0.2-20            processx_3.9.0             
+    [39] lattice_0.23-1              withr_3.0.3                
+    [41] S7_0.2.2                    posterior_1.7.1            
+    [43] evaluate_1.0.5              survival_3.8-12            
+    [45] pillar_1.11.1               tensorA_0.36.2.1           
+    [47] checkmate_2.3.4             foreach_1.5.2              
+    [49] distributional_0.9.0        plotly_4.12.1              
+    [51] rprojroot_2.1.1             hms_1.1.4                  
+    [53] scales_1.4.0                pheatmap_1.0.13            
+    [55] tools_4.5.3                 data.table_1.18.6.1        
+    [57] cowplot_1.2.0               colorspace_2.1-3           
+    [59] SingleCellExperiment_1.32.0 cli_3.6.6                  
+    [61] viridisLite_0.4.3           gtable_0.3.6               
+    [63] digest_0.6.39               ggrepel_0.9.8              
+    [65] htmlwidgets_1.6.4           farver_2.1.2               
+    [67] htmltools_0.5.9             lifecycle_1.0.5            
+    [69] httr_1.4.9                 
