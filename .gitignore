@@ -25,6 +25,7 @@ vignettes/reports/*.pdf
 vignettes/*.html
 vignettes/**/.Rhistory
 vignettes/**/.RData
+vignettes/rebuttal_analyse/.Rlibs_seurat/
 vignettes/reports/sccomp_L3_v12_vs_v13_param_compare*
 # Extended Data PNG previews (regenerate from RDS on render)
 vignettes/supplementary_plot_objects/*.png
