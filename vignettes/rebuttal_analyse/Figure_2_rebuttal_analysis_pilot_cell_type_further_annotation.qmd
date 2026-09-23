@@ -1,0 +1,336 @@
+---
+title: "Figure 2 rebuttal — pilot cell-type further annotation (dendritic cells)"
+date: today
+date-format: "DD MMM YYYY"
+title-block-banner: true
+author:
+  - name: Chen Zhan
+    orcid: 0000-0002-4794-8339
+    email: chen.zhan@adelaide.edu.au
+    affiliation:
+      - id: sgc
+        name: SAiGENCI, The University of Adelaide
+format:
+  html:
+    theme: minty
+    df-print: paged
+    code-line-numbers: true
+    embed-resources: true
+    code-fold: true
+    code-fold-default: true
+    toc: true
+    toc-location: left
+    toc-title: "Menu"
+  gfm:
+    toc: true
+knitr:
+  opts_chunk:
+    message: false
+    warning: false
+editor: source
+abstract: |
+  Pilot for Figure 2 compositional/repertoire rebuttal: recover the exact sample
+  universe from the original scRNA compositional model, verify presence in
+  latest hca2024 metadata, retrieve dendritic-cell counts via cellNexus as a
+  Seurat object, and run an initial unsupervised clustering with diagnostic
+  UMAPs.
+---
+
+# Overview
+
+Reviewer-motivated pilot for **Figure 2** immune-cell annotation refinement.
+
+**This report stops after initial DC Seurat clustering and diagnostic UMAPs.**
+No subtype annotation, batch correction, Harmony/integration, marker analysis,
+or compositional modelling yet.
+
+Questions answered here:
+
+1. Can every sample used in the original paper composition model be found in
+   the latest `hca2024` metadata?
+2. Can we retrieve QC-filtered DC cells from that sample universe as a Seurat
+   object and inspect initial unsupervised structure?
+
+```{r render-report, eval=FALSE}
+# From vignettes/rebuttal_analyse/:
+quarto::quarto_render(
+  "Figure_2_rebuttal_analysis_pilot_cell_type_further_annotation.qmd",
+  output_format = "html"
+)
+quarto::quarto_render(
+  "Figure_2_rebuttal_analysis_pilot_cell_type_further_annotation.qmd",
+  output_format = "gfm"
+)
+# Outputs in this folder:
+#   Figure_2_rebuttal_analysis_pilot_cell_type_further_annotation.html
+#   Figure_2_rebuttal_analysis_pilot_cell_type_further_annotation.md
+```
+
+# Setup
+
+```{r paths}
+.path_candidates <- c(
+  file.path("..", "R", "paths.R"),
+  if (requireNamespace("here", quietly = TRUE)) {
+    file.path(here::here(), "vignettes", "R", "paths.R")
+  },
+  file.path("R", "paths.R")
+)
+.path_candidates <- .path_candidates[!is.na(.path_candidates) & nzchar(.path_candidates)]
+.path_file <- .path_candidates[file.exists(.path_candidates)][1]
+if (is.na(.path_file)) {
+  stop("Cannot find vignettes/R/paths.R (run from vignettes/rebuttal_analyse/).")
+}
+source(.path_file)
+
+dir.create(path_intermediate("fig2_rebuttal_pilot"), recursive = TRUE, showWarnings = FALSE)
+```
+
+```{r libraries}
+library(tidyverse)
+library(sccomp)
+library(cellNexus)
+library(Seurat)
+```
+
+# Step 1 — Recover and verify the original paper sample universe
+
+## 1. Sample IDs from the fitted compositional model
+
+Exact `sample_id` values from the L3 scRNA compositional-model `count_data`
+(same estimates object used for Figure 2).
+
+```{r paper-sample-ids}
+est_l3 <- readRDS(
+  path_sccomp_estimates(
+    "estimates_age_decade___L3___disease_FALSE___immune_only_TRUE.rds"
+  )
+)
+
+paper_sample_ids <-
+  est_l3 |>
+  attr("count_data") |>
+  sccomp:::.subset(sample_id) |>
+  dplyr::distinct(sample_id) |>
+  dplyr::pull(sample_id)
+
+n_paper_samples <- length(paper_sample_ids)
+n_paper_samples
+```
+
+## 2. Latest hca2024 metadata (cellNexus)
+
+Use the current `hca_2024` alias (`hca2024_v2.4.0.parquet`), not the
+publication-locked `metadata.1.0.12` helper.
+
+```{r load-hca2024-metadata}
+# Fixed lab cellNexus cache (metadata + assay files)
+cache_dir <- path.expand("~/lab/cellNexus")
+
+hca2024_meta <- cellNexus::get_metadata(
+  cloud_metadata = cellNexus::get_metadata_url("hca_2024"),
+  cache_directory = cache_dir
+)
+
+hca2024_meta
+```
+
+## 3. Exact sample-ID match
+
+Every original paper sample must be present. Do not drop or substitute.
+
+```{r match-paper-samples}
+hca2024_paper_sample_ids <-
+  hca2024_meta |>
+  dplyr::filter(sample_id %in% !!paper_sample_ids) |>
+  dplyr::distinct(sample_id) |>
+  dplyr::collect() |>
+  dplyr::pull(sample_id)
+
+n_found <- length(hca2024_paper_sample_ids)
+
+missing_paper_sample_ids <- tibble::tibble(
+  sample_id = setdiff(paper_sample_ids, hca2024_paper_sample_ids)
+)
+
+n_missing <- nrow(missing_paper_sample_ids)
+
+tibble::tibble(
+  n_paper_samples = n_paper_samples,
+  n_found = n_found,
+  n_missing = n_missing
+)
+
+missing_paper_sample_ids
+```
+
+```{r stop-if-missing}
+if (n_missing > 0) {
+  stop(
+    "Step 1 incomplete: ", n_missing,
+    " original paper sample(s) missing from latest hca2024 metadata. ",
+    "Investigate sample-ID mapping before Step 1b."
+  )
+}
+```
+
+# Step 1b — Define the DC compartment (metadata)
+
+Current broad Cell Nexus labels (no subtype split yet). `paper_sample_ids`
+stays complete for later composition analysis even if some samples lack DCs.
+
+```{r dc-meta}
+dc_labels <-
+  hca2024_meta |>
+  dplyr::filter(sample_id %in% !!paper_sample_ids) |>
+  dplyr::distinct(cell_type_unified_ensemble) |>
+  dplyr::collect() |>
+  dplyr::filter(stringr::str_detect(
+    cell_type_unified_ensemble,
+    stringr::regex("dc|dendrit", ignore_case = TRUE)
+  )) |>
+  dplyr::pull(cell_type_unified_ensemble) |>
+  sort()
+
+dc_labels
+
+dc_meta <-
+  hca2024_meta |>
+  dplyr::filter(
+    sample_id %in% !!paper_sample_ids,
+    cell_type_unified_ensemble %in% !!dc_labels
+  ) |>
+  cellNexus::keep_quality_cells()
+
+dc_meta |>
+  dplyr::count(cell_type_unified_ensemble, name = "n_cells") |>
+  dplyr::collect() |>
+  dplyr::arrange(dplyr::desc(n_cells))
+
+dc_meta |>
+  dplyr::summarise(
+    n_dc_cells = dplyr::n(),
+    n_dc_samples = dplyr::n_distinct(sample_id)
+  ) |>
+  dplyr::collect()
+```
+
+# Step 2 — Retrieve Seurat object and initial clustering
+
+## Retrieve counts via `get_seurat()`
+
+```{r dc-seurat}
+path_dc_seurat <- file.path(
+  path_intermediate("fig2_rebuttal_pilot"),
+  "dc_seurat_paper_samples_hca2024.rds"
+)
+path_dc_clustered <- file.path(
+  path_intermediate("fig2_rebuttal_pilot"),
+  "dc_seurat_clustered_paper_samples_hca2024.rds"
+)
+
+if (file.exists(path_dc_clustered)) {
+  dc_seurat <- readRDS(path_dc_clustered)
+} else if (file.exists(path_dc_seurat)) {
+  dc_seurat <- readRDS(path_dc_seurat)
+} else {
+  # Assay files are cached under hca_2024/0.4.1 (metadata atlas_id is 0.5.0).
+  # repository = NULL uses the local cache without re-sync.
+  dc_seurat <-
+    dc_meta |>
+    dplyr::mutate(atlas_id = "hca_2024/0.4.1") |>
+    cellNexus::get_seurat(
+      assays = "counts",
+      cache_directory = cache_dir,
+      repository = NULL
+    )
+  saveRDS(dc_seurat, path_dc_seurat)
+}
+
+dc_seurat
+```
+
+## Confirm key metadata
+
+`tissue_groups` / `sex` are not in current hca2024 cell metadata; join the
+paper compositional-model sample covariates by `sample_id`.
+
+```{r dc-seurat-metadata}
+paper_sample_cov <-
+  est_l3 |>
+  attr("count_data") |>
+  sccomp:::.subset(sample_id) |>
+  dplyr::distinct(sample_id, tissue_groups, sex, age_decade)
+
+if (!"tissue_groups" %in% colnames(dc_seurat[[]])) {
+  dc_seurat$tissue_groups <- paper_sample_cov$tissue_groups[
+    match(dc_seurat$sample_id, paper_sample_cov$sample_id)
+  ]
+  dc_seurat$sex <- paper_sample_cov$sex[
+    match(dc_seurat$sample_id, paper_sample_cov$sample_id)
+  ]
+  dc_seurat$age_decade <- paper_sample_cov$age_decade[
+    match(dc_seurat$sample_id, paper_sample_cov$sample_id)
+  ]
+}
+
+tibble::tibble(
+  n_cells = ncol(dc_seurat),
+  n_samples = dplyr::n_distinct(dc_seurat$sample_id),
+  has_sample_id = "sample_id" %in% colnames(dc_seurat[[]]),
+  has_donor_id = "donor_id" %in% colnames(dc_seurat[[]]),
+  has_dataset_id = "dataset_id" %in% colnames(dc_seurat[[]]),
+  has_tissue_groups = "tissue_groups" %in% colnames(dc_seurat[[]]),
+  has_cell_type = "cell_type_unified_ensemble" %in% colnames(dc_seurat[[]]),
+  has_age_days = "age_days" %in% colnames(dc_seurat[[]]),
+  has_sex = "sex" %in% colnames(dc_seurat[[]])
+)
+
+head(dc_seurat[[]], 5)
+```
+
+## Initial unsupervised clustering
+
+Standard Seurat workflow from raw counts. No Harmony / integration / annotation.
+
+```{r dc-cluster}
+if (!"umap" %in% names(dc_seurat@reductions)) {
+  DefaultAssay(dc_seurat) <- "counts"
+  dc_seurat <- NormalizeData(dc_seurat)
+  dc_seurat <- FindVariableFeatures(dc_seurat)
+  dc_seurat <- ScaleData(dc_seurat)
+  dc_seurat <- RunPCA(dc_seurat)
+  dc_seurat <- FindNeighbors(dc_seurat, dims = 1:30)
+  dc_seurat <- FindClusters(dc_seurat)
+  dc_seurat <- RunUMAP(dc_seurat, dims = 1:30)
+  saveRDS(dc_seurat, path_dc_clustered)
+}
+
+table(Idents(dc_seurat))
+```
+
+## Diagnostic UMAPs
+
+```{r dc-umaps, fig.width=10, fig.height=10}
+DimPlot(dc_seurat, reduction = "umap", label = TRUE) + ggtitle("Seurat cluster")
+DimPlot(dc_seurat, reduction = "umap", group.by = "cell_type_unified_ensemble") +
+  ggtitle("cell_type_unified_ensemble")
+DimPlot(dc_seurat, reduction = "umap", group.by = "dataset_id") +
+  ggtitle("dataset_id") +
+  theme(legend.position = "none")
+DimPlot(dc_seurat, reduction = "umap", group.by = "tissue_groups") + 
+  ggtitle("tissue_groups") + 
+  theme(legend.position = "bottom")
+```
+
+# Stop
+
+Inspect these diagnostic UMAPs before deciding on batch correction and/or DC
+subtype annotation. No Harmony, integration, marker annotation, or compositional
+modelling in this report.
+
+## Session info
+
+```{r}
+sessionInfo()
+```
