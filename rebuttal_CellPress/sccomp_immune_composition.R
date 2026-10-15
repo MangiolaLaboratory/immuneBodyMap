@@ -11,7 +11,7 @@ job::job({
   # FUNCTIONS
   #-----------------------#
   
-  result_directory <- "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_15_hca_2025/_targets"
+  result_directory <- "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/_targets"
   dir.create(result_directory, showWarnings = FALSE, recursive = TRUE)
   
   check_rclone_installation <- function() {
@@ -1050,55 +1050,128 @@ job::job({
     
     count_by <- match.arg(count_by)
     
-    metadata_tbl = get_metadata(cloud_metadata = get_metadata_url(c("hca_2024", "hca_2025")))
+    metadata_tbl <- get_metadata(
+      cloud_metadata = get_metadata_url(c("hca_2024", "hca_2025"))
+    )
     
-    con = dbplyr::remote_con(metadata_tbl)
+    con <- dbplyr::remote_con(metadata_tbl)
     
-    census = cellxgene.census::open_soma(census_version = "2025-11-08")
-    on.exit(census$close(), add = TRUE)
-    
-    # donor_id is taken from cellNexus, so it is left out of the Census side
-    # to avoid a name collision on the join.
-    census_obs = 
-      census$get("census_data")$get("homo_sapiens")$get("obs")$read(
-        column_names = c(
-          "observation_joinid", "dataset_id", "sex", "tissue", "assay", 
-          "disease", "self_reported_ethnicity", "cell_type", "is_primary_data"
-        ),
-        value_filter = "is_primary_data == 'TRUE'"
-      )$concat()
-    
-    # title and collection_id are dataset level, absent from obs
-    census_datasets = 
-      census$get("census_info")$get("datasets")$read(
-        column_names = c("dataset_id", "dataset_title", "collection_id")
-      )$concat()
-    
-    # Avoid collisions when this function runs multiple times within the same
-    # DuckDB connection (e.g. count_by = "sample_id" and then "donor_id").
-    census_obs_name <- paste0("census_obs_", count_by)
-    census_datasets_name <- paste0("census_datasets_", count_by)
-    
-    duckdb::duckdb_register_arrow(con, census_obs_name, census_obs)
-    duckdb::duckdb_register_arrow(con, census_datasets_name, census_datasets)
-    
-    my_tbl = 
-      metadata_tbl |> 
-      dplyr::left_join(
-        dplyr::tbl(con, census_obs_name) |> dplyr::select(-is_primary_data), 
-        by = c("observation_joinid", "dataset_id")
-      ) |> 
-      dplyr::left_join(
-        dplyr::tbl(con, census_datasets_name) |> dplyr::rename(title = dataset_title), 
-        by = "dataset_id"
-      ) |> 
+    read_census <- function(version) {
+      census <- cellxgene.census::open_soma(census_version = version)
+      on.exit(census$close(), add = TRUE)
       
-      # Filter low quality cells
-      keep_quality_cells() 
+      list(
+        obs = census$
+          get("census_data")$
+          get("homo_sapiens")$
+          get("obs")$
+          read(
+            column_names = c(
+              "observation_joinid",
+              "dataset_id",
+              "sex",
+              "tissue",
+              "assay",
+              "disease",
+              "self_reported_ethnicity",
+              "cell_type",
+              "is_primary_data"
+            ),
+            value_filter = "is_primary_data == 'TRUE'"
+          )$
+          concat(),
+        
+        datasets = census$
+          get("census_info")$
+          get("datasets")$
+          read(
+            column_names = c(
+              "dataset_id",
+              "dataset_title",
+              "collection_id"
+            )
+          )$
+          concat()
+      )
+    }
     
-    # FIX SAMPLE_ID TEMPORARY
-    my_tbl = my_tbl |> mutate(sample_id = paste0(sample_id, sex, self_reported_ethnicity))
+    census_2024 <- read_census("2024-07-01")
+    census_2025 <- read_census("2025-11-08")
+    
+    obs_2024_name      <- paste0("census_obs_2024_", count_by)
+    datasets_2024_name <- paste0("census_datasets_2024_", count_by)
+    obs_2025_name      <- paste0("census_obs_2025_", count_by)
+    datasets_2025_name <- paste0("census_datasets_2025_", count_by)
+    
+    duckdb::duckdb_register_arrow(
+      con, obs_2024_name, census_2024$obs
+    )
+    duckdb::duckdb_register_arrow(
+      con, datasets_2024_name, census_2024$datasets
+    )
+    duckdb::duckdb_register_arrow(
+      con, obs_2025_name, census_2025$obs
+    )
+    duckdb::duckdb_register_arrow(
+      con, datasets_2025_name, census_2025$datasets
+    )
+    
+    # All datasets already included in hca_2024.
+    old_dataset_ids <- dplyr::tbl(con, datasets_2024_name) |>
+      dplyr::select(dataset_id) |>
+      dplyr::distinct()
+    
+    # Only datasets genuinely added in hca_2025.
+    new_dataset_ids <- dplyr::tbl(con, datasets_2025_name) |>
+      dplyr::select(dataset_id) |>
+      dplyr::distinct() |>
+      dplyr::anti_join(old_dataset_ids, by = "dataset_id")
+    
+    # The two sides of this union are now disjoint by dataset_id.
+    census_obs_lookup <- dplyr::union_all(
+      dplyr::tbl(con, obs_2024_name) |>
+        dplyr::select(-is_primary_data) |>
+        dplyr::distinct(
+          dataset_id,
+          observation_joinid,
+          .keep_all = TRUE
+        ),
+      
+      dplyr::tbl(con, obs_2025_name) |>
+        dplyr::semi_join(new_dataset_ids, by = "dataset_id") |>
+        dplyr::select(-is_primary_data) |>
+        dplyr::distinct(
+          dataset_id,
+          observation_joinid,
+          .keep_all = TRUE
+        )
+    )
+    
+    census_dataset_lookup <- dplyr::union_all(
+      dplyr::tbl(con, datasets_2024_name) |>
+        dplyr::distinct(dataset_id, .keep_all = TRUE),
+      
+      dplyr::tbl(con, datasets_2025_name) |>
+        dplyr::semi_join(new_dataset_ids, by = "dataset_id") |>
+        dplyr::distinct(dataset_id, .keep_all = TRUE)
+    ) |>
+      dplyr::rename(title = dataset_title)
+    
+    my_tbl <- metadata_tbl |>
+      dplyr::left_join(
+        census_obs_lookup,
+        by = c("dataset_id", "observation_joinid")
+      ) |>
+      dplyr::left_join(
+        census_dataset_lookup,
+        by = "dataset_id"
+      ) |>
+      keep_quality_cells()
+    
+    my_tbl <- my_tbl |>
+      dplyr::filter(!sample_id %in% c("e6b21291ca8ed20cb62541c2a1c7b2ac", "20b3bf1fa3f5f28eb62130efbe464f94"))
     ########################
+    
     
     my_tbl = 
       my_tbl |>
@@ -1428,7 +1501,7 @@ job::job({
     ) |>
     tt_single(
       saved_input_relative <- {
-        file_name <- glue("{result_directory}/cell_metadata_1_0_15_sccomp_input_counts.rds")
+        file_name <- glue("{result_directory}/cell_metadata_1_0_16_sccomp_input_counts.rds")
         saveRDS(input_relative_sample, file_name)
         rclone_copy(file_name, "box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
       },
@@ -1590,7 +1663,7 @@ job::job({
         mutate(
           counts = map2(counts, drop_disease, 
                         ~ {
-                          if(.y) .x |> filter(disease_groups___altered == "Normal")
+                          if(.y) .x |> filter(disease_groups == "Normal")
                           else .x 
                         }),
           formula_composition = if_else(drop_disease, formula_composition |> str_remove_all("\\+ disease_groups___altered"), formula_composition),
@@ -1617,15 +1690,15 @@ job::job({
 
         # With L0 I have to summarise further because I have counts already
         with_groups(
-          c(sample_id,age_days, age_days_scaled,age_bin, age_decade, sex, disease_groups___altered,ethnicity_groups_imputed, assay_groups___altered, dataset_id___altered, tissue_groups, tissue_sex, all_of(formula_df$cell_type_level)),
+          c(sample_id,age_days, age_days_scaled,age_bin, age_decade, sex, disease_groups___altered,ethnicity_groups_imputed, assay_groups___altered, dataset_id___altered, tissue_groups, tissue_sex, all_of(formula_df$cell_type_level[[1]])),
           ~ .x |> summarise(n = sum(n))
         ) |>
         #
         sccomp_estimate(
-          formula_composition = formula_df$formula_composition |> as.formula(),
-          formula_variability = formula_df$formula_variability |> as.formula(),        # Differential variability
+          formula_composition = formula_df$formula_composition[[1]] |> as.formula(),
+          formula_variability = formula_df$formula_variability[[1]] |> as.formula(),        # Differential variability
           sample = "sample_id",
-          cell_group = formula_df$cell_type_level, # A level of the hierarchy
+          cell_group = formula_df$cell_type_level[[1]], # A level of the hierarchy
           abundance = "n",
           cores = parallelly::availableCores(),
           mcmc_seed = 42,
@@ -1635,33 +1708,39 @@ job::job({
           # prior_overdispersion_mean_association = list(intercept = c(3.6539176, 0.5), slope = c(-0.5255242, 0.1), standard_deviation = c(20, 40)),
           output_directory = "/vast/scratch/users/mangiola.s/sccomp_draws_files",
 
-          max_sampling_iterations = 2000,
+          max_sampling_iterations = 1000,
           warmup_samples = 400,
 
           inference_method =   "hmc",
-          refresh = 1
-        )
+          refresh = 1,
+          
+          # to match older versions 1_0_12
+          prior_mean = list(intercept = c(0, 1), coefficients = c(0, 3)),
+          
+        ),
+      resources = tar_resources(crew = tar_resources_crew(controller = "elastic_100"))
     ) |>
     tt_iterate(
       saved_and_tranferred <- {
         fit <- estimates
-        name <- formula_df$local_file_name
+        name <- formula_df$local_file_name[[1]]
         fit_path <- file.path(result_directory, paste0(name, "_FIT_FOR_PORTABILITY.rds"))
         out_path <- file.path(result_directory, paste0(name, ".rds"))
         
         attr(fit, "fit")$save_object(file = fit_path)
         rclone_copy(
           fit_path,
-          "box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/sccomp_estimates_1_0_15/"
+          "box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/sccomp_estimates_1_0_16/"
         )
         attr(fit, "fit") <- readRDS(fit_path)
         
         fit |> sccomp_test() |> saveRDS(out_path)
         rclone_copy(
           out_path,
-          "box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/sccomp_on_cellNexus_1_0_15_add_smooths/"
+          "box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/sccomp_on_cellNexus_1_0_16/"
         )
-      }
+      },
+      resources = tar_resources(crew = tar_resources_crew(controller = "elastic_100"))
     ) 
   
   pipeline |> tt_evaluate()
@@ -1671,7 +1750,7 @@ job::job({
 
 
 
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_15_hca_2025/estimates_age_bins___L3___disease_TRUE___immune_only_TRUE.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/sccomp_on_cellNexus_1_0_15_hca_2025/")
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/estimates_age_bins___L3___disease_TRUE___immune_only_TRUE.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/")
 
 pipeline |> tidytargets::tt_explore("formula_df")
 
@@ -1679,17 +1758,17 @@ pipeline |> tidytargets::tt_explore("formula_df")
 
 library(targets)
 
-input_relative_sample = tar_read(input_relative_sample, store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_15_hca_2025/_targets")
-input_relative_donor = tar_read(input_relative_donor, store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_15_hca_2025/_targets")
+input_relative_sample = tar_read(input_relative_sample, store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/_targets")
+input_relative_donor = tar_read(input_relative_donor, store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/_targets")
 
 
 tar_workspace(input_relative_sample, 
-              script = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_15_hca_2025/_targets.R", 
-              store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_15_hca_2025/_targets"
+              script = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/_targets.R", 
+              store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/_targets"
 )
 
-tar_workspace("estimates_4bdedc368a84e9da", store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_15_hca_2025/_targets", script = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_15_hca_2025/_targets.R")
-tar_workspace("input_relative_sample", store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_15_hca_2025/_targets", script = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_15_hca_2025/_targets.R")
+tar_workspace("estimates_980be4c2ff2e5c0e", store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/_targets", script = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/_targets.R")
+tar_workspace("input_relative_sample", store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/_targets", script = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/_targets.R")
 
 
 library(tidyverse)
@@ -1702,10 +1781,10 @@ library(arrow)
 library(dplyr)
 library(duckdb)
 
-tar_meta(starts_with("estimates_"), store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_15_hca_2025/_targets")
+tar_meta(starts_with("estimates_"), store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/_targets")
 
 # Age proportion prediciton
-estimate_age_decade = readRDS("sccomp_on_cellNexus_1_0_15_hca_2025/estimates_age_decade_interaction_donor_grouping___L3___disease_FALSE___immune_only_TRUE.rds")
+estimate_age_decade = readRDS("sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/estimates_age_decade_interaction_donor_grouping___L3___disease_FALSE___immune_only_TRUE.rds")
 
 estimate_age_decade |> 
   sccomp_predict(
@@ -1720,35 +1799,35 @@ estimate_age_decade |>
   #     ordered = TRUE
   #   )) |> 
   #   mutate(age_bin_numeric = age_bin |> as.integer())  |> 
-  saveRDS("/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_15_hca_2025/prediction_age_decade.rds")
+  saveRDS("/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/prediction_age_decade.rds")
 
-prediction_proportion = readRDS("sccomp_on_cellNexus_1_0_15_hca_2025/")
+prediction_proportion = readRDS("sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/")
 
 
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_15_hca_2025/prediction_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/prediction_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
 
-tar_read(formula_df, store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_15_hca_2025/_targets")
+tar_read(formula_df, store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/_targets")
 
 
 # For Hong
-estimate_age_decade = readRDS("sccomp_on_cellNexus_1_0_15_hca_2025/estimates_age_decade_interaction___L3___disease_FALSE___immune_only_TRUE.rds")
+estimate_age_decade = readRDS("sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/estimates_age_decade_interaction___L3___disease_FALSE___immune_only_TRUE.rds")
 estimate_age_bins = estimate_age_bins |> dplyr::select(-count_data)
 attr(estimate_age_bins, "fit") = NULL
-estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_15_hca_2025/estimates_age_bins_effect_tibble_only.rds")
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_15_hca_2025/estimates_age_bins_effect_tibble_only.rds box_adelaide:/immune_map_disease/")
+estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/estimates_age_bins_effect_tibble_only.rds")
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/estimates_age_bins_effect_tibble_only.rds box_adelaide:/immune_map_disease/")
 
 # Save fit
 library(magrittr)
-estimate_age_bins = readRDS("/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_15_hca_2025/estimates_age_bins.rds")
-estimate_age_bins |> attr("fit") %$% save_object(file = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_15_hca_2025/estimates_age_bins_FIT_FOR_PORTABILITY.rds") 
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_15_hca_2025/estimates_age_bins_FIT_FOR_PORTABILITY.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
-estimate_age_bins |> attr("fit") = readRDS("/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_15_hca_2025/estimates_age_bins_FIT_FOR_PORTABILITY.rds")
-estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_15_hca_2025/estimates_age_bins.rds")
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_15_hca_2025/estimates_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
+estimate_age_bins = readRDS("/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/estimates_age_bins.rds")
+estimate_age_bins |> attr("fit") %$% save_object(file = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/estimates_age_bins_FIT_FOR_PORTABILITY.rds") 
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/estimates_age_bins_FIT_FOR_PORTABILITY.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
+estimate_age_bins |> attr("fit") = readRDS("/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/estimates_age_bins_FIT_FOR_PORTABILITY.rds")
+estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/estimates_age_bins.rds")
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/estimates_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
 
 
-# estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_15_hca_2025/estimates_age_bins.rds")
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_15_hca_2025/21_11_2024_sccomp_archive_before_factor_ordering/estimates_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
+# estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/estimates_age_bins.rds")
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_16_hca_2025_back_to_wide_prior/21_11_2024_sccomp_archive_before_factor_ordering/estimates_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
 
 # Benchmark
 tic()
