@@ -1454,8 +1454,9 @@ job::job({
       workers = 20,
       mem_gb_per_job = c(5, 10, 20, 50, 100), 
       cpus_per_task = 28,
-      crashes_max = 1,
-      script_lines = "export LD_LIBRARY_PATH=$HOME/envs/openssl/lib:$LD_LIBRARY_PATH"
+      crashes_max = 1
+      #,
+      #script_lines = "export LD_LIBRARY_PATH=$HOME/envs/openssl/lib:$LD_LIBRARY_PATH"
     ),
     # debug_step = "input_relative_sample",
     garbage_collection = 100,
@@ -1704,8 +1705,6 @@ job::job({
           mcmc_seed = 42,
           verbose = T,
           bimodal_mean_variability_association = TRUE,
-          # prior_mean = list(intercept = c(0, 0.8), coefficients = c(0, 3)),
-          # prior_overdispersion_mean_association = list(intercept = c(3.6539176, 0.5), slope = c(-0.5255242, 0.1), standard_deviation = c(20, 40)),
           output_directory = "/vast/scratch/users/mangiola.s/sccomp_draws_files",
 
           max_sampling_iterations = 1000,
