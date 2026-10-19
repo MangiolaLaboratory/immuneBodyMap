@@ -11,7 +11,7 @@ job::job({
   # FUNCTIONS
   #-----------------------#
   
-  result_directory <- "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/_targets"
+  result_directory <- "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/_targets"
   dir.create(result_directory, showWarnings = FALSE, recursive = TRUE)
   
   check_rclone_installation <- function() {
@@ -1172,7 +1172,6 @@ job::job({
       dplyr::filter(!sample_id %in% c("e6b21291ca8ed20cb62541c2a1c7b2ac", "20b3bf1fa3f5f28eb62130efbe464f94"))
     ########################
     
-    
     my_tbl = 
       my_tbl |>
       
@@ -1192,6 +1191,15 @@ job::job({
       !tissue_groups |> is.na()
       ) |> 
       
+      # consistency to 1_0_12
+      filter(!tissue_groups %in% c(
+        "brainstem and cerebellar structures",
+        "digestive system (general)",
+        "general brain and major structures",
+        "limbic and basal systems",
+        "pancreas"
+      )) |> 
+      
       # Filter embrios
       filter(age_days > 365) |> 
       
@@ -1202,7 +1210,8 @@ job::job({
       # filter(is_immune) |> 
       filter(cell_type_unified_ensemble %in% c("non_immune", "cd8 naive", "cd16 mono", "cd4 tcm", "cd4 th17 em", "granulocyte", "cd4 th1/th17 em", "treg", "b memory", "b naive", "nk", "plasma", "cd4 th2 em", "mast", "cd4 th1 em", "cd8 tem", "mait", "tgd", "cdc", "cd4 fh em", "cd4 naive", "nkt", "macrophage", "cd8 tcm", "cd14 mono", "pdc", "ilc")) 
       
-
+     # Debug filtering
+      my_tbl |> qs_save("/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/temp_my_tbl.qs")
     
     # Drop samples that are enriched for a immune cell type
     samples_to_drop =
@@ -1490,7 +1499,7 @@ job::job({
       input_relative_sample <- create_input_cell_counts(
         caq_celltype_level_map, ethnicity_imputed,
         count_by = "sample_id"
-      ), 
+      ) , 
       resources = tar_resources(crew = tar_resources_crew(controller = "elastic_100"))
     ) |>
     tt_single(
@@ -1502,7 +1511,7 @@ job::job({
     ) |>
     tt_single(
       saved_input_relative <- {
-        file_name <- glue("{result_directory}/cell_metadata_1_0_17_sccomp_input_counts.rds")
+        file_name <- glue("{result_directory}/cell_metadata_1_0_18_sccomp_input_counts.rds")
         saveRDS(input_relative_sample, file_name)
         rclone_copy(file_name, "box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
       },
@@ -1729,14 +1738,14 @@ job::job({
         attr(fit, "fit")$save_object(file = fit_path)
         rclone_copy(
           fit_path,
-          "box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/sccomp_estimates_1_0_17/"
+          "box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/sccomp_estimates_1_0_18/"
         )
         attr(fit, "fit") <- readRDS(fit_path)
         
         fit |> sccomp_test() |> saveRDS(out_path)
         rclone_copy(
           out_path,
-          "box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/sccomp_on_cellNexus_1_0_17/"
+          "box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/sccomp_on_cellNexus_1_0_18/"
         )
       },
       resources = tar_resources(crew = tar_resources_crew(controller = "elastic_100"))
@@ -1749,7 +1758,7 @@ job::job({
 
 
 
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/estimates_age_bins___L3___disease_TRUE___immune_only_TRUE.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/")
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/estimates_age_bins___L3___disease_TRUE___immune_only_TRUE.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/")
 
 pipeline |> tidytargets::tt_explore("formula_df")
 
@@ -1757,18 +1766,19 @@ pipeline |> tidytargets::tt_explore("formula_df")
 
 library(targets)
 
-input_relative_sample = tar_read(input_relative_sample, store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/_targets")
-input_relative_donor = tar_read(input_relative_donor, store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/_targets")
+input_relative_sample = tar_read(input_relative_sample, store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/_targets")
+input_relative_donor = tar_read(input_relative_donor, store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/_targets")
 
 
 tar_workspace(input_relative_sample, 
-              script = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/_targets.R", 
-              store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/_targets"
+              script = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/_targets.R", 
+              store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/_targets"
 )
 
-tar_workspace("estimates_1fe79cb85f174a9e", store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/_targets", script = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/_targets.R")
-tar_workspace("input_relative_sample", store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/_targets", script = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/_targets.R")
+tar_workspace("estimates_1fe79cb85f174a9e", store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/_targets", script = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/_targets.R")
+tar_workspace("input_relative_sample", store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/_targets", script = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/_targets.R")
 
+x = tar_read(input_relative_sample, store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/_targets", )
 
 library(tidyverse)
 library(sccomp)
@@ -1780,10 +1790,10 @@ library(arrow)
 library(dplyr)
 library(duckdb)
 
-tar_meta(starts_with("estimates_"), store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/_targets")
+tar_meta(starts_with("estimates_"), store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/_targets")
 
 # Age proportion prediciton
-estimate_age_decade = readRDS("sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/estimates_age_decade_interaction_donor_grouping___L3___disease_FALSE___immune_only_TRUE.rds")
+estimate_age_decade = readRDS("sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/estimates_age_decade_interaction_donor_grouping___L3___disease_FALSE___immune_only_TRUE.rds")
 
 estimate_age_decade |> 
   sccomp_predict(
@@ -1798,35 +1808,35 @@ estimate_age_decade |>
   #     ordered = TRUE
   #   )) |> 
   #   mutate(age_bin_numeric = age_bin |> as.integer())  |> 
-  saveRDS("/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/prediction_age_decade.rds")
+  saveRDS("/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/prediction_age_decade.rds")
 
-prediction_proportion = readRDS("sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/")
+prediction_proportion = readRDS("sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/")
 
 
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/prediction_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/prediction_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
 
-tar_read(formula_df, store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/_targets")
+tar_read(formula_df, store = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/_targets")
 
 
 # For Hong
-estimate_age_decade = readRDS("sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/estimates_age_decade_interaction___L3___disease_FALSE___immune_only_TRUE.rds")
+estimate_age_decade = readRDS("sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/estimates_age_decade_interaction___L3___disease_FALSE___immune_only_TRUE.rds")
 estimate_age_bins = estimate_age_bins |> dplyr::select(-count_data)
 attr(estimate_age_bins, "fit") = NULL
-estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/estimates_age_bins_effect_tibble_only.rds")
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/estimates_age_bins_effect_tibble_only.rds box_adelaide:/immune_map_disease/")
+estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/estimates_age_bins_effect_tibble_only.rds")
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/estimates_age_bins_effect_tibble_only.rds box_adelaide:/immune_map_disease/")
 
 # Save fit
 library(magrittr)
-estimate_age_bins = readRDS("/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/estimates_age_bins.rds")
-estimate_age_bins |> attr("fit") %$% save_object(file = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/estimates_age_bins_FIT_FOR_PORTABILITY.rds") 
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/estimates_age_bins_FIT_FOR_PORTABILITY.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
-estimate_age_bins |> attr("fit") = readRDS("/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/estimates_age_bins_FIT_FOR_PORTABILITY.rds")
-estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/estimates_age_bins.rds")
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/estimates_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
+estimate_age_bins = readRDS("/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/estimates_age_bins.rds")
+estimate_age_bins |> attr("fit") %$% save_object(file = "/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/estimates_age_bins_FIT_FOR_PORTABILITY.rds") 
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/estimates_age_bins_FIT_FOR_PORTABILITY.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
+estimate_age_bins |> attr("fit") = readRDS("/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/estimates_age_bins_FIT_FOR_PORTABILITY.rds")
+estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/estimates_age_bins.rds")
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/estimates_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
 
 
-# estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/estimates_age_bins.rds")
-system("~/bin/rclone copy /vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_17_hca_2025_student_prior/21_11_2024_sccomp_archive_before_factor_ordering/estimates_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
+# estimate_age_bins |> saveRDS("/vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/estimates_age_bins.rds")
+system("~/bin/rclone copy /vast/projects/mangiola_immune_map/immuneHealthyBodyMap/sccomp_on_cellNexus_1_0_18_hca_2025_student_prior_drop_new_tissues/21_11_2024_sccomp_archive_before_factor_ordering/estimates_age_bins.rds box_adelaide:/Mangiola_ImmuneAtlas/taskforce_shared_folder/")
 
 # Benchmark
 tic()
