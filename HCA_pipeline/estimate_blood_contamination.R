@@ -35,12 +35,11 @@ res_relative_blood =
     formula_variability = ~ sex + ethnicity,
     sample_,
     cell_type_harmonised,
-    check_outliers = F,
     approximate_posterior_inference = FALSE,
     cores = 10,
     mcmc_seed = 42,
     verbose = T,
-    prior_mean_variable_association = list(
+    prior_overdispersion_mean_association = list(
       intercept = c(3.6539176, 0.5),
       slope = c(-0.5255242, 0.1),
       standard_deviation = c(20, 40)

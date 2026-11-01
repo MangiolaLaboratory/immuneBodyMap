@@ -16,7 +16,7 @@ library(tidybulk)
 library(tidySummarizedExperiment)
 
 home = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s"
-result_directory = glue("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age")
+result_directory = glue("sccomp_on_HCA_0.2.8.0_multivariate_prior")
 
 
 # Calculate softmax from an array of reals
@@ -88,6 +88,8 @@ cell_type_color =
 # which is not linear and hard to grasp the meanin of a lay audience
 # We use this threshold to test for significant effect bigger that it
 FDR_threshold_1_percent_change_at_20_percent_baseline = 0.017
+FDR_threshold = FDR_threshold_1_percent_change_at_20_percent_baseline
+FDR_threshold = 0.1
 
 #------------------------------#
 # Ethnicity analyses for immune cellularity
@@ -101,10 +103,16 @@ proportions_ethnicity_absolute_adjusted = readRDS(proportions_ethnicity_absolute
 
 # # save csv for SUPPLEMENTARY
 # differential_composition_ethnicity_absolute |>
-# 	sccomp_test(test_composition_above_logit_fold_change = 0.1) |>
-# 	select(-count_data) |>
-# 	write_csv("sccomp_on_HCA_0.2.3.4/SUPPLEMENTARY_ethnicity_cellularity_estimates.csv")
-
+# 	sccomp_test(test_composition_above_logit_fold_change = FDR_threshold) |> 
+# 	filter(factor == "ethnicity_simplified") |>
+# 	select(1, 2, 4, 5, 6, 7, 8, 11, 12, 13, 14, 15) |>
+# 	xlsx::write.xlsx(
+# 		"sccomp_on_HCA_0.2.8.0_multivariate_prior/SUPPLEMENTARY_sccomp_estimates.xlsx",
+# 		sheetName="ethnicity_cellularity_body",
+# 		col.names = TRUE,
+# 		showNA=TRUE,
+# 		append=TRUE
+# 	)
 
 # Plot effect of composition and variability
 # For immune cellularity (proportion of immune cells)
@@ -155,27 +163,22 @@ ethnicity_absolute_organ_tissue =
 			unite("name", ethnicity, tissue) |>
 			select(-parameter) |>
 			deframe( ),
-		test_composition_above_logit_fold_change = FDR_threshold_1_percent_change_at_20_percent_baseline
+		test_composition_above_logit_fold_change = FDR_threshold
 	) |>
 	filter(is_immune == "TRUE")
 
-# # save csv for SUPPLEMENTARY
-# differential_composition_ethnicity_absolute |>
-# 	sccomp_test(
-# 		contrasts =
-# 			differential_composition_ethnicity_absolute |>
-# 			filter(parameter |> str_detect("sexmale___")) |>
-# 			distinct(parameter) |>
-# 			mutate(contrast = glue("sexmale + `{parameter}`") |> as.character()) |>
-# 			tidyr::extract(parameter, "tissue_harmonised", ".+___(.+)") |>
-# 			filter(contrast |> str_detect("_female", negate = TRUE)) |>
-# 			deframe( ),
-# 		test_composition_above_logit_fold_change = 0.1
-# 	) |>
+# # # save csv for SUPPLEMENTARY
+# ethnicity_absolute_organ_tissue |>
 # 	select(-count_data) |>
-# 	select(1, 2, 4, 5, 6, 7, 8) |>
-# 	write_csv("sccomp_on_HCA_0.2.3.5/SUPPLEMENTARY_ethnicity_cellularity_tissue_estimates_contrasts.csv")
-
+# 	select(1, 2, 4, 5, 6, 7, 8, 11, 12, 13, 14, 15) |>
+# 	filter(parameter != "mucosa") |> 
+# 	xlsx::write.xlsx(
+# 		"sccomp_on_HCA_0.2.8.0_multivariate_prior/SUPPLEMENTARY_sccomp_estimates.xlsx",
+# 		sheetName="ethnicity_cellularity_tissues",
+# 		col.names = TRUE,
+# 		showNA=TRUE,
+# 		append=TRUE
+# 	)
 
 # Draw the color palette for the mannequin heatmap of the
 # Tissues with differential immune cellularity
@@ -214,7 +217,7 @@ colors_palette_for_organ_abundance =
 #       separate(parameter, c("tissue_harmonised", "sex"), sep="_") |>
 #       distinct(tissue_harmonised)
 #   ) |>
-#
+# 
 #   mutate(tissue_harmonised = tissue_harmonised |> str_to_sentence()) |>
 #   filter(is_immune =="TRUE") |>
 #   ggplot(aes(sex, adjusted_proportion )) +
@@ -240,9 +243,16 @@ gene_chr = read_csv("symbol_chr.csv")
 
 # # save csv for SUPPLEMENTARY
 # differential_composition_ethnicity_relative |>
-# 	sccomp_test(test_composition_above_logit_fold_change = 0.1) |>
-# 	select(-count_data) |>
-# 	write_csv("sccomp_on_HCA_0.2.3.4/SUPPLEMENTARY_ethnicity_composition_estimates.csv")
+# 	sccomp_test(test_composition_above_logit_fold_change = FDR_threshold) |> 
+# 	filter(factor == "ethnicity_simplified") |>
+# 	select(1, 2, 4, 5, 6, 7, 8, 11, 12, 13, 14, 15) |>
+# 	xlsx::write.xlsx(
+# 		"sccomp_on_HCA_0.2.8.0_multivariate_prior/SUPPLEMENTARY_sccomp_estimates.xlsx",
+# 		sheetName="ethnicity_composition_body",
+# 		col.names = TRUE,
+# 		showNA=TRUE,
+# 		append=TRUE
+# 	)
 
 # # Test difference in immune composition at the body
 # # Comparing each ethnicity with the average of the others
@@ -256,7 +266,7 @@ gene_chr = read_csv("symbol_chr.csv")
 # 			hispanic = "`(Intercept)` + `ethnicity_simplifiedHispanic or Latin American`",
 # 			other = "`(Intercept)` + ethnicity_simplifiedOther"
 # 		),
-# 		test_composition_above_logit_fold_change = 0.1
+# 		test_composition_above_logit_fold_change = FDR_threshold
 # 	) |>
 #
 # 	filter(parameter %in% c("european", "asian", "african", "hispanic", "other"))
@@ -313,7 +323,7 @@ gene_chr = read_csv("symbol_chr.csv")
 #   differential_composition_ethnicity_relative |>
 #   sccomp_remove_unwanted_variation(~ 1 + ethnicity_simplified + ( 1 + ethnicity_simplified | tissue_harmonised ), ~ ethnicity_simplified)  |>
 #   inner_join(data_for_immune_proportion_relative |> tidybulk::pivot_sample(sample_) )
-#
+# 
 # res_relative_proportions_ethnicity_tissue |> saveRDS(glue("{result_directory}/res_relative_proportions_ethnicity_tissue.rds"))
 
 res_relative_proportions_ethnicity_tissue = readRDS(glue("{result_directory}/res_relative_proportions_ethnicity_tissue.rds"))
@@ -439,7 +449,8 @@ ethnicity_tissue_sample_size =
 	distinct(ethnicity, ethnicity_simplified, tissue_harmonised, sample_) |>
 	dplyr::count(ethnicity_simplified, tissue_harmonised)
 
-FDR_non_european =
+
+	differential_composition_ethnicity_relative_test = 
 	differential_composition_ethnicity_relative |>
 	sccomp_test(
 		contrasts =
@@ -456,13 +467,52 @@ FDR_non_european =
 			select(name, contrast) |>
 			deframe()
 		#,
-		#test_composition_above_logit_fold_change = FDR_threshold_1_percent_change_at_20_percent_baseline
-	) |>
+		#test_composition_above_logit_fold_change = FDR_threshold
+	) 
+	
+	FDR_non_european =
+		differential_composition_ethnicity_relative_test	|>
 	separate(parameter, c("ethnicity", "tissue"), sep="___", remove = FALSE) |>
 	select(ethnicity, tissue, c_FDR, c_effect, cell_type = cell_type_harmonised)
 
+	# Heatmap of the most changed tissues
+differential_composition_ethnicity_relative_test |> 
+	filter(c_FDR<0.05) |> 
+	with_groups(parameter, ~ .x |>  
+								summarise(cell_type_mean_change = sum(abs(c_effect), na.rm = TRUE))
+						) |> 
+	arrange(desc(cell_type_mean_change)) |> 
+	separate(parameter, c("ethnicity", "tissue_harmonised"), sep="___") |> 
+	arrange(desc(cell_type_mean_change)) |>
+	mutate(
+		color =  circlize::colorRamp2(c(0, 2.5, 5.0, 7.5, 10), viridis::viridis(5))(cell_type_mean_change)
+	) |>
+	mutate(rgb = map_chr(
+		color,
+		~ .x |>
+			col2rgb() |>
+			paste(collapse = " ")
+	)) |>  pull(color) |>
+	scales::show_col()
+
+	
+# SUPPLEMENTARY
+# differential_composition_ethnicity_relative_test |>
+# 	select(-count_data) |>
+# 	filter(parameter != "mucosa") |> 
+# 	
+# 	select(1, 2, 4, 5, 6, 7, 8, 11, 12, 13, 14, 15) |>
+# 	xlsx::write.xlsx(
+# 		"sccomp_on_HCA_0.2.8.0_multivariate_prior/SUPPLEMENTARY_sccomp_estimates.xlsx",
+# 		sheetName="ethnicity_composition_tissues",
+# 		col.names = TRUE,
+# 		showNA=TRUE,
+# 		append=TRUE
+# 	)
 
 
+	
+	
 contrasts_df_non_european =
 	differential_composition_ethnicity_relative |>
 	filter(parameter |> str_detect("ethnicity") ) |>
@@ -500,7 +550,7 @@ df_heatmap_ethnicity_relative_organ_cell_type =
 			select(name, contrast) |>
 			deframe( ) |>
 			c(contrasts_european),
-		test_composition_above_logit_fold_change = FDR_threshold_1_percent_change_at_20_percent_baseline
+		test_composition_above_logit_fold_change = FDR_threshold
 	)  |>
 
 	add_count(cell_type_harmonised) |>
@@ -724,154 +774,164 @@ store = glue("{result_directory_pseudobulk}/_targets__pseudobulk_non_immune_spli
 # 	)) |>
 # 	select(-data) |>
 # 	unnest(se)
-# de_ethnicity_cell_type |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_ethnicity_cell_type.rds")
+# de_ethnicity_cell_type |> saveRDS("sccomp_on_HCA_0.2.8.0_multivariate_prior/de_ethnicity_cell_type.rds")
 
-de_ethnicity_cell_type = readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_ethnicity_cell_type.rds")
-
+de_ethnicity_cell_type = readRDS("sccomp_on_HCA_0.2.8.0_multivariate_prior/de_ethnicity_cell_type.rds")
+# 
 # de_ethnicity =
-# 	tar_meta(store = glue("{result_directory_de}/_targets__ethnicity"), starts_with("data_")) |>
+# 	tar_meta(store = glue("{result_directory}/_targets__ethnicity"), starts_with("data_")) |>
 # 	filter(!is.na(data)) |>
 # 	mutate(se = map(
 # 		name,
-# 		~ tar_read_raw(.x, store = glue("{result_directory_de}/_targets__ethnicity")) |>
+# 		~ tar_read_raw(.x, store = glue("{result_directory}/_targets__ethnicity")) |>
 # 			pivot_transcript(),
 # 		.progress=T
 # 	))
 # de_ethnicity |> saveRDS(glue("{result_directory}/de_ethnicity.rds"))
 
 
-rank_de_cell_type =
-	readRDS(glue("{result_directory}/de_ethnicity.rds")) |>
-	unnest(se) |>
-	dplyr::count(name, P_ethnicity_simplified_adjusted < 0.05) |>
-	drop_na() |>
-	spread(`P_ethnicity_simplified_adjusted < 0.05`, n) |>
-	mutate(proportion_significant = `TRUE` / (`FALSE` + `TRUE`)) |>
-	arrange(desc(proportion_significant)) |>
-	dplyr::rename(cell_type = name) |>
-
-	# Parse cell type
-	mutate(cell_type =
-				 	cell_type |>
-				 	str_remove("data_") |>
-				 	str_replace_all("__", " ") |>
-				 	str_replace("th1 th17", "th1/th17")
-	) |>
-
-	filter(!cell_type %in% c("immune_unclassified", "dnt")) |>
-	rowid_to_column("rank_de")
-
-
-
-plot_ranks_cell_type_barplot =
-	rank_de_cell_type |>
-	ggplot(aes(`TRUE`, cell_type |> fct_reorder(proportion_significant))) +
-	geom_bar(aes(fill = cell_type), stat = "identity") +
-	scale_fill_manual(values = cell_type_color) +
-	guides(fill="none") +
-	xlab("Number of significant genes") +
-	theme_multipanel +
-	theme(axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank())
-
-plot_ranks_cell_type =
-
-		differential_composition_ethnicity_relative |>
-			sccomp_test(contrasts = c("non_european" = "1/3*(ethnicity_simplifiedChinese + ethnicity_simplifiedAfrican + `ethnicity_simplifiedHispanic or Latin American`)")) |>
-			filter(parameter=="non_european") |>
-			arrange(c_FDR) |>
-			filter(!cell_type_harmonised %in% c("immune_unclassified", "dnt")) |>
-			rowid_to_column("rank_composition") |>
-			select(cell_type = cell_type_harmonised, rank_composition) |>
-
-			full_join(
-
-				# DE
-				rank_de_cell_type ,
-				by = join_by(cell_type)
-
-			) |>
-			select(cell_type, contains("rank")) |>
-			pivot_longer(contains("rank")) |>
-			mutate(name = name |> str_remove("rank")) |>
-
-			# Parse cell types
-			mutate(cell_type_formatted = cell_type |>
-						 	str_replace("megakaryocytes", "mega") |>
-						 	str_remove("phage") |>
-						 	str_replace("th1 th17", "th1/17") |>
-						 	str_replace("mono", "mn") |>
-						 	str_replace("tcm", "cm") |>
-						 	str_replace("cd4 th", "Th") |>
-						 	str_replace("memory", "mem") |>
-						 	str_replace("naive", "nv") |>
-						 	str_replace("terminal effector cd4 t", "cd4 eff") |>
-						 	str_remove("cyte")
-			) |>
-
-
-			# Plot
-			ggplot(aes(name, value, group=cell_type,  label=cell_type_formatted)) +
-			geom_line(aes(color = cell_type)) +
-			geom_point(aes(color = cell_type)) +
-			geom_text(size = 2.5) +
-			scale_color_manual(values = cell_type_color) +
-			scale_y_reverse() +
-			guides(color = "none") +
-			ylab("Rank of tissue with highest significance") +
-			theme_multipanel +
-			theme(axis.text.y = element_blank(), axis.ticks.y = element_blank())
+# rank_de_cell_type =
+# 	readRDS(glue("{result_directory}/de_ethnicity.rds")) |>
+# 	unnest(se) |>
+# 	dplyr::count(name, P_ethnicity_simplified_adjusted < 0.05) |>
+# 	drop_na() |>
+# 	spread(`P_ethnicity_simplified_adjusted < 0.05`, n) |>
+# 	mutate(proportion_significant = `TRUE` / (`FALSE` + `TRUE`)) |>
+# 	arrange(desc(proportion_significant)) |>
+# 	dplyr::rename(cell_type = name) |>
+# 
+# 	# Parse cell type
+# 	mutate(cell_type =
+# 				 	cell_type |>
+# 				 	str_remove("data_") |>
+# 				 	str_replace_all("__", " ") |>
+# 				 	str_replace("th1 th17", "th1/th17")
+# 	) |>
+# 
+# 	filter(!cell_type %in% c("immune_unclassified", "dnt")) |>
+# 	rowid_to_column("rank_de")
 
 
 
-de_ethnicity_tissue =
-	tar_meta( store = store	) |>
-	dplyr::filter(name |> str_detect("estimates_ethnicity_tissue_")) |>
-	filter(!is.na(data)) |>
-	mutate(se = future_map(
-		name,
-		~ .x |>
-			tar_read_raw(store=store ) |>
-			mutate(is_immune = map_lgl(data, ~ .x |> tidySummarizedExperiment::pull(cell_type_harmonised) %in% c(
-				"b memory",     "cd8 tcm"  ,    "cd8 tem",      "plasma" ,
-				"b naive" ,     "cd14 mono" ,   "cd4 fh"   ,    "cd4 naive"  ,
-				"cd4 th1/th17", "cd4 th17",     "cd4 th2" ,     "cdc"  ,
-				"ilc" ,         "macrophage",   "mait" ,        "nk" ,
-				"tgd"  ,        "treg"
-			) |> any())) |>
-			mutate(data = map(data, tidybulk::pivot_transcript)),
-		.progress=T
-		# ,
-		# .env_globals = environment()
-	)) |>
-	select(-data) |>
-	unnest(se)
-de_ethnicity_tissue |> saveRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_ethnicity_tissue.rds")
+# plot_ranks_cell_type_barplot =
+# 	rank_de_cell_type |>
+# 	ggplot(aes(`TRUE`, cell_type |> fct_reorder(proportion_significant))) +
+# 	geom_bar(aes(fill = cell_type), stat = "identity") +
+# 	scale_fill_manual(values = cell_type_color) +
+# 	guides(fill="none") +
+# 	xlab("Number of significant genes") +
+# 	theme_multipanel +
+# 	theme(axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank())
+
+# plot_ranks_cell_type =
+# 
+# 		differential_composition_ethnicity_relative |>
+# 			sccomp_test(contrasts = c("non_european" = "1/3*(ethnicity_simplifiedChinese + ethnicity_simplifiedAfrican + `ethnicity_simplifiedHispanic or Latin American`)")) |>
+# 			filter(parameter=="non_european") |>
+# 			arrange(c_FDR) |>
+# 			filter(!cell_type_harmonised %in% c("immune_unclassified", "dnt")) |>
+# 			rowid_to_column("rank_composition") |>
+# 			select(cell_type = cell_type_harmonised, rank_composition) |>
+# 
+# 			full_join(
+# 
+# 				# DE
+# 				rank_de_cell_type ,
+# 				by = join_by(cell_type)
+# 
+# 			) |>
+# 			select(cell_type, contains("rank")) |>
+# 			pivot_longer(contains("rank")) |>
+# 			mutate(name = name |> str_remove("rank")) |>
+# 
+# 			# Parse cell types
+# 			mutate(cell_type_formatted = cell_type |>
+# 						 	str_replace("megakaryocytes", "mega") |>
+# 						 	str_remove("phage") |>
+# 						 	str_replace("th1 th17", "th1/17") |>
+# 						 	str_replace("mono", "mn") |>
+# 						 	str_replace("tcm", "cm") |>
+# 						 	str_replace("cd4 th", "Th") |>
+# 						 	str_replace("memory", "mem") |>
+# 						 	str_replace("naive", "nv") |>
+# 						 	str_replace("terminal effector cd4 t", "cd4 eff") |>
+# 						 	str_remove("cyte")
+# 			) |>
+# 
+# 
+# 			# Plot
+# 			ggplot(aes(name, value, group=cell_type,  label=cell_type_formatted)) +
+# 			geom_line(aes(color = cell_type)) +
+# 			geom_point(aes(color = cell_type)) +
+# 			geom_text(size = 2.5) +
+# 			scale_color_manual(values = cell_type_color) +
+# 			scale_y_reverse() +
+# 			guides(color = "none") +
+# 			ylab("Rank of tissue with highest significance") +
+# 			theme_multipanel +
+# 			theme(axis.text.y = element_blank(), axis.ticks.y = element_blank())
+
+
+
+# de_ethnicity_tissue =
+# 	tar_meta( store = store	) |>
+# 	dplyr::filter(name |> str_detect("estimates_ethnicity_tissue_")) |>
+# 	filter(!is.na(data)) |>
+# 	mutate(se = future_map(
+# 		name,
+# 		~ .x |>
+# 			tar_read_raw(store=store ) |>
+# 			mutate(is_immune = map_lgl(data, ~ .x |> tidySummarizedExperiment::pull(cell_type_harmonised) %in% c(
+# 				"b memory",     "cd8 tcm"  ,    "cd8 tem",      "plasma" ,
+# 				"b naive" ,     "cd14 mono" ,   "cd4 fh"   ,    "cd4 naive"  ,
+# 				"cd4 th1/th17", "cd4 th17",     "cd4 th2" ,     "cdc"  ,
+# 				"ilc" ,         "macrophage",   "mait" ,        "nk" ,
+# 				"tgd"  ,        "treg"
+# 			) |> any())) |>
+# 			mutate(data = map(data, tidybulk::pivot_transcript)),
+# 		.progress=T
+# 		# ,
+# 		# .env_globals = environment()
+# 	)) |>
+# 	select(-data) |>
+# 	unnest(se)
+# de_ethnicity_tissue |> saveRDS("sccomp_on_HCA_0.2.8.0_multivariate_prior/de_ethnicity_tissue.rds")
 
 # de_ethnicity_tissue_non_immune =
-# 	tar_meta(store = glue("pseudobulk_0.2.3.5_non_immune/_targets__pseudobulk_non_immune"), starts_with("estimates_")) |>
+# 	tar_meta(
+# 		store = glue("pseudobulk_0.2.3.5_non_immune/_targets__pseudobulk_non_immune_split3"), 
+# 		starts_with("estimates_ethnicity_tissue")
+# 	) |>
 # 	filter(!is.na(data)) |>
 # 	mutate(se = map(
 # 		name,
 # 		~ {
-# 			se = tar_read_raw(.x, store = glue("pseudobulk_0.2.3.5_non_immune/_targets__pseudobulk_non_immune"))
-#
-# 			se |>
+# 			se = 
+# 				tar_read_raw(
+# 					.x, 
+# 					store = glue("pseudobulk_0.2.3.5_non_immune/_targets__pseudobulk_non_immune_split3")
+# 				) 
+# 
+# 			se |> 
+# 				pull(data) |> 
+# 				_[[1]] |>
+# 
 # 				pivot_transcript() |>
 # 				mutate(tissue_harmonised = se |> pull(tissue_harmonised) |> unique())
 # 			},
 # 		.progress=T
 # 	))
-# de_ethnicity_tissue_non_immune |> saveRDS("sccomp_on_HCA_0.2.3.5/de_ethnicity_tissue_non_immune.rds")
+# de_ethnicity_tissue_non_immune |> saveRDS("sccomp_on_HCA_0.2.8.0_multivariate_prior/de_ethnicity_tissue_non_immune.rds")
 
 de_ethnicity_tissue_non_immune =
-	readRDS("sccomp_on_HCA_0.2.3.5/de_ethnicity_tissue_non_immune.rds") |>
+	readRDS("sccomp_on_HCA_0.2.8.0_multivariate_prior/de_ethnicity_tissue_non_immune.rds") |>
 	mutate(tissue = map_chr(se, ~ .x |> pull(tissue_harmonised) |> unique())) |>
 	filter(!is.na(tissue)) |>
 	filter(map_lgl(se, ~ "P_ethnicity_simplified_adjusted" %in% colnames(.x), .progress = TRUE)) |>
 	mutate(se = map(se, ~ .x |> select(.feature, P_ethnicity_simplified_adjusted)))
 
 de_ethnicity_tissue =
-	readRDS("sccomp_on_HCA_0.2.3.5/de_ethnicity_tissue.rds") |>
+	readRDS("sccomp_on_HCA_0.2.8.0_multivariate_prior/de_ethnicity_tissue.rds") |>
 	dplyr::rename(tissue = name) |>
 	mutate(tissue = tissue |> str_remove("data_")) |>
 	# Parse cell type
@@ -882,12 +942,12 @@ de_ethnicity_tissue =
 		tissue == "gland" ~ "adrenal gland",
 		TRUE ~ tissue
 	)) |>
-	filter(map_lgl(se, ~ "P_ethnicity_simplified_adjusted" %in% colnames(.x))) |>
-	mutate(se = map(se, ~ .x |> select(.feature, P_ethnicity_simplified_adjusted)))
+	filter(map_lgl(data, ~ "P_ethnicity_simplified_adjusted" %in% colnames(.x))) |>
+	mutate(data = map(data, ~ .x |> select(.feature, P_ethnicity_simplified_adjusted)))
 
 rank_de_tissue =
 	de_ethnicity_tissue |>
-
+	dplyr::rename(se = data) |> 
 	left_join(
 		de_ethnicity_tissue_non_immune |>
 			select(tissue, se_non_immune = se)
@@ -896,8 +956,6 @@ rank_de_tissue =
 	mutate(n = map2(
 		se,se_non_immune,
 		~ {
-			.x = .x |>
-			filter(!.feature %in% gene_chr$ID)
 
 			if(!is.null(.y)) 	.x = .x |>	filter(!.feature %in% (.y |> pull(.feature)))
 			.x |>
@@ -966,9 +1024,13 @@ plot_ranks_tissue =
 
 
 # UMAP
-adjusted_ethnicity_fixed =
-  differential_composition_ethnicity_relative |>
-  sccomp_remove_unwanted_variation(~ ethnicity_simplified + group)
+# adjusted_ethnicity_fixed =
+#   differential_composition_ethnicity_relative |>
+#   sccomp_remove_unwanted_variation(~ ethnicity_simplified + group)
+# 
+# adjusted_ethnicity_fixed |> saveRDS("sccomp_on_HCA_0.2.8.0_multivariate_prior/adjusted_ethnicity_fixed.rds")
+
+adjusted_ethnicity_fixed = readRDS("sccomp_on_HCA_0.2.8.0_multivariate_prior/adjusted_ethnicity_fixed.rds")
 
 replicate_ethnicity_fixed =
   differential_composition_ethnicity_relative |>
@@ -1038,13 +1100,20 @@ plot_PCA_ethnicity =
   )) |>
   slice_head(n = 7) |>
   dplyr::slice(c(1, 2, 5, 7)) |>
-  mutate(data = map(data, reduce_dimensions, method = "PCA", scale = TRUE))  |>
+  #mutate(data = map(data, reduce_dimensions, method = "PCA", scale = TRUE))  |>
   mutate(plot = map(
     data,
     ~ {
-
+    	
       # Do PCA
-      PCA <- .x |> assay("adjusted_proportion") |> t() |>   prcomp(scale. = TRUE)
+      PCA <- .x |> 
+      	
+      	# Void 0s
+      	mutate(adjusted_proportion_non_0 = if_else(adjusted_proportion==0, 0.0001171304, adjusted_proportion)) |>  
+      	assay("adjusted_proportion_non_0") |> 
+      	t() |>   
+      	boot::logit() |> 
+      	prcomp(scale. = F)
 
       # Extract PC axes for plotting
       PCAvalues <- data.frame(cell_type = colnames(.x), PCA$x, Ethnicity = .x |> pivot_sample() |> pull(ethnicity_simplified))
@@ -1101,7 +1170,7 @@ plot_PCA_ethnicity =
 # 	arrange(desc(proportion)) |>
 # 	filter(!.feature %in% gene_chr$ID)
 
-de_ethnicity_cell_type = readRDS("sccomp_on_HCA_0.2.3.7_double_interaction_sex_age/de_ethnicity_cell_type.rds")
+de_ethnicity_cell_type = readRDS("sccomp_on_HCA_0.2.8.0_multivariate_prior/de_ethnicity_cell_type.rds")
 
 plot_genes_most_altered =
 
@@ -1173,7 +1242,7 @@ plot_genes_most_altered_effects =
   filter(cell_type_harmonised |> str_detect("immune_unclassified", negate = TRUE)) |> 
   filter(P_ethnicity_simplified_adjusted < 0.05) |> 
   nest(data = -.feature) |> 
-  filter(.feature %in% c("TOP2A", "LAG3", "SLAMF7")) |> 
+  filter(.feature %in% c("TOP2A", "LAG3", "SLAMF7", "CD274", "PDCD1", "CTLA4")) |> 
   mutate(plot = map2(
     data, .feature,
     ~ .x |> 

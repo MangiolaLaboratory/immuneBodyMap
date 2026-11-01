@@ -43,7 +43,8 @@ tar_script({
 			verbose = TRUE,
 			seconds_wall = 6000,
 			#script_directory = glue("{result_directory}/_targets.R"),
-			script_lines = "module load R/4.2.1",
+			script_lines = "module load R/4.2.1", 
+			seconds_idle = 30
 		)
 
 	big_slurm =
@@ -55,7 +56,8 @@ tar_script({
 			verbose = TRUE,
 			seconds_wall = 6000,
 			#script_directory = glue("{result_directory}/_targets.R"),
-			script_lines = "module load R/4.2.1",
+			script_lines = "module load R/4.2.1", 
+			seconds_idle = 30
 		)
 
 	#-----------------------#

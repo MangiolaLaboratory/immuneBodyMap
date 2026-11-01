@@ -163,12 +163,12 @@ plot_ethnicity_absolute_1D =
   rownames_to_column() |> 
   mutate(plot = map2(
     plot, rowname, 
-    ~ if(.y>1) .x + 
+    ~ {if(.y>1) .x + 
       theme(
         axis.title.y = element_blank(), 
         axis.text.y = element_blank(), 
         axis.ticks.y = element_blank()
-      ) else .x)) |> 
+      ) else .x})) |> 
   pull(plot) |> 
   wrap_plots(nrow=1)
   
