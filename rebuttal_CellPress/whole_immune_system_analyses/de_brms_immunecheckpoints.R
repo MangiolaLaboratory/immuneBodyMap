@@ -1689,3 +1689,45 @@ feature_df = tar_read(
 )
 
 feature_df
+
+
+
+library(cellNexus)
+library(duckplyr)
+library(SummarizedExperiment)
+library(BiocParallel)
+library(tidybulk)
+# remotes::install_github("MangiolaLaboratory/cellNexus@optimise-memory-pseudobulk")
+
+se = 
+  get_metadata() |> 
+  filter(empty_droplet == FALSE, alive == TRUE, scDblFinder.class!="doublet", feature_count>=1000) |> 
+  get_pseudobulk(cache_directory = "/vast/projects/cellxgene_curated/cellNexus/")
+
+se_sample = 
+  se |> 
+  scuttle::aggregateAcrossCells(
+    colData(se)[,"sample_id"], 
+    BPPARAM = MulticoreParam(workers = parallelly::availableCores())
+  )
+
+# Compute mean library size
+mean_library_size <- se_sample |>
+  assay("counts") |>
+  _[nrow(se_sample) |> seq_len() |> sample(size = 2000), ] |> 
+  colSums() |>
+  mean()
+
+# Optional: retrieve the sample name (column name in the SummarizedExperiment)
+reference_sample <- colnames(se_sample)[
+  se_sample |>
+    assay("counts") |>
+    colSums() |>
+    {\(x) abs(x - mean_library_size)}() |>  # Calculate absolute difference from the mean
+    which.min()                             # Identify the smallest difference
+]
+
+se_sample = 
+  se_sample |> 
+  scale_abundance(method = "TMMwsp", reference_sample = reference_sample, chunk_sample_size = 1000) 
+

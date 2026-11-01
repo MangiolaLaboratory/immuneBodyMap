@@ -4,98 +4,15 @@ library(glue)
 # Get input
 
 
-
-result_directory = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/pseudobulk_0.2.3.5_non_immune"
-root_directory = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap"
-
-# metadata = glue("{root_directory}/sccomp_on_HCA_0.2.3.4/input_relative.rds") |> readRDS() |> mutate(age_days = age_days_original)
-#
-# get_metadata() |>
-# 	filter(
-# 		sample_ %in% (
-# 			!!metadata |>
-# 				distinct(sample_) |>
-# 				tidyr::extract(sample_, "sample_", "([a-zA-Z0-9]+)_.+") |>
-# 				pull(sample_)
-# 		)) |>
-#
-# 	# Attach lineage
-# 	left_join(
-# 		read_csv("~/PostDoc/immuneHealthyBodyMap/metadata_cell_type.csv") |>
-# 			replace_na(list(lineage_1 = "other_non_immune")) |>
-# 			mutate(is_immune = as.character(lineage_1 == "immune")),
-# 		by = join_by(cell_type),
-# 		copy = TRUE
-# 	) |>
-# 	filter(is_immune == "FALSE" & !is.na(lineage_1)) |>
-# 	filter(cell_type_harmonised != "platelet") |>
-# 	as_tibble() |>
-#
-# 	# Filter rare cell types
-# 	add_count(cell_type_harmonised, name = "count_cell_type_harmonised") |>
-# 	filter(count_cell_type_harmonised>100) |>
-# 	select(-count_cell_type_harmonised) |>
-#
-# 	# Format covatriates
-# 	mutate(assay = assay |> str_replace_all(" ", "_") |> str_replace_all("-", "_")  |> str_remove_all("'")) |>
-# 	mutate(
-# 		ethnicity = case_when(
-# 			ethnicity |> str_detect("Chinese|Asian") ~ "Chinese",
-# 			ethnicity |> str_detect("African") ~ "African",
-# 			TRUE ~ ethnicity
-# 		)
-# 	) |>
-#
-# 	# Mutate days
-# 	filter(development_stage!="unknown") |>
-#
-# 	# Establish the baseline for simplified ethnicity. European as it is the most represented
-# 	# This is so I have a tight intercept term for data simulation
-# 	mutate(ethnicity_simplified = case_when(
-# 		ethnicity %in% c("European", "Chinese", "African", "Hispanic or Latin American") ~ ethnicity,
-# 		TRUE ~ "Other"
-# 	)) |>
-# 	mutate(
-# 		ethnicity_simplified =
-# 			ethnicity_simplified |>
-# 			fct_relevel(c("European", "Chinese", "African", "Hispanic or Latin American", "Other")
-# 			)) |>
-#
-# 	# Establish the baseline for simplified assay
-# 	# Summarise assays to get more stable data simulations
-# 	# 10x as baseline
-# 	mutate(assay_simplified = if_else(assay |> str_detect("10x"), "10x", assay)) |>
-# 	mutate(assay_simplified = factor(assay_simplified)) |>
-#
-# 	# Establish the baseline for disease
-# 	mutate(disease = if_else(disease == "normal", "aaa_normal", disease)) |>
-#
-# 	# Select few columns to make things lighter
-# 	select(
-# 		cell_, cell_type_harmonised, sample_,  file_id, file_id_db,
-# 		age_days, development_stage, sex, tissue_harmonised, disease,
-# 		ethnicity_simplified, assay_simplified
-# 	) |>
-# 	# group
-# 	nest(data = -c(cell_type_harmonised, tissue_harmonised)) |>
-# 	unite( "name", c(cell_type_harmonised, tissue_harmonised), remove = FALSE, sep = "___") |>
-# 	mutate(name = name |> str_replace_all("/", "__") |> str_replace_all(" ", "_")) |>
-# 	mutate(file_path = glue("{result_directory}/{name}_metadata.qs")) |>
-# 	mutate(saved = map2(
-# 		data, file_path, ~ .x |> qs::qsave(.y),
-# 		.progress = TRUE
-# 	)) |>
-# 	select(-data) |>
-# 	qs::qsave(glue("{result_directory}/pipeline_input.qs"))
+result_directory = "/vast/projects/mangiola_immune_map/pseudobulk"
+root_directory = result_directory
 
 
 
 
 tar_script({
 	
-	result_directory = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/pseudobulk_0.2.3.5_non_immune"
-	
-	
+
 	#-----------------------#
 	# Input
 	#-----------------------#
@@ -107,13 +24,19 @@ tar_script({
 	library(crew)
 	library(crew.cluster)
 	
+	# Store for H5
+	result_directory = "/vast/projects/mangiola_immune_map/pseudobulk/"
+	my_HDF5_store = glue("{result_directory}/_targets__pseudobulk_june_2024/HDF5")
+	
+	
+	
 	#-----------------------#
 	# Packages
 	#-----------------------#
 	tar_option_set(
 		packages = c(
 			"CuratedAtlasQueryR", "stringr", "tibble", "tidySingleCellExperiment", "dplyr", "Matrix",
-			"Seurat", "glue", "qs",  "purrr", "tidybulk", "tidySummarizedExperiment", "edgeR", "crew", "magrittr", "digest", "glmmSeq", "readr"
+			"Seurat", "glue", "qs",  "purrr", "tidybulk", "tidySummarizedExperiment", "edgeR", "crew", "magrittr", "digest", "glmmSeq", "readr", "forcats"
 		),
 		
 		garbage_collection = TRUE,
@@ -134,19 +57,21 @@ tar_script({
 				slurm_memory_gigabytes_per_cpu = 20,
 				slurm_cpus_per_task = 2,
 				workers = 100,
-				verbose = T, 
-				seconds_timeout = 30
-				#,
-				#script_lines = "module load R/4.2.1",
-				#host = "spartan.hpc.unimelb.edu.au"
+				tasks_max = 5,
+				slurm_log_output = NULL,
+				slurm_log_error = NULL, 
+				seconds_idle = 30
 			),
 			
 			crew_controller_slurm(
 				name = "slurm_1_40",
 				slurm_memory_gigabytes_per_cpu = 40,
 				slurm_cpus_per_task = 1,
-				workers = 200,
-				verbose = T
+				workers = 100,
+				tasks_max = 5,
+				slurm_log_output = NULL,
+				slurm_log_error = NULL, 
+				seconds_idle = 30
 			),
 			
 			crew_controller_slurm(
@@ -154,7 +79,10 @@ tar_script({
 				slurm_memory_gigabytes_per_cpu = 80,
 				slurm_cpus_per_task = 1,
 				workers = 20,
-				verbose = T
+				tasks_max = 5,
+				slurm_log_output = NULL,
+				slurm_log_error = NULL, 
+				seconds_idle = 30
 			),
 			
 			crew_controller_slurm(
@@ -162,7 +90,10 @@ tar_script({
 				slurm_memory_gigabytes_per_cpu = 120,
 				slurm_cpus_per_task = 1,
 				workers = 10,
-				verbose = T
+				tasks_max = 5,
+				slurm_log_output = NULL,
+				slurm_log_error = NULL, 
+				seconds_idle = 30
 			),
 			
 			crew_controller_slurm(
@@ -170,7 +101,10 @@ tar_script({
 				slurm_memory_gigabytes_per_cpu = 400,
 				slurm_cpus_per_task = 2,
 				workers = 5,
-				verbose = T
+				tasks_max = 5,
+				slurm_log_output = NULL,
+				slurm_log_error = NULL, 
+				seconds_idle = 30
 			),
 			
 			crew_controller_slurm(
@@ -178,7 +112,8 @@ tar_script({
 				slurm_memory_gigabytes_per_cpu = 10,
 				slurm_cpus_per_task = 3,
 				workers = 200,
-				verbose = T
+				verbose = T, tasks_max = 5, 
+				seconds_idle = 30
 			),
 			
 			crew_controller_slurm(
@@ -186,14 +121,16 @@ tar_script({
 				slurm_memory_gigabytes_per_cpu = 4,
 				slurm_cpus_per_task = 5,
 				workers = 300,
-				verbose = T
+				verbose = T, tasks_max = 5, 
+				seconds_idle = 30
 			),
 			
 			crew_controller_local(name = "local_30", workers = 30)
 		),
 		resources = tar_resources(crew = tar_resources_crew("slurm_2_20")) ,
-		debug = "pseudobulk_df", # Set the target you want to debug.
-		cue = tar_cue(mode = "never")		
+		# debug = "pseudobulk_df_5cd7eab7f2f5bf6b"
+		#, # Set the target you want to debug.
+		#cue = tar_cue(mode = "never")		
 	)
 	
 	root_directory = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap"
@@ -326,18 +263,27 @@ tar_script({
 		
 	}
 	
-	get_pseudobulk = 	function(sce_df) {
+	get_pseudobulk = 	function(sce_df, external_path) {
+		
+		dir.create(external_path, showWarnings = FALSE, recursive = TRUE)
+		
 		
 		sce_df |>
 			mutate(data = map(
 				data, 
 				~ {
-					.x = tidySingleCellExperiment::aggregate_cells(.x, .sample = sample_se	)
+					pseudobulk = 
+						.x |> 
+						tidySingleCellExperiment::aggregate_cells(.sample = sample_se	)
+				
+					file_name = glue("{external_path}/{digest(pseudobulk)}")
 					
-					assay(.x, "counts") = assay(.x, "counts") |> as("sparseMatrix")
+					pseudobulk |> 
+					saveHDF5SummarizedExperiment(dir = file_name, replace=TRUE, as.sparse=TRUE)
 					
-					.x
 				}
+
+
 			))
 		
 	}
@@ -400,7 +346,6 @@ tar_script({
 		
 	}
 	
-
 	aggregate = function(se_df){
 		
 		print("Start aggregate")
@@ -425,7 +370,7 @@ tar_script({
 						assay("counts") |>
 						apply(2, function(x) (x>0) |> which() |> length()) |>
 						enframe() |>
-						mutate(value = as.character(value), name = as.character(name)) |>
+						mutate(name = as.character(name)) |>
 						filter(value > 5000) |>
 						pull(name)
 					se = se[,sample_with_many_genes, drop=FALSE]
@@ -790,7 +735,7 @@ tar_script({
 						
 						
 						# Eliminate complete confounders
-						resolve_complete_confounders_of_non_interest(assay_simplified, disease, ethnicity_simplified) 
+						tidybulk:::resolve_complete_confounders_of_non_interest(assay_simplified, disease, ethnicity_simplified) 
 						
 					rm(.x)
 					gc()
@@ -931,7 +876,7 @@ tar_script({
 						
 						
 						# Eliminate complete confounders
-						resolve_complete_confounders_of_non_interest(assay_simplified, disease, ethnicity_simplified) 
+						tidybulk:::resolve_complete_confounders_of_non_interest(assay_simplified, disease, ethnicity_simplified) 
 					
 					
 					rm(.x)
@@ -1056,9 +1001,11 @@ tar_script({
 			
 		clean = 
 			se |> 
-			#distinct(ethnicity_simplified, assay_simplified, .sample) |>
+			colData() |> 
+			as_tibble(rownames = ".sample") |> 
+			distinct(ethnicity_simplified, age_days, .sample) |>
 			
-			nest(se_data = -c(ethnicity_simplified, age_days)) |>
+			# nest(se_data = -c(ethnicity_simplified, age_days)) |>
 			
 			# How many ethnicity per assay
 			nest(data = -ethnicity_simplified) |> 
@@ -1072,6 +1019,8 @@ tar_script({
 			
 			filter(n1+n2>2) |>
 			select(-n1, -n2) 
+		
+		# dummy_factor_2 <- cd |> arrange(desc(n1 + n2)) |> slice(1) |> pull(!!.factor_2)
 		
 		if(
 			nrow(clean) == 0 || clean |>
@@ -1089,9 +1038,12 @@ tar_script({
 			
 			clean = 
 				se |> 
-				#distinct(ethnicity_simplified, assay_simplified, .sample) |>
+				colData() |> 
+				as_tibble(rownames = ".sample") |> 
 				mutate(age_days = age_days > 1) |>
-				nest(se_data = -c(ethnicity_simplified, age_days)) |>
+				distinct(ethnicity_simplified, age_days, .sample) |>
+				
+				# nest(se_data = -c(ethnicity_simplified, age_days)) |>
 				
 				# How many ethnicity per assay
 				nest(data = -ethnicity_simplified) |> 
@@ -1110,7 +1062,7 @@ tar_script({
 			
 		}
 		
-		clean |> unnest_summarized_experiment(se_data) 
+		se |> right_join(clean) 
 			
 	}
 	
@@ -1128,7 +1080,7 @@ tar_script({
 						.x |> 
 						
 						# Eliminate complete confounders
-						resolve_complete_confounders_of_non_interest(assay_simplified, disease, sex) |> 
+						tidybulk:::resolve_complete_confounders_of_non_interest(assay_simplified, disease, sex) |> 
 						samples_NOT_complete_confounders_for_age_ethnicity()
 					
 					
@@ -1144,7 +1096,8 @@ tar_script({
 						se |>
 						filter(disease %in% (
 							se |>
-								distinct(disease, ethnicity_simplified) |>
+								select(disease, ethnicity_simplified) |>
+								distinct() |> 
 								dplyr::count(disease) |>
 								filter(n>1) |>
 								pull(disease)
@@ -1152,35 +1105,49 @@ tar_script({
 					
 					# Return prematurely
 					if(ncol(se) == 0) return(NULL)
-					if(se |> distinct(sex, ethnicity_simplified) |> dplyr::count(sex) |> pull(n) |> max() == 1) return(NULL)
+					if(se |> select(sex, ethnicity_simplified) |> distinct() |> dplyr::count(sex) |> pull(n) |> max() == 1) return(NULL)
 					
 					
 					# Vell types with enough samples
 					cell_type_to_keep =
 						se |>
-						distinct(sample_, cell_type_harmonised) |>
+						select(sample_, cell_type_harmonised) |>
+						distinct() |> 
 						dplyr::count(  cell_type_harmonised) |>
 						filter(n > 3) |>
 						pull(cell_type_harmonised)
 					if(length(cell_type_to_keep)== 0) return(NULL)
 					
+					
+					# TOO SLOW
 					se = 
 						se |>
 						
-						# Scale continuous variables
-						mutate(age_days = scale(age_days) |> as.numeric()) |>
-						
 						# Filter cell types to keep
-						filter(cell_type_harmonised %in% cell_type_to_keep) |>
-						
+						filter(cell_type_harmonised %in% cell_type_to_keep) 
+					
+					
+					colData_se = 
+						se |>
+						colData() |> 
+						as_tibble() |> 
+
+						# Scale continuous variables
+						mutate(age_days = scale(age_days) |> as.numeric()) |> 
+					
 						# otherwise I get error for some reason
 						mutate(across(any_of(c("sex", "ethnicity_simplified", "assay_simplified", "file_id", "tissue_harmonised", "cell_type_harmonised")), as.character)) |>
-						mutate(ethnicity_simplified = ethnicity_simplified |> str_replace("European", "aaa_European")) 
+						mutate(ethnicity_simplified = ethnicity_simplified |> str_replace("European", "aaa_European")) |> 
+						DataFrame()
+					
+					rownames(colData_se) = se |> colData() |> rownames()
+					se |> colData() = colData_se 
 					
 					# Drop random effect grouping with no enough data
 					combinations_to_keep = 
 						se |>
-						distinct(sex, ethnicity_simplified, cell_type_harmonised) |>
+						select(sex, ethnicity_simplified, cell_type_harmonised) |>
+						distinct() |> 
 						add_count(cell_type_harmonised) |>
 						filter(n>1)
 					
@@ -1202,7 +1169,7 @@ tar_script({
 					
 					if(is.null(.x)) return(~1)
 					if(ncol(.x) <= 1) return(~1)
-					if(.x |> distinct(sex, ethnicity_simplified) |> dplyr::count(sex) |> pull(n) |> max() == 1) return(~1)
+					if(.x |> select(sex, ethnicity_simplified) |> distinct() |>  dplyr::count(sex) |> pull(n) |> max() == 1) return(~1)
 					
 					se = .x
 					
@@ -1231,15 +1198,15 @@ tar_script({
 					my_formula = glue("~ {factors}")
 					
 					if(
-						se |> distinct(cell_type_harmonised) |> nrow() > 1 &
+						se |> select(cell_type_harmonised) |> distinct() |>  nrow() > 1 &
 						length(random_effects) > 0
 					) 
 						my_formula = glue("{my_formula} + (1 + {random_effects} | cell_type_harmonised)")
 					
 					
 					if( 	
-						se |> distinct(sample_) |> nrow() > 1	&& 
-						se |> distinct(cell_type_harmonised) |> nrow() > 1
+						se |> select(sample_) |> distinct() |> nrow() > 1	&& 
+						se |> select(cell_type_harmonised) |> distinct() |> nrow() > 1
 					)
 						my_formula = glue("{my_formula} + (1 | sample_)")
 					
@@ -1272,7 +1239,7 @@ tar_script({
 						.x |> 
 						
 						# Eliminate complete confounders
-						resolve_complete_confounders_of_non_interest(assay_simplified, disease, sex) 
+						tidybulk:::resolve_complete_confounders_of_non_interest(assay_simplified, disease, sex) 
 					
 					
 					rm(.x)
@@ -1404,43 +1371,40 @@ tar_script({
 			glue("{root_directory}/sccomp_on_HCA_0.2.3.4/input_relative.rds") |> 
 				split_metadata(),
 			cell_type_harmonised, tissue_harmonised, file_id, is_immune, sample_chunk, 
-			deployment = "main",
 			resources = tar_resources(crew = tar_resources_crew("slurm_1_80"))
 		),
 		
-		# Get SCE
-		tar_target(
-			pseudobulk_df,
-			tissue_cell_type_metadata |> get_sce() |> get_pseudobulk(),
-			pattern = map(tissue_cell_type_metadata),
-			iteration = "group",
-			resources = tar_resources(crew = tar_resources_crew("local_30"))
-		),
+		# # Get SCE
+		# tar_target_raw(
+		# 	"pseudobulk_df",
+		# 	tissue_cell_type_metadata |> get_sce() |> get_pseudobulk(s) |> substitute(env = list(s = my_HDF5_store)),
+		# 	pattern = map(tissue_cell_type_metadata) |> quote(),
+		# 	resources = tar_resources(crew = tar_resources_crew("slurm_1_40")),
+		# 	packages = "HDF5Array"
+		# ),
 		
 		
 		#-----------------------#
 		# TISSUE ANALYSES
 		#-----------------------#
 		
-		# Group samples
-		tarchetypes::tar_group_by(
-			pseudobulk_df_tissue, 
-			pseudobulk_df, 
-			tissue_harmonised, is_immune,
-			resources = tar_resources(crew = tar_resources_crew("slurm_1_80"))
-		),
-		
-		# Add dispersion
-		tar_target(
-			pseudobulk_df_scaled_abundant_tissue,
-			pseudobulk_df_tissue |> 
-				aggregate() |> 
-				map_quantile_scale_abundance() |> 
-				map_keep_abundant() ,
-			pattern = map(pseudobulk_df_tissue),
-			iteration = "group",
-			resources = tar_resources(crew = tar_resources_crew("slurm_1_80"))
-		),
+		# # Group samples
+		# tarchetypes::tar_group_by(
+		# 	pseudobulk_df_tissue, 
+		# 	pseudobulk_df, 
+		# 	tissue_harmonised, is_immune, 
+		# 	resources = tar_resources(crew = tar_resources_crew("slurm_2_400"))
+		# ),
+		# 
+		# # Add dispersion
+		# tar_target(
+		# 	pseudobulk_df_scaled_abundant_tissue,
+		# 	pseudobulk_df_tissue |> 
+		# 		aggregate() |> 
+		# 		map_quantile_scale_abundance() ,
+		# 	pattern = map(pseudobulk_df_tissue),
+		# 	resources = tar_resources(crew = tar_resources_crew("slurm_1_80"))
+		# ),
 		
 		# Make data SEX TISSUE
 		tar_target(
@@ -1449,8 +1413,7 @@ tar_script({
 				map_avoid_confounders_sex_tissue() |> 
 				map_create_formula_sex_tissue(),
 			pattern = map(pseudobulk_df_scaled_abundant_tissue),
-			iteration = "group",
-			resources = tar_resources(crew = tar_resources_crew("slurm_2_20"))
+			resources = tar_resources(crew = tar_resources_crew("slurm_2_400"))
 		),
 		
 		# Make data SEX TISSUE
@@ -1460,73 +1423,107 @@ tar_script({
 				map_avoid_confounders_ethnicity_tissue() |> 
 				map_create_formula_ethnicity_tissue(),
 			pattern = map(pseudobulk_df_scaled_abundant_tissue),
-			iteration = "group",
-			resources = tar_resources(crew = tar_resources_crew("slurm_2_20"))
+			resources = tar_resources(crew = tar_resources_crew("slurm_1_120"))
 		),
 		
 		#-----------------------#
 		# IMMUNE CELL TYPE ANALYSES
 		#-----------------------#
 		
-		# Group samples
-		tarchetypes::tar_group_by(
-			pseudobulk_df_cell_type, 
-			pseudobulk_df |> 
-				filter(is_immune == "TRUE"), 
-			cell_type_harmonised, is_immune,
-			resources = tar_resources(crew = tar_resources_crew("slurm_1_80"))
-		),
-		
-		# Add dispersion
-		tar_target(
-			pseudobulk_df_scaled_abundant_cell_type,
-			pseudobulk_df_cell_type |> 
-				aggregate_cell_type() |> 
-				map_quantile_scale_abundance() |> 
-				map_keep_abundant(),
-			pattern = map(pseudobulk_df_cell_type),
-			iteration = "group",
-			resources = tar_resources(crew = tar_resources_crew("slurm_1_40"))
-		),
-		
-		# Make data SEX TISSUE
-		tar_target(
-			pseudobulk_df_scaled_abundant_curated_formula_cell_type_sex,
-			pseudobulk_df_scaled_abundant_cell_type |> 
-				map_avoid_confounders_sex_cell_type() |> 
-				map_create_formula_sex_cell_type(),
-			pattern = map(pseudobulk_df_scaled_abundant_cell_type),
-			iteration = "group",
-			resources = tar_resources(crew = tar_resources_crew("slurm_2_20"))
-		),
-		
-		# Make data SEX TISSUE
-		tar_target(
-			pseudobulk_df_scaled_abundant_curated_formula_cell_type_ethnicity,
-			pseudobulk_df_scaled_abundant_cell_type |> 
-				map_avoid_confounders_ethnicity_cell_type() |> 
-				map_create_formula_ethnicity_cell_type(),
-			pattern = map(pseudobulk_df_scaled_abundant_cell_type),
-			iteration = "group",
-			resources = tar_resources(crew = tar_resources_crew("slurm_1_120"))
-		)
-		
+		# # Group samples
+		# tarchetypes::tar_group_by(
+		# 	pseudobulk_df_cell_type, 
+		# 	pseudobulk_df |> 
+		# 		filter(is_immune == "TRUE"), 
+		# 	cell_type_harmonised, is_immune,
+		# 	resources = tar_resources(crew = tar_resources_crew("slurm_1_80"))
+		# ),
+		# 
+		# # Add dispersion
+		# tar_target(
+		# 	pseudobulk_df_scaled_abundant_cell_type,
+		# 	pseudobulk_df_cell_type |> 
+		# 		aggregate_cell_type() |> 
+		# 		map_quantile_scale_abundance() ,
+		# 	pattern = map(pseudobulk_df_cell_type),
+		# 	resources = tar_resources(crew = tar_resources_crew("slurm_1_40"))
+		# ),
+		# 
+		# # Make data SEX CELL TYPE
+		# tar_target(
+		# 	pseudobulk_df_scaled_abundant_curated_formula_cell_type_sex,
+		# 	pseudobulk_df_scaled_abundant_cell_type |> 
+		# 		map_avoid_confounders_sex_cell_type() |> 
+		# 		map_create_formula_sex_cell_type(),
+		# 	pattern = map(pseudobulk_df_scaled_abundant_cell_type),
+		# 	resources = tar_resources(crew = tar_resources_crew("slurm_2_20"))
+		# ),
+		# 
+		# # Make data ETHINICTY CELL TYPE
+		# tar_target(
+		# 	pseudobulk_df_scaled_abundant_curated_formula_cell_type_ethnicity,
+		# 	pseudobulk_df_scaled_abundant_cell_type |> 
+		# 		map_avoid_confounders_ethnicity_cell_type() |> 
+		# 		map_create_formula_ethnicity_cell_type(),
+		# 	pattern = map(pseudobulk_df_scaled_abundant_cell_type),
+		# 	resources = tar_resources(crew = tar_resources_crew("slurm_1_120"))
+		# )
+		# ,
+		# 
+		# HPCell::factory_de_random_effect()
+		# |> 
+		#map_keep_abundant()
 	)
 	
 	
-}, ask = FALSE, script = glue("{result_directory}/_targets__pseudobulk_non_immune_split_Dec2023.R"))
+}, ask = FALSE, script = glue("{result_directory}/_targets__pseudobulk_june_2024.R"))
 
 
 
-#job::job({
-# result_directory = "/stornext/Bioinf/data/bioinf-data/Papenfuss_lab_projects/people/mangiola.s/PostDoc/immuneHealthyBodyMap/pseudobulk_0.2.3.5_non_immune"
+job::job({
+	
+	result_directory = "/vast/projects/mangiola_immune_map/pseudobulk"
+	
+	tar_make(
+		#callr_function = NULL,
+		reporter =   "verbose_positives", # "summary", # 
+		script = glue("{result_directory}/_targets__pseudobulk_june_2024.R"),
+		store = glue("{result_directory}/_targets__pseudobulk_june_2024")
+	)
+	
+})
 
-tar_make(
-	 callr_function = NULL,
-	script = glue("{result_directory}/_targets__pseudobulk_non_immune_split_Dec2023.R"),
-	store = glue("{result_directory}/_targets__pseudobulk_non_immune_split_Dec2023")
-)
 
 
 
-#  "/stornext/General/scratch/GP_Transfer/michael_targets/"
+pseudobulk = 
+	tar_read(
+				 pseudobulk_df_scaled_abundant_tissue,
+				 store = glue("{result_directory}/_targets__pseudobulk_june_2024")
+	) |> 
+	dplyr::slice(seq(2, n(), by = 2))
+
+library(tidySummarizedExperiment)
+
+genes = 
+  pseudobulk |> 
+  filter(!tissue_harmonised %in% c("testis", "lacrimal gland", "nose", "gall bladder")) |>  
+  pull(data) |> 
+  map(rownames) |> 
+  Reduce(intersect, x = _)
+
+pseudobulk = 
+  pseudobulk |> 
+  filter(!tissue_harmonised %in% c("testis", "lacrimal gland", "nose", "gall bladder")) |>  
+  mutate(data = map(data, ~ .x[genes,,drop=FALSE])) |> 
+  pull(data) |> 
+  do.call(cbind, args=_)
+
+pseudobulk |> 
+  saveHDF5SummarizedExperiment(
+    dir = result_directory |> paste0("/pseudobulk_se"), 
+    replace=TRUE, 
+    as.sparse=TRUE
+  )
+
+ #  "/stornext/General/scratch/GP_Transfer/michael_targets/"
