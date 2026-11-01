@@ -1,0 +1,824 @@
+---
+title: "Single-cell integration and QC pseudobulk generation for plasma niche analyses"
+date: today
+date-format: "DD MMM YYYY"
+title-block-banner: true
+author:
+  - name: Chen Zhan
+    orcid: 0000-0002-4794-8339
+    email: chen.zhan@adelaide.edu.au
+    affiliation:
+      - id: sgc
+        name: SAiGENCI, The University of Adelaide
+format:
+  html:
+    theme: minty
+    toc: true
+    toc-location: left
+    toc-title: "Menu"
+    code-fold: true
+    code-line-numbers: true
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+params:
+  tissue_systems: "respiratory_system,large_intestine"
+  cell_compartments: "plasma,stromal,epithelial"
+  min_cells_per_pseudobulk: 10
+  cores: 4
+  output_dir: ""
+abstract: |
+  Integrates healthy single-cell data with Seurat and Harmony for UMAP
+  visualisation, then generates separate, quality-controlled pseudobulk
+  expression objects for plasma, stromal and epithelial cells from the
+  respiratory system and large intestine. These objects are inputs for plasma
+  niche transcriptomics and pathway analyses.
+---
+
+# Purpose
+
+This report merges the shared data-preparation logic from the original
+multi-tissue plasma-niche and large-intestine reports. It performs one consistent
+workflow and writes one pseudobulk `SummarizedExperiment` for each selected
+tissue-system and cell-compartment combination. It also creates an integrated
+Seurat object and single-cell UMAPs for checking tissue, compartment and sample
+structure before aggregation.
+
+With the default parameters, the report generates one integrated Seurat object
+and six pseudobulk files:
+
+| Tissue system | Separate cell-compartment outputs |
+|---|---|
+| Respiratory system | plasma, stromal, epithelial |
+| Large intestine | plasma, stromal, epithelial |
+
+The HTML report includes single-cell Seurat UMAPs and interactive
+sample-retention and library-quality plots. The generated pseudobulk RDS files
+are the analysis inputs for **plasma niche
+transcriptomics and pathway analyses**; this report does not perform the
+downstream differential-expression or pathway modelling.
+
+# Configuration
+
+Render the default six-output workflow from the repository root:
+
+```bash
+quarto render vignettes/reports/plasma_niche_pseudobulk_qc.qmd
+```
+
+Select a subset with Quarto parameters, for example:
+
+```bash
+quarto render vignettes/reports/plasma_niche_pseudobulk_qc.qmd \
+  -P tissue_systems:respiratory_system \
+  -P cell_compartments:plasma,stromal
+```
+
+Set `CELLNEXUS_CACHE_DIR` to a writable cellNexus cache. Set
+`PLASMA_NICHE_OUTPUT_DIR` to override the default output directory
+`vignettes/data/processed/plasma_niche/`.
+
+```{r setup}
+source(file.path("..", "R", "paths.R"))
+
+Sys.setenv(IMMUNE_HEALTHY_BODY_MAP_ROOT = publication_repo_root())
+if (!nzchar(Sys.getenv("DISEASE_GROUPING_CSV", unset = ""))) {
+  Sys.setenv(
+    DISEASE_GROUPING_CSV = path_source_tables(
+      "disease_data_grouped_further.csv"
+    )
+  )
+}
+
+suppressPackageStartupMessages({
+  library(BiocParallel)
+  library(cellNexus)
+  library(edgeR)
+  library(ggplot2)
+  library(plotly)
+  library(S4Vectors)
+  library(Seurat)
+  library(SummarizedExperiment)
+  library(harmony)
+  library(scuttle)
+  library(tidyverse)
+})
+
+source(path_edit_covariates())
+
+split_parameter <- function(value) {
+  value |>
+    str_split(",", simplify = TRUE) |>
+    as.character() |>
+    str_trim() |>
+    discard(~ !nzchar(.x)) |>
+    unique()
+}
+
+tissue_system_lookup <- c(
+  respiratory_system = "respiratory system",
+  large_intestine = "large intestine"
+)
+
+feature_count_threshold <- c(
+  respiratory_system = 8000L,
+  large_intestine = 5000L
+)
+
+valid_compartments <- c("plasma", "stromal", "epithelial")
+selected_systems <- split_parameter(params$tissue_systems)
+selected_compartments <- split_parameter(params$cell_compartments)
+
+unknown_systems <- setdiff(selected_systems, names(tissue_system_lookup))
+unknown_compartments <- setdiff(selected_compartments, valid_compartments)
+if (length(unknown_systems)) {
+  stop("Unknown tissue_systems value(s): ", paste(unknown_systems, collapse = ", "))
+}
+if (length(unknown_compartments)) {
+  stop(
+    "Unknown cell_compartments value(s): ",
+    paste(unknown_compartments, collapse = ", ")
+  )
+}
+
+cores <- max(1L, as.integer(params$cores))
+min_cells <- max(1L, as.integer(params$min_cells_per_pseudobulk))
+
+output_dir <- params$output_dir
+if (!nzchar(output_dir)) {
+  output_dir <- Sys.getenv(
+    "PLASMA_NICHE_OUTPUT_DIR",
+    unset = path_processed("plasma_niche")
+  )
+}
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+output_dir <- normalizePath(output_dir, winslash = "/", mustWork = TRUE)
+
+cellnexus_cache <- Sys.getenv(
+  "CELLNEXUS_CACHE_DIR",
+  unset = path_processed("cellNexus_cache")
+)
+dir.create(cellnexus_cache, recursive = TRUE, showWarnings = FALSE)
+
+bpparam <- if (cores > 1L) {
+  BiocParallel::MulticoreParam(cores)
+} else {
+  BiocParallel::SerialParam()
+}
+
+tibble(
+  setting = c(
+    "Tissue systems",
+    "Cell compartments",
+    "Minimum contributing cells",
+    "Workers",
+    "Output directory",
+    "cellNexus cache"
+  ),
+  value = c(
+    paste(selected_systems, collapse = ", "),
+    paste(selected_compartments, collapse = ", "),
+    min_cells,
+    cores,
+    output_dir,
+    cellnexus_cache
+  )
+) |>
+  knitr::kable()
+```
+
+# Select healthy single-cell data
+
+The two legacy reports used the same metadata filters and different
+feature-count thresholds. This merged report retains the original threshold for
+each tissue system: 8,000 detected features for respiratory tissues and 5,000
+for large-intestine tissues.
+
+```{r load-and-filter-metadata}
+metadata_selected <- get_publication_metadata() |>
+  filter(
+    disease == "normal",
+    empty_droplet %in% FALSE,
+    alive %in% TRUE,
+    scDblFinder.class != "doublet",
+    !is.na(feature_count)
+  ) |>
+  edit_covariates() |>
+  filter(tissue_groups %in% unname(tissue_system_lookup[selected_systems])) |>
+  mutate(
+    tissue_system = names(tissue_system_lookup)[
+      match(tissue_groups, unname(tissue_system_lookup))
+    ],
+    min_feature_count = unname(feature_count_threshold[tissue_system])
+  ) |>
+  filter(feature_count >= min_feature_count)
+
+if (!nrow(metadata_selected)) {
+  stop("No metadata rows remain after tissue and cell-level QC filters.")
+}
+
+count_samples <- function(data, step, step_label) {
+  data |>
+    filter(cell_type_unified_ensemble %in% selected_compartments) |>
+    distinct(tissue_system, cell_type_unified_ensemble, sample_id) |>
+    count(
+      tissue_system,
+      cell_compartment = cell_type_unified_ensemble,
+      name = "n_samples"
+    ) |>
+    complete(
+      tissue_system = selected_systems,
+      cell_compartment = selected_compartments,
+      fill = list(n_samples = 0L)
+    ) |>
+    mutate(step = step, step_label = step_label, .before = 1)
+}
+
+sample_tracking <- list(
+  count_samples(
+    metadata_selected,
+    "1_selected_metadata",
+    "1. Selected metadata"
+  )
+)
+
+metadata_selected |>
+  distinct(tissue_system, tissue_groups, tissue) |>
+  count(tissue_system, tissue_groups, name = "n_tissues") |>
+  knitr::kable(caption = "Selected tissue annotations")
+```
+
+# Dataset-diversity QC
+
+Following the intent of the source reports, collections represented by only one
+immune-cell annotation within a selected tissue system are removed. Such
+collections have zero immune-composition entropy and are likely to have been
+experimentally enriched or depleted in a way that makes them unsuitable for
+plasma-niche comparisons.
+
+```{r dataset-diversity-qc}
+dataset_entropy <- metadata_selected |>
+  filter(is_immune) |>
+  count(
+    collection_id,
+    dataset_id,
+    tissue_system,
+    cell_type_unified_ensemble,
+    name = "n_cells"
+  ) |>
+  group_by(collection_id, dataset_id, tissue_system) |>
+  mutate(
+    proportion = n_cells / sum(n_cells),
+    entropy = -sum(proportion * log(proportion))
+  ) |>
+  summarise(
+    n_immune_annotations = n_distinct(cell_type_unified_ensemble),
+    n_immune_cells = sum(n_cells),
+    entropy = first(entropy),
+    .groups = "drop"
+  )
+
+low_diversity_collections <- dataset_entropy |>
+  filter(n_immune_annotations < 2L | entropy <= sqrt(.Machine$double.eps)) |>
+  distinct(collection_id) |>
+  pull(collection_id)
+
+metadata_qc <- metadata_selected |>
+  filter(!collection_id %in% low_diversity_collections)
+
+sample_tracking[[2]] <- count_samples(
+  metadata_qc,
+  "2_dataset_diversity_qc",
+  "2. Dataset-diversity QC"
+)
+
+dataset_entropy |>
+  arrange(tissue_system, entropy) |>
+  knitr::kable(
+    caption = "Immune-composition entropy by dataset before diversity QC",
+    digits = 3
+  )
+```
+
+# Plasma proportion and target compartments
+
+Plasma abundance is calculated against all QC-passing cells from the same sample
+before retaining plasma, stromal and epithelial cells. It is stored as a sample
+covariate in every resulting pseudobulk object for downstream niche analyses.
+
+```{r prepare-target-metadata}
+sample_composition <- metadata_qc |>
+  count(sample_id, tissue_system, name = "total_n") |>
+  left_join(
+    metadata_qc |>
+      filter(cell_type_unified_ensemble == "plasma") |>
+      count(sample_id, tissue_system, name = "plasma_n"),
+    by = c("sample_id", "tissue_system")
+  ) |>
+  mutate(
+    plasma_n = replace_na(plasma_n, 0L),
+    prop_plasma_observed = plasma_n / total_n,
+    prop_plasma_observed_arcsin_sqrt = asin(sqrt(prop_plasma_observed))
+  )
+
+target_metadata <- metadata_qc |>
+  filter(cell_type_unified_ensemble %in% selected_compartments) |>
+  left_join(sample_composition, by = c("sample_id", "tissue_system"))
+
+if (!nrow(target_metadata)) {
+  stop("No plasma, stromal or epithelial cells remain after metadata QC.")
+}
+
+target_metadata |>
+  distinct(tissue_system, cell_type_unified_ensemble, sample_id) |>
+  count(tissue_system, cell_type_unified_ensemble, name = "n_samples") |>
+  knitr::kable(caption = "Samples available before single-cell retrieval")
+```
+
+# Retrieve single cells
+
+```{r retrieve-single-cells}
+sce <- cellNexus::get_single_cell_experiment(
+  target_metadata,
+  cache_directory = cellnexus_cache
+)
+
+sce_metadata <- as.data.frame(SummarizedExperiment::colData(sce))
+required_columns <- c(
+  "sample_id",
+  "cell_type_unified_ensemble",
+  "dataset_id",
+  "tissue_groups",
+  "tissue",
+  "tissue_system",
+  "prop_plasma_observed",
+  "prop_plasma_observed_arcsin_sqrt"
+)
+missing_columns <- setdiff(required_columns, names(sce_metadata))
+if (length(missing_columns)) {
+  stop(
+    "Retrieved single-cell metadata is missing: ",
+    paste(missing_columns, collapse = ", ")
+  )
+}
+
+sample_tracking[[3]] <- count_samples(
+  sce_metadata,
+  "3_cells_retrieved",
+  "3. Cells retrieved"
+)
+```
+
+# Seurat integration and single-cell UMAP
+
+The selected cells are normalized in Seurat, represented by 3,000 variable
+features and 30 principal components, and integrated across `sample_id` with
+Harmony. If only one sample is selected, the report uses the PCA representation
+directly. The integrated object is saved alongside the pseudobulk outputs.
+
+```{r integrate-single-cells}
+if (ncol(sce) < 3L) {
+  stop("At least three cells are required for Seurat integration and UMAP.")
+}
+
+counts_assay <- if ("counts" %in% SummarizedExperiment::assayNames(sce)) {
+  "counts"
+} else {
+  SummarizedExperiment::assayNames(sce)[1]
+}
+
+seurat_metadata <- sce_metadata |>
+  mutate(across(where(is.factor), as.character))
+rownames(seurat_metadata) <- colnames(sce)
+
+seurat_object <- Seurat::CreateSeuratObject(
+  counts = SummarizedExperiment::assay(sce, counts_assay),
+  meta.data = seurat_metadata,
+  project = "plasma_niche"
+) |>
+  Seurat::NormalizeData(verbose = FALSE) |>
+  Seurat::FindVariableFeatures(
+    nfeatures = min(3000L, nrow(sce)),
+    verbose = FALSE
+  )
+
+variable_features <- Seurat::VariableFeatures(seurat_object)
+n_pcs <- min(30L, length(variable_features) - 1L, ncol(seurat_object) - 1L)
+if (n_pcs < 2L) {
+  stop("At least three variable features are required for PCA.")
+}
+
+seurat_object <- seurat_object |>
+  Seurat::ScaleData(features = variable_features, verbose = FALSE) |>
+  Seurat::RunPCA(
+    features = variable_features,
+    npcs = n_pcs,
+    verbose = FALSE
+  )
+
+if (dplyr::n_distinct(seurat_object$sample_id) > 1L) {
+  seurat_object <- harmony::RunHarmony(
+    seurat_object,
+    group.by.vars = "sample_id",
+    reduction.use = "pca",
+    dims.use = seq_len(n_pcs),
+    reduction.save = "harmony",
+    verbose = FALSE
+  )
+  integration_reduction <- "harmony"
+} else {
+  integration_reduction <- "pca"
+}
+
+seurat_object <- Seurat::RunUMAP(
+  seurat_object,
+  reduction = integration_reduction,
+  dims = seq_len(n_pcs),
+  reduction.name = "umap.integrated",
+  n.neighbors = min(50L, ncol(seurat_object) - 1L),
+  min.dist = 0.3,
+  verbose = FALSE
+)
+
+saveRDS(
+  seurat_object,
+  file.path(output_dir, "plasma_niche_single_cell_seurat_integrated.rds")
+)
+```
+
+```{r seurat-pca-elbow}
+Seurat::ElbowPlot(seurat_object, ndims = n_pcs) +
+  labs(title = "Principal components used for single-cell integration")
+```
+
+```{r seurat-umap-compartment}
+Seurat::DimPlot(
+  seurat_object,
+  reduction = "umap.integrated",
+  group.by = "cell_type_unified_ensemble",
+  split.by = "tissue_system",
+  raster = TRUE,
+  pt.size = 0.1
+) +
+  labs(title = "Integrated single-cell UMAP by compartment and tissue system")
+```
+
+```{r seurat-umap-tissue}
+Seurat::DimPlot(
+  seurat_object,
+  reduction = "umap.integrated",
+  group.by = "tissue",
+  raster = TRUE,
+  pt.size = 0.1
+) +
+  labs(title = "Integrated single-cell UMAP by tissue")
+```
+
+```{r seurat-umap-sample}
+Seurat::DimPlot(
+  seurat_object,
+  reduction = "umap.integrated",
+  group.by = "sample_id",
+  raster = TRUE,
+  pt.size = 0.1
+) +
+  Seurat::NoLegend() +
+  labs(title = "Integrated single-cell UMAP by sample")
+```
+
+# Aggregate pseudobulk
+
+```{r aggregate-pseudobulk}
+aggregate_ids <- S4Vectors::DataFrame(
+  sample_id = as.character(sce_metadata$sample_id),
+  cell_compartment = as.character(sce_metadata$cell_type_unified_ensemble)
+)
+
+pseudobulk_all <- scuttle::aggregateAcrossCells(
+  sce,
+  ids = aggregate_ids,
+  statistics = "sum",
+  BPPARAM = bpparam
+)
+
+lookup_columns <- unique(c(
+  required_columns,
+  "age_bin",
+  "age_decade",
+  "age_years",
+  "age_days_scaled",
+  "sex",
+  "ethnicity_groups",
+  "assay_groups",
+  "disease_groups",
+  "total_n",
+  "plasma_n",
+  "prop_plasma_observed",
+  "prop_plasma_observed_arcsin_sqrt"
+))
+
+sample_lookup <- sce_metadata |>
+  select(any_of(lookup_columns)) |>
+  rename(cell_compartment = cell_type_unified_ensemble) |>
+  distinct(sample_id, cell_compartment, .keep_all = TRUE)
+
+pseudobulk_metadata <- as.data.frame(SummarizedExperiment::colData(pseudobulk_all))
+pseudobulk_key <- paste(
+  pseudobulk_metadata$sample_id,
+  pseudobulk_metadata$cell_compartment,
+  sep = "___"
+)
+lookup_key <- paste(
+  sample_lookup$sample_id,
+  sample_lookup$cell_compartment,
+  sep = "___"
+)
+lookup_index <- match(pseudobulk_key, lookup_key)
+if (anyNA(lookup_index)) {
+  stop("Could not match all pseudobulk columns back to sample metadata.")
+}
+
+for (column in setdiff(names(sample_lookup), names(pseudobulk_metadata))) {
+  SummarizedExperiment::colData(pseudobulk_all)[[column]] <-
+    sample_lookup[[column]][lookup_index]
+}
+
+pseudobulk_metadata <- as.data.frame(
+  SummarizedExperiment::colData(pseudobulk_all)
+)
+pseudobulk_metadata$cell_type_unified_ensemble <-
+  pseudobulk_metadata$cell_compartment
+SummarizedExperiment::colData(pseudobulk_all) <-
+  S4Vectors::DataFrame(pseudobulk_metadata, row.names = colnames(pseudobulk_all))
+
+sample_tracking[[4]] <- count_samples(
+  pseudobulk_metadata,
+  "4_pseudobulk_aggregated",
+  "4. Pseudobulk aggregated"
+)
+```
+
+# Separate QC and export
+
+Each tissue-system and cell-compartment combination is filtered and normalized
+independently. Pseudobulks require more than the configured minimum number of
+contributing cells, low-abundance genes are removed with `edgeR::filterByExpr()`,
+and TMMwsp normalization factors and log offsets are stored in `colData()`.
+
+```{r qc-and-export}
+combinations <- tidyr::expand_grid(
+  tissue_system = selected_systems,
+  cell_compartment = selected_compartments
+)
+
+counts_assay <- if ("counts" %in% SummarizedExperiment::assayNames(pseudobulk_all)) {
+  "counts"
+} else {
+  SummarizedExperiment::assayNames(pseudobulk_all)[[1]]
+}
+
+output_summary_rows <- list()
+sample_qc_rows <- list()
+minimum_cell_tracking <- list()
+
+for (index in seq_len(nrow(combinations))) {
+  tissue_system <- combinations$tissue_system[[index]]
+  cell_compartment <- combinations$cell_compartment[[index]]
+  column_metadata <- as.data.frame(SummarizedExperiment::colData(pseudobulk_all))
+  selected_columns <-
+    column_metadata$tissue_system == tissue_system &
+    column_metadata$cell_compartment == cell_compartment
+
+  pseudobulk <- pseudobulk_all[, selected_columns, drop = FALSE]
+  genes_before <- nrow(pseudobulk)
+  samples_before <- ncol(pseudobulk)
+
+  if (ncol(pseudobulk)) {
+    keep_columns <- SummarizedExperiment::colData(pseudobulk)$ncells > min_cells
+    pseudobulk <- pseudobulk[, keep_columns, drop = FALSE]
+  }
+
+  minimum_cell_tracking[[index]] <- tibble(
+    step = "5_minimum_cell_qc",
+    step_label = paste0("5. More than ", min_cells, " contributing cells"),
+    tissue_system = tissue_system,
+    cell_compartment = cell_compartment,
+    n_samples = ncol(pseudobulk)
+  )
+
+  output_file <- file.path(
+    output_dir,
+    paste0("pseudobulk_qc_", tissue_system, "_", cell_compartment, ".rds")
+  )
+
+  if (ncol(pseudobulk) < 2L) {
+    output_summary_rows[[index]] <- tibble(
+      tissue_system = tissue_system,
+      cell_compartment = cell_compartment,
+      samples_before_qc = samples_before,
+      samples_after_qc = ncol(pseudobulk),
+      genes_before_qc = genes_before,
+      genes_after_qc = NA_integer_,
+      status = "skipped: fewer than two pseudobulks",
+      output_file = NA_character_
+    )
+    next
+  }
+
+  counts_matrix <- as.matrix(
+    SummarizedExperiment::assay(pseudobulk, counts_assay)
+  )
+  keep_genes <- edgeR::filterByExpr(counts_matrix)
+  if (!any(keep_genes)) {
+    output_summary_rows[[index]] <- tibble(
+      tissue_system = tissue_system,
+      cell_compartment = cell_compartment,
+      samples_before_qc = samples_before,
+      samples_after_qc = ncol(pseudobulk),
+      genes_before_qc = genes_before,
+      genes_after_qc = 0L,
+      status = "skipped: no genes passed expression QC",
+      output_file = NA_character_
+    )
+    next
+  }
+
+  pseudobulk <- pseudobulk[keep_genes, , drop = FALSE]
+  filtered_counts <- counts_matrix[keep_genes, , drop = FALSE]
+  dge <- edgeR::DGEList(counts = filtered_counts)
+  dge <- edgeR::calcNormFactors(dge, method = "TMMwsp")
+  effective_library_size <- with(
+    dge$samples,
+    lib.size * norm.factors
+  )
+
+  SummarizedExperiment::colData(pseudobulk)$library_size <-
+    dge$samples$lib.size
+  SummarizedExperiment::colData(pseudobulk)$normalization_factor <-
+    dge$samples$norm.factors
+  SummarizedExperiment::colData(pseudobulk)$offset <-
+    log(pmax(effective_library_size, 1))
+
+  sample_metadata <- as.data.frame(SummarizedExperiment::colData(pseudobulk))
+  sample_qc_rows[[index]] <- tibble(
+    tissue_system = tissue_system,
+    cell_compartment = cell_compartment,
+    sample_id = sample_metadata$sample_id,
+    dataset_id = sample_metadata$dataset_id,
+    contributing_cells = sample_metadata$ncells,
+    library_size = dge$samples$lib.size,
+    normalization_factor = dge$samples$norm.factors,
+    effective_library_size = effective_library_size,
+    zero_fraction = colMeans(filtered_counts == 0)
+  )
+
+  saveRDS(pseudobulk, output_file)
+  output_summary_rows[[index]] <- tibble(
+    tissue_system = tissue_system,
+    cell_compartment = cell_compartment,
+    samples_before_qc = samples_before,
+    samples_after_qc = ncol(pseudobulk),
+    genes_before_qc = genes_before,
+    genes_after_qc = nrow(pseudobulk),
+    status = "written",
+    output_file = output_file
+  )
+}
+
+sample_tracking <- bind_rows(
+  bind_rows(sample_tracking),
+  bind_rows(minimum_cell_tracking)
+)
+output_summary <- bind_rows(output_summary_rows)
+sample_qc <- bind_rows(sample_qc_rows)
+
+readr::write_csv(
+  sample_tracking,
+  file.path(output_dir, "pseudobulk_qc_stage_summary.csv")
+)
+readr::write_csv(
+  dataset_entropy,
+  file.path(output_dir, "pseudobulk_qc_dataset_entropy.csv")
+)
+readr::write_csv(
+  output_summary,
+  file.path(output_dir, "pseudobulk_qc_output_summary.csv")
+)
+if (nrow(sample_qc)) {
+  readr::write_csv(
+    sample_qc,
+    file.path(output_dir, "pseudobulk_qc_sample_summary.csv")
+  )
+}
+
+output_summary |>
+  knitr::kable(caption = "Generated pseudobulk objects")
+```
+
+# Interactive QC
+
+## Sample retention
+
+```{r interactive-sample-retention}
+sample_tracking <- sample_tracking |>
+  mutate(
+    step_number = as.integer(str_extract(step, "^[0-9]+")),
+    step_label = factor(
+      step_label,
+      levels = unique(step_label[order(step_number)])
+    )
+  )
+
+sample_retention_plot <- sample_tracking |>
+  ggplot(
+    aes(
+      x = step_label,
+      y = n_samples,
+      colour = cell_compartment,
+      group = cell_compartment,
+      text = paste0(
+        "Tissue system: ", tissue_system,
+        "<br>Compartment: ", cell_compartment,
+        "<br>QC step: ", step_label,
+        "<br>Samples: ", n_samples
+      )
+    )
+  ) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2.5) +
+  facet_wrap(~ tissue_system, scales = "free_y") +
+  labs(
+    title = "Pseudobulk sample retention across QC",
+    x = NULL,
+    y = "Number of samples",
+    colour = "Cell compartment"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 35, hjust = 1))
+
+plotly::ggplotly(sample_retention_plot, tooltip = "text")
+```
+
+## Library size and sparsity
+
+```{r interactive-library-qc}
+if (nrow(sample_qc)) {
+  library_qc_plot <- sample_qc |>
+    ggplot(
+      aes(
+        x = effective_library_size,
+        y = zero_fraction,
+        colour = cell_compartment,
+        text = paste0(
+          "Sample: ", sample_id,
+          "<br>Dataset: ", dataset_id,
+          "<br>Tissue system: ", tissue_system,
+          "<br>Compartment: ", cell_compartment,
+          "<br>Contributing cells: ", contributing_cells,
+          "<br>Effective library size: ",
+          scales::comma(round(effective_library_size)),
+          "<br>Zero fraction: ", scales::percent(zero_fraction, accuracy = 0.1)
+        )
+      )
+    ) +
+    geom_point(alpha = 0.75, size = 2) +
+    scale_x_log10(labels = scales::label_comma()) +
+    scale_y_continuous(labels = scales::label_percent()) +
+    facet_wrap(~ tissue_system) +
+    labs(
+      title = "Library size and sparsity after QC",
+      x = "Effective library size (log scale)",
+      y = "Zero-expression fraction",
+      colour = "Cell compartment"
+    ) +
+    theme_minimal(base_size = 12)
+
+  plotly::ggplotly(library_qc_plot, tooltip = "text")
+} else {
+  cat("No tissue-system/cell-compartment combination produced an output.")
+}
+```
+
+# Output files
+
+The integrated Seurat RDS contains normalized expression, PCA, Harmony and UMAP
+representations. The six pseudobulk RDS files contain raw counts after sample
+and gene QC. TMMwsp normalization factors and log effective-library-size offsets
+are stored in `colData()`; counts are not log-transformed. The accompanying CSV
+files provide the complete QC audit trail.
+
+```{r output-files}
+list.files(output_dir, full.names = TRUE) |>
+  file.info() |>
+  rownames_to_column("file") |>
+  select(file, size, mtime) |>
+  arrange(file) |>
+  knitr::kable(caption = "Plasma-niche input files")
+```
+
+# Session information
+
+```{r session-information}
+sessionInfo()
+```
